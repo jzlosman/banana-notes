@@ -215,7 +215,7 @@ Install by copying `build/Banana Notes.app` into `~/Applications`. Open **Banana
 
 The pad is a borderless card: no app title or traffic-light buttons. Notebook controls sit at the top left, with pin, explorer, new-note and `<>` source controls on the top right. Tags sit just underneath. Drag the empty space between the left and right controls to move it. Escape, Command–W, the hotkey or the menu bar can hide it.
 
-The pin keeps the floating panel visible while switching apps. Otherwise it hides when focus leaves. The footer and formatting strip appear only while the notepad window is focused; the writing area expands when they disappear.
+The pin keeps the floating panel visible while switching apps. Otherwise it hides when focus leaves. A 500 ms grace period ignores brief macOS focus interruptions before dimming, hiding bottom controls, or auto-hiding an unpinned note. Returning focus cancels the pending change immediately. Window opacity transitions use a 200 ms fade (disabled with macOS Reduce Motion). The footer and formatting strip appear only while the notepad window is focused; the writing area expands when they disappear.
 
 <a id="deep-links"></a>Deep links: `banananotes://show`, `banananotes://new`, `banananotes://explorer`, `banananotes://tag/work`, `banananotes://themes`. Existing `foldnote://` links remain supported.
 

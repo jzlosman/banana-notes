@@ -7,8 +7,12 @@ const models = [
   { name: 'all-minilm:22m', disclosure: '22M parameters · approximately 46 MB' },
   { name: 'embeddinggemma:latest', disclosure: '300M parameters · approximately 622 MB' },
 ];
+const providers = [
+  { id: 'apple' as const, name: 'On-device (macOS)', disclosure: 'Local English sentence embeddings provided by macOS.', available: true },
+  { id: 'ollama' as const, name: 'Ollama', disclosure: 'Requires the separate Ollama app.', available: true },
+];
 const base: SemanticStatus = {
-  enabled: false, model: 'all-minilm:22m', models, installed: false, runtimeAvailable: false,
+  enabled: false, provider: 'apple', providers, unavailableReason: null, model: 'all-minilm:22m', models, installed: true, runtimeAvailable: true,
   indexedNotes: 0, progress: '', actionableState: 'disabled',
 };
 
@@ -22,113 +26,157 @@ function withDocument(run: (dom: JSDOM) => Promise<void>) {
   };
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+const choose = (root: HTMLElement, role: string, dom: JSDOM) => { const input = root.querySelector<HTMLInputElement>(`[data-role="${role}"]`)!; input.checked = true; input.dispatchEvent(new dom.window.Event('change')); return input; };
 
-test('semantic query adapter passes candidate scope and validates native hit shape', async () => {
+test('semantic query adapter scopes candidates and rejects malformed/non-finite hit scores', async () => {
   let received: { action: string; payload?: Record<string, unknown> } | undefined;
   const invoke: SemanticInvoke = async (action, payload) => { received = { action, payload }; return { hits: [{ id: 'n1', score: 0.9, snippet: 'A useful note' }] }; };
   assert.deepEqual(await semanticSearch(invoke, 'something useful', ['n1']), [{ id: 'n1', score: 0.9, snippet: 'A useful note' }]);
   assert.equal(received?.action, 'semanticSearch');
   assert.deepEqual(received?.payload, { query: 'something useful', candidateIDs: ['n1'] });
   await assert.rejects(semanticSearch(async () => ({ hits: [{ id: 'bad' }] }), 'x', []), /invalid hit/);
+  await assert.rejects(semanticSearch(async () => ({ hits: [{ id: 'bad', score: Infinity, snippet: 'x' }] }), 'x', []), /invalid hit/);
 });
 
-test('settings reveal only the current setup step and require explicit actions', withDocument(async dom => {
+test('native radio selection persists Apple, Ollama, and Disabled without opening-time effects', withDocument(async dom => {
   let state: SemanticStatus = { ...base };
   const calls: { action: string; payload?: Record<string, unknown> }[] = [];
   const invoke: SemanticInvoke = async (action, payload) => {
     calls.push({ action, payload });
     if (action === 'semanticStatus') return state as unknown as Record<string, unknown>;
-    if (action === 'semanticEnable') state = { ...state, enabled: payload?.enabled as boolean, model: payload?.model as string ?? state.model };
+    if (action === 'semanticEnable') { state = { ...state, enabled: payload?.enabled as boolean, provider: payload?.provider as 'apple' | 'ollama' }; return state as unknown as Record<string, unknown>; }
+    return state as unknown as Record<string, unknown>;
+  };
+  const root = renderSemanticSettings({ invoke, getNotes: () => [] }); dom.window.document.body.append(root); await tick();
+  assert.equal(root.querySelector<HTMLInputElement>('[data-role="disabled"]')!.checked, true);
+  assert.equal(root.querySelector('[data-role="providers"]')!.tagName, 'FIELDSET');
+  assert.equal(root.querySelectorAll('input[type=radio]').length, 3);
+  assert.equal(root.querySelector('[data-role="flow"]')!.hasAttribute('hidden'), true);
+  assert.equal(calls.filter(({ action }) => action !== 'semanticStatus').length, 0);
+  assert.equal(root.querySelector<HTMLElement>('[data-role="status"]')!.hidden, true, 'successful status clears the loading message');
+  assert.equal(root.querySelector('[data-role="off-model"]'), null, 'Disabled does not expose unused model setup');
+  choose(root, 'apple', dom); await tick();
+  assert.deepEqual([...calls].reverse().find(({ action }) => action === 'semanticEnable')?.payload, { enabled: true, provider: 'apple' });
+  assert.equal(root.querySelector('[data-role="flow"]')!.hasAttribute('hidden'), false);
+  assert.equal(root.querySelector('[data-role="runtime-body"]')!.hasAttribute('hidden'), true);
+  assert.equal(root.querySelector('[data-role="index-body"]')!.hasAttribute('hidden'), false);
+  choose(root, 'disabled', dom); await tick();
+  assert.equal(root.querySelector<HTMLInputElement>('[data-role="disabled"]')!.checked, true);
+  assert.deepEqual([...calls].reverse().find(({ action }) => action === 'semanticEnable')?.payload, { enabled: false, provider: 'apple' });
+  choose(root, 'ollama', dom); await tick();
+  assert.deepEqual([...calls].reverse().find(({ action }) => action === 'semanticEnable')?.payload, { enabled: true, provider: 'ollama' });
+  assert.equal(root.querySelector('[data-role="flow"]')!.hasAttribute('hidden'), false);
+}));
+
+test('unavailable native provider is disclosed; malformed provider contract is not rendered as ready', withDocument(async () => {
+  const unavailable = { ...base, enabled: true, provider: 'apple' as const, providers: providers.map(p => p.id === 'apple' ? { ...p, available: false } : p), unavailableReason: 'macOS embedding asset is unavailable.' };
+  const root = renderSemanticSettings({ invoke: async () => unavailable as unknown as Record<string, unknown>, getNotes: () => [] }); await tick();
+  assert.match(root.querySelector('[data-role="availability"]')!.textContent!, /asset is unavailable/);
+  assert.equal(root.querySelector<HTMLInputElement>('[data-role="apple"]')!.disabled, true);
+  const malformed = renderSemanticSettings({ invoke: async () => ({ ...base, providers: undefined }), getNotes: () => [] }); await tick();
+  assert.match(malformed.querySelector('[data-role="status"]')!.textContent!, /malformed/);
+  assert.equal(malformed.querySelector('[data-role="flow"]')!.hasAttribute('hidden'), true);
+}));
+
+test('Ollama onboarding presents explicit runtime, download, and index steps with real download link', withDocument(async dom => {
+  let state: SemanticStatus = { ...base, enabled: true, provider: 'ollama', runtimeAvailable: false, installed: false };
+  const calls: { action: string; payload?: Record<string, unknown> }[] = [];
+  const invoke: SemanticInvoke = async (action, payload) => {
+    calls.push({ action, payload });
+    if (action === 'semanticStatus') return state as unknown as Record<string, unknown>;
     if (action === 'semanticStartRuntime') state = { ...state, runtimeAvailable: true };
     if (action === 'semanticDownload') state = { ...state, installed: true };
-    if (action === 'semanticIndex') state = { ...state, indexedNotes: (payload?.notes as unknown[]).length };
     return state as unknown as Record<string, unknown>;
   };
   const notes = [
     { id: 'live', markdown: 'preserved **markdown**', updatedAt: '2026-01-01T00:00:00Z' },
     { id: 'trash', markdown: 'excluded', updatedAt: '2026-01-01T00:00:00Z', trashedAt: '2026-02-01T00:00:00Z' },
   ];
-  let refresh!: () => Promise<void>;
-  const root = renderSemanticSettings({ invoke, getNotes: () => notes, registerRefresh: value => { refresh = value; } }); dom.window.document.body.append(root); await tick();
-  assert.match(root.textContent!, /Semantic search/);
-  assert.equal(root.querySelector('[data-role="flow"]')!.hasAttribute('hidden'), true);
-  assert.equal(root.querySelector('[data-role="off-model"] details')!.hasAttribute('open'), false);
-  assert.equal(calls.filter(({ action }) => action !== 'semanticStatus').length, 0, 'opening never enables, starts, downloads, or indexes');
-  (root.querySelector('[data-role="enabled"]') as HTMLInputElement).checked = true;
-  root.querySelector('[data-role="enabled"]')!.dispatchEvent(new dom.window.Event('change')); await tick();
+  const root = renderSemanticSettings({ invoke, getNotes: () => notes }); dom.window.document.body.append(root); await tick();
   assert.equal(root.querySelector('[data-role="runtime-body"]')!.hasAttribute('hidden'), false);
-  assert.equal(root.querySelector('[data-role="model-body"]')!.hasAttribute('hidden'), true);
-  assert.match(root.textContent!, /Ollama must be installed separately/);
-  assert.equal(root.querySelectorAll('[data-action="start"]').length, 1);
+  const link = root.querySelector<HTMLAnchorElement>('.semantic-get-ollama')!;
+  assert.equal(link.href, 'https://ollama.com/download'); assert.equal(link.target, '_blank'); assert.equal(link.rel, 'noopener noreferrer');
+  assert.match(root.textContent!, /started again after reboot/); assert.match(root.textContent!, /46 MB or 622 MB/);
+  assert.equal(calls.filter(({ action }) => !['semanticStatus'].includes(action)).length, 0, 'no start or download until explicit button activation');
   (root.querySelector('[data-action="start"]') as HTMLButtonElement).click(); await tick();
   assert.equal(root.querySelector('[data-role="model-body"]')!.hasAttribute('hidden'), false);
-  assert.equal(root.querySelector('[data-role="index-body"]')!.hasAttribute('hidden'), true);
   assert.match(root.querySelector('[data-role="disclosure"]')!.textContent!, /46 MB/);
   (root.querySelector('[data-action="download"]') as HTMLButtonElement).click(); await tick();
   assert.equal(root.querySelector('[data-role="index-body"]')!.hasAttribute('hidden'), false);
-  assert.equal(root.querySelector('[data-action="index"]')!.hasAttribute('hidden'), true, 'normal setup does not require a manual build');
-  state = { ...state, indexedNotes: 1 }; await refresh();
+  assert.equal(root.querySelector('[data-action="index"]')!.hasAttribute('hidden'), true, 'normal automatic indexing has no redundant manual build');
+  state = { ...state, indexedNotes: 1 };
   (root.querySelector('[data-role="manage"]') as HTMLDetailsElement).open = true;
   (root.querySelector('[data-action="rebuild"]') as HTMLButtonElement).click(); await tick();
   const snapshot = calls.find(({ action }) => action === 'semanticIndex')?.payload?.notes as { id: string; markdown: string }[];
-  assert.deepEqual(snapshot.map(note => note.id), ['live']);
-  assert.equal(snapshot[0].markdown, 'preserved **markdown**');
+  assert.deepEqual(snapshot.map(note => note.id), ['live']); assert.equal(snapshot[0].markdown, 'preserved **markdown**');
   assert.match(root.querySelector('[data-role="index-status"]')!.textContent!, /1 note indexed/);
-  assert.equal(root.querySelector('[data-action="index"]')!.hasAttribute('hidden'), true, 'ready state has no prominent rebuild action');
-  assert.equal(root.querySelector('[data-role="manage"]')!.hasAttribute('hidden'), false);
   assert.equal(root.querySelector('[data-role="manage"] summary')!.textContent, 'Manage index');
 }));
 
-test('late status responses cannot overwrite a newer settings action', withDocument(async dom => {
-  let release!: (value: Record<string, unknown>) => void;
-  const delayed = new Promise<Record<string, unknown>>(resolve => { release = resolve; });
-  let first = true;
-  const invoke: SemanticInvoke = async action => {
-    if (action === 'semanticStatus' && first) { first = false; return delayed; }
-    return { ...base, enabled: action === 'semanticEnable' };
-  };
-  const root = renderSemanticSettings({ invoke, getNotes: () => [] });
-  (root.querySelector('[data-role="enabled"]') as HTMLInputElement).checked = true;
-  root.querySelector('[data-role="enabled"]')!.dispatchEvent(new dom.window.Event('change')); await tick();
-  release({ ...base, enabled: false }); await tick();
-  assert.equal((root.querySelector('[data-role="enabled"]') as HTMLInputElement).checked, true);
+test('native Apple hides Ollama controls while retaining index management', withDocument(async () => {
+  const state: SemanticStatus = { ...base, enabled: true, provider: 'apple', model: 'apple:nl-english:revision-1', indexedNotes: 3, actionableState: 'ready' };
+  const root = renderSemanticSettings({ invoke: async () => state as unknown as Record<string, unknown>, getNotes: () => [] }); await tick();
+  assert.equal(root.querySelector('[data-action="start"]')!.hasAttribute('hidden'), true);
+  assert.equal(root.querySelector('.semantic-get-ollama')!.parentElement!.hasAttribute('hidden'), true);
+  assert.equal(root.querySelector('[data-role="runtime-step"]')!.hasAttribute('hidden'), true);
+  assert.equal(root.querySelector('[data-role="manage"]')!.hasAttribute('hidden'), false);
+  assert.equal(root.querySelector('[data-role="ready-model"]')!.closest('label')!.hasAttribute('hidden'), true, 'Apple index management cannot silently select an Ollama model');
+  assert.equal(root.querySelector('[data-role="ready-disclosure"]')!.hasAttribute('hidden'), true);
+  assert.match(root.querySelector('[data-role="index-status"]')!.textContent!, /3 notes indexed/);
 }));
 
-test('busy actions lock setup controls, expose only cancellation, and report failures', withDocument(async dom => {
-  let rejectAction!: (error: Error) => void;
-  let state = { ...base, enabled: true, runtimeAvailable: true, installed: true };
-  const invoke: SemanticInvoke = async action => {
-    if (action === 'semanticStatus') return state as unknown as Record<string, unknown>;
-    if (action === 'semanticIndex') return await new Promise<Record<string, unknown>>((_resolve, reject) => { rejectAction = reject; });
-    return { ok: true };
+test('switching from the actual Apple embedding space to Ollama preserves its remembered model', withDocument(async dom => {
+  const payloads: Record<string, unknown>[] = [];
+  const apple: SemanticStatus = { ...base, enabled: true, model: 'apple:nl-english:revision-1' };
+  const root = renderSemanticSettings({ getNotes: () => [], invoke: async (action, payload) => {
+    if (action === 'semanticEnable') {
+      payloads.push(payload!);
+      assert.equal(payload?.model, undefined, 'Apple revision identifiers are not valid Ollama models');
+      return { ...apple, provider: 'ollama', model: 'embeddinggemma:latest' };
+    }
+    return apple as unknown as Record<string, unknown>;
+  } });
+  await tick(); choose(root, 'ollama', dom); await tick();
+  assert.deepEqual(payloads, [{ enabled: true, provider: 'ollama' }]);
+  assert.equal(root.querySelector<HTMLSelectElement>('[data-role="ready-model"]')!.value, 'embeddinggemma:latest');
+}));
+
+test('long-running indexing does not block config changes or let stale action/status overwrite them', withDocument(async dom => {
+  let releaseStatus!: (value: Record<string, unknown>) => void;
+  let state: SemanticStatus = { ...base, enabled: true, provider: 'ollama', runtimeAvailable: true, installed: true };
+  let holdRefresh = false;
+  const delayedStatus = new Promise<Record<string, unknown>>(resolve => { releaseStatus = resolve; });
+  const invoke: SemanticInvoke = async (action, payload) => {
+    if (action === 'semanticStatus' && holdRefresh) return delayedStatus;
+    if (action === 'semanticIndex') { holdRefresh = true; return { ok: true }; }
+    if (action === 'semanticEnable') { state = { ...state, enabled: payload?.enabled as boolean, provider: payload?.provider as 'apple' | 'ollama' }; return state as unknown as Record<string, unknown>; }
+    return state as unknown as Record<string, unknown>;
   };
   const root = renderSemanticSettings({ invoke, getNotes: () => [] }); await tick();
   (root.querySelector('[data-role="manage"]') as HTMLDetailsElement).open = true;
-  (root.querySelector('[data-action="rebuild"]') as HTMLButtonElement).click();
-  assert.match(root.querySelector('[data-role="busy"]')!.textContent!, /Building local index/);
-  assert.equal((root.querySelector('[data-role="enabled"]') as HTMLInputElement).disabled, true);
-  assert.equal(root.querySelector('[data-action="cancel"]')!.hasAttribute('hidden'), false);
-  rejectAction(new Error('index failed')); await tick();
-  assert.match(root.querySelector('[data-role="error"]')!.textContent!, /index failed/);
-  assert.equal(root.querySelector('[data-action="cancel"]')!.hasAttribute('hidden'), true);
+  (root.querySelector('[data-action="rebuild"]') as HTMLButtonElement).click(); await tick();
+  choose(root, 'disabled', dom); await tick();
+  assert.equal(root.querySelector<HTMLInputElement>('[data-role="disabled"]')!.checked, true);
+  releaseStatus({ ...state, enabled: true, provider: 'ollama' }); await tick();
+  assert.equal(root.querySelector<HTMLInputElement>('[data-role="disabled"]')!.checked, true);
+  assert.equal(root.querySelector('[data-role="flow"]')!.hasAttribute('hidden'), true);
 }));
 
-test('failed status and failed opt-in remain visible without claiming the feature is enabled', withDocument(async dom => {
-  const unavailable = renderSemanticSettings({ invoke: async () => { throw new Error('local status unavailable'); }, getNotes: () => [] });
-  await tick(); assert.match(unavailable.querySelector('[data-role="status"]')!.textContent!, /local status unavailable/);
-  assert.equal((unavailable.querySelector('[data-role="status"]') as HTMLElement).hidden, false);
-  const root = renderSemanticSettings({ invoke: async action => { if (action === 'semanticStatus') return { ...base }; throw new Error('could not save preference'); }, getNotes: () => [] });
-  await tick(); const enabled = root.querySelector<HTMLInputElement>('[data-role="enabled"]')!; enabled.checked = true; enabled.dispatchEvent(new dom.window.Event('change')); await tick();
-  assert.equal(enabled.checked, false); assert.equal(root.querySelector('[data-role="flow"]')!.hasAttribute('hidden'), true);
+test('configuration failures roll the radio choice back and remain visible', withDocument(async dom => {
+  const root = renderSemanticSettings({ invoke: async action => { if (action === 'semanticStatus') return base as unknown as Record<string, unknown>; throw new Error('could not save preference'); }, getNotes: () => [] });
+  await tick(); choose(root, 'apple', dom); await tick();
+  assert.equal(root.querySelector<HTMLInputElement>('[data-role="disabled"]')!.checked, true);
   assert.equal((root.querySelector('[data-role="error"]') as HTMLElement).hidden, false);
+  assert.match(root.querySelector('[data-role="error"]')!.textContent!, /could not save preference/);
 }));
 
-test('automatic indexing shows progress and completion; failed automatic updates offer an incremental retry', withDocument(async dom => {
-  let automatic = { running: true, error: '' }; let indexedNotes = 0; let refresh!: () => Promise<void>;
-  let lastForce: unknown;
+test('automatic indexing exposes progress, retry, damaged-index repair, and cancellation', withDocument(async dom => {
+  let automatic = { running: true, error: '' }; let indexedNotes = 0; let refresh!: () => Promise<void>; let lastForce: unknown;
+  let state: SemanticStatus = { ...base, enabled: true, provider: 'apple', indexedNotes };
   const root = renderSemanticSettings({ getNotes: () => [{ id: 'one', markdown: 'Note', updatedAt: '2026-01-01T00:00:00Z' }], automaticIndex: () => automatic, registerRefresh: value => { refresh = value; }, invoke: async (action, payload) => {
-    if (action === 'semanticIndex') { lastForce = payload?.force; indexedNotes = 1; automatic = { running: false, error: '' }; }
-    return { ...base, enabled: true, runtimeAvailable: true, installed: true, indexedNotes };
+    if (action === 'semanticIndex') { lastForce = payload?.force; indexedNotes = 1; state = { ...state, indexedNotes }; automatic = { running: false, error: '' }; }
+    if (action === 'semanticStatus') state = { ...state, indexedNotes };
+    return state as unknown as Record<string, unknown>;
   } });
   dom.window.document.body.append(root); await tick();
   assert.match(root.querySelector('[data-role="index-status"]')!.textContent!, /Updating index/);
@@ -137,7 +185,8 @@ test('automatic indexing shows progress and completion; failed automatic updates
   automatic = { running: false, error: 'Connection interrupted' }; await refresh();
   assert.equal(root.querySelector('[data-action="index"]')!.hasAttribute('hidden'), false);
   (root.querySelector('[data-action="index"]') as HTMLButtonElement).click(); await tick();
-  assert.equal(lastForce, false, 'Retry preserves unchanged embeddings rather than forcing a full rebuild');
-  assert.match(root.querySelector('[data-role="index-status"]')!.textContent!, /1 note indexed/);
-  assert.equal(root.querySelector('[data-action="index"]')!.hasAttribute('hidden'), true);
+  assert.equal(lastForce, false); assert.match(root.querySelector('[data-role="index-status"]')!.textContent!, /1 note indexed/);
+  state = { ...state, actionableState: 'indexMalformed', indexError: 'Corrupt index' }; await refresh();
+  assert.equal(root.querySelector('[data-action="repair"]')!.hasAttribute('hidden'), false);
+  assert.match(root.querySelector('[data-role="error"]')!.textContent!, /Corrupt index/);
 }));

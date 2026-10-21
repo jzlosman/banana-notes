@@ -8,36 +8,37 @@
   overflow-wrap: anywhere;
 }
 .semantic-settings h2, .semantic-settings p { margin: 0; }
-.semantic-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 15px; line-height: 1.35; font-weight: 600; cursor: pointer; }
-.semantic-heading input { flex-shrink: 0; }
-.semantic-description { margin: 5px 0 18px !important; color: var(--muted, #626b73); font-size: 12px; line-height: 1.5; }
-.semantic-toggle input { flex: 0 0 auto; }
+.semantic-heading { font-size: 15px; line-height: 1.35; font-weight: 600; }
+.semantic-providers { display: flex; flex-wrap: wrap; gap: 7px 18px; min-width: 0; margin: 12px 0 0; padding: 0; border: 0; }
+.semantic-providers legend { margin-bottom: 7px; padding: 0; font-size: 12px; font-weight: 550; }
+.semantic-providers label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.semantic-providers input { flex: 0 0 auto; margin: 0; accent-color: var(--accent, #276b54); }
+.semantic-providers input:disabled + span { opacity: .55; }
+.semantic-description { margin: 7px 0 10px !important; color: var(--muted, #626b73); font-size: 12px; line-height: 1.5; }
 .semantic-flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 10px; margin-top: 12px; }
+.semantic-flow[data-provider='apple'] { display: block; }
 .semantic-step { grid-row: 1; padding: 5px 0 8px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 400; color: var(--muted); }
 .semantic-step.is-current { color: var(--ink); border-bottom-color: var(--accent); font-weight: 550; }
 .semantic-flow > [data-role$='-body'] { grid-column: 1 / -1; grid-row: 2; }
 .semantic-flow > .semantic-busy, .semantic-flow > .semantic-manage, .semantic-flow > .semantic-cancel { grid-column: 1 / -1; }
 .semantic-step-copy { max-width: 50ch; }
-.semantic-off-model { font-size: 12px; }
-.semantic-off-model .semantic-disclosure { white-space: pre-line; }
 .semantic-step-copy, .semantic-status, .semantic-disclosure { color: var(--muted, #626b73); font-size: 12px; line-height: 1.5; margin: 0 0 9px !important; }
 .semantic-model-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 13px; }
 .semantic-model-label select { min-width: 0; max-width: 58%; }
 .semantic-settings select { color: inherit; background: var(--chrome, #f7f8fa); border: 1px solid var(--line, #e9ecee); border-radius: 5px; padding: 5px 7px; font: inherit; font-size: 12px; }
-.semantic-settings button { max-width: 100%; border-radius: 5px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.semantic-settings button, .semantic-get-ollama { max-width: 100%; border-radius: 5px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer; }
 .semantic-primary { color: var(--on-accent, white); background: var(--accent, #276b54) !important; font-weight: 550 !important; }
 .semantic-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.semantic-get-ollama { display: inline-block; margin-right: 8px; color: var(--accent, #276b54); text-decoration: underline; text-underline-offset: 2px; }
 .semantic-text-action, .semantic-cancel { display: inline-block; margin-left: 9px; padding-left: 0 !important; padding-right: 0 !important; color: var(--muted, #626b73); background: transparent; }
 .semantic-text-action:hover:not(:disabled), .semantic-cancel:hover:not(:disabled) { color: var(--ink, #24282c); text-decoration: underline; text-underline-offset: 2px; }
 .semantic-busy { margin: 8px 0; color: var(--muted, #626b73); font-size: 12px; }
 .semantic-error { margin: 8px 0 !important; color: var(--danger, #a02f3a); font-size: 12px; line-height: 1.5; }
 .semantic-manage { border-top: 1px solid var(--line, #e9ecee); padding-top: 12px; font-size: 12px; }
-.semantic-manage summary, .semantic-off-model summary { color: var(--muted, #626b73); cursor: pointer; }
+.semantic-manage summary { color: var(--muted, #626b73); cursor: pointer; }
 .semantic-manage[open] summary { margin-bottom: 9px; }
 .semantic-manage button { margin-top: 7px; }
 .semantic-manage .semantic-model-label { margin: 8px 0 3px; }
-.semantic-off-model { margin-top: 6px; }
-.semantic-off-model p { margin: 5px 0 0 !important; }
 .semantic-settings [hidden] { display: none !important; }
 .semantic-settings :focus-visible { outline: 2px solid var(--ring, #276b54); outline-offset: 2px; }
 .semantic-settings button:disabled, .semantic-settings select:disabled, .semantic-settings input:disabled { opacity: .55; cursor: default; }

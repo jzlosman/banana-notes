@@ -7,6 +7,15 @@ struct LibraryStoreSelfTest {
         precondition(LibraryStore.dataDirectoryOverride(environment: ["FOLDNOTE_DATA_DIR": "/legacy"]) == "/legacy")
         precondition(LibraryStore.dataDirectoryOverride(environment: ["BANANA_NOTES_DATA_DIR": "/banana", "FOLDNOTE_DATA_DIR": "/legacy"]) == "/banana")
         precondition(LibraryStore.dataDirectoryOverride(environment: ["BANANA_NOTES_DATA_DIR": "", "FOLDNOTE_DATA_DIR": "/legacy"]) == "/legacy")
+        let isolatedBundle = URL(fileURLWithPath: "/tmp/isolated-profile/Banana Notes Verification.app", isDirectory: true)
+        let isolatedDirectory = try LibraryStore.verificationDirectory(bundleURL: isolatedBundle, binding: "/tmp/isolated-profile/data")
+        precondition(isolatedDirectory.path == "/tmp/isolated-profile/data")
+        for binding: Any? in [nil, 42, "", "relative/data", NSHomeDirectory() + "/Library/Application Support/Foldnote", "/tmp/another-profile/data"] {
+            do {
+                _ = try LibraryStore.verificationDirectory(bundleURL: isolatedBundle, binding: binding)
+                preconditionFailure("verification apps must fail closed without the matching isolated data directory")
+            } catch is StoreError {}
+        }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("FoldnoteStoreTest-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var store = LibraryStore(directory: directory)

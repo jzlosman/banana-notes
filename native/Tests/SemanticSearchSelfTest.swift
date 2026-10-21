@@ -49,15 +49,13 @@ struct SemanticSearchSelfTest {
         let suite = "FoldnoteSemanticTest-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "semanticSearch.enabled")
+        defaults.set("ollama", forKey: "semanticSearch.provider")
         let fake = FakeSemanticHTTP()
         let service = SemanticSearchService(directory: root, defaults: defaults, httpClient: fake)
         let status = try await service.handle(action: "semanticStatus", payload: [:])
-        precondition(status["enabled"] as? Bool == false, "semantic search defaults disabled")
-        do {
-            _ = try await service.handle(action: "semanticSearch", payload: ["query": "apple"])
-            preconditionFailure("disabled search must be rejected")
-        } catch is SemanticSearchError {}
-        _ = try await service.handle(action: "semanticEnable", payload: ["enabled": true])
+        precondition(status["enabled"] as? Bool == true && status["provider"] as? String == "ollama", "explicit Ollama configuration is preserved")
+        _ = try await service.handle(action: "semanticEnable", payload: ["enabled": true, "provider": "ollama"])
         let notes: [[String: Any]] = [
             ["id": "apple", "markdown": "# Apple\n\nFruit", "updatedAt": "2026-01-01T00:00:00Z"],
             ["id": "banana", "markdown": "# Banana\n\nFruit", "updatedAt": "2026-01-01T00:00:00Z"]
@@ -150,6 +148,7 @@ struct SemanticSearchSelfTest {
             try FileManager.default.createDirectory(at: delayedRoot, withIntermediateDirectories: true)
             let delayedDefaults = UserDefaults(suiteName: "\(suite)-\(invalidator)")!
             defer { delayedDefaults.removePersistentDomain(forName: "\(suite)-\(invalidator)") }
+            delayedDefaults.set("ollama", forKey: "semanticSearch.provider")
             let delayedService = SemanticSearchService(directory: delayedRoot, defaults: delayedDefaults, httpClient: delayedHTTP)
             _ = try await delayedService.handle(action: "semanticEnable", payload: ["enabled": true])
             let delayedBuild = Task { try await delayedService.handle(action: "semanticIndex", payload: ["notes": [notes[0]]]) }

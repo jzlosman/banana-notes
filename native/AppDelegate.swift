@@ -82,7 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         webView.navigationDelegate = self
         webView.uiDelegate = self
         #if DEBUG
-        webView.isInspectable = ProcessInfo.processInfo.environment["FOLDNOTE_DEBUG"] == "1"
+        let environment = ProcessInfo.processInfo.environment
+        webView.isInspectable = (environment["BANANA_NOTES_DEBUG"] ?? environment["FOLDNOTE_DEBUG"]) == "1"
         #else
         webView.isInspectable = false
         #endif
@@ -91,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         panel = FoldnotePanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 650),
                               styleMask: [.borderless, .resizable],
                               backing: .buffered, defer: false)
-        panel.title = "Foldnote" // Accessibility/window identity, not visible chrome.
+        panel.title = "Banana Notes" // Accessibility/window identity, not visible chrome.
         panel.isOpaque = false
         panel.hasShadow = true
         panel.isFloatingPanel = true
@@ -116,9 +117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         statusItem.button?.image = StatusItemIcon.make()
         statusItem.button?.imageScaling = .scaleNone
         statusItem.button?.imagePosition = .imageOnly
-        statusItem.button?.toolTip = "Foldnote · ⌃⌥Space to show or hide"
+        statusItem.button?.toolTip = "Banana Notes · ⌃⌥Space to show or hide"
         let menu = NSMenu()
-        menu.addItem(item("Show / Hide Foldnote", #selector(togglePanel), key: ""))
+        menu.addItem(item("Show / Hide Banana Notes", #selector(togglePanel), key: ""))
         menu.addItem(item("New Note", #selector(newNote), key: "n"))
         menu.addItem(item("Notes", #selector(openExplorer), key: ""))
         menu.addItem(item("Settings…", #selector(openThemes), key: ""))
@@ -127,20 +128,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         menu.addItem(.separator())
         menu.addItem(item("Open Data Folder", #selector(openDataFolder), key: ""))
         menu.addItem(.separator())
-        menu.addItem(item("Quit Foldnote", #selector(quit), key: "q"))
+        menu.addItem(item("Quit Banana Notes", #selector(quit), key: "q"))
         if !hotkeyAvailable {
             menu.addItem(.separator())
-            menu.addItem(item("⌃⌥Space unavailable — use this menu to open Foldnote", #selector(togglePanel), key: ""))
+            menu.addItem(item("⌃⌥Space unavailable — use this menu to open Banana Notes", #selector(togglePanel), key: ""))
         }
         statusItem.menu = menu
 
         let mainMenu = NSMenu()
-        let appRoot = NSMenuItem(title: "Foldnote", action: nil, keyEquivalent: "")
-        let appMenu = NSMenu(title: "Foldnote")
+        let appRoot = NSMenuItem(title: "Banana Notes", action: nil, keyEquivalent: "")
+        let appMenu = NSMenu(title: "Banana Notes")
         appMenu.addItem(item("Settings…", #selector(openThemes), key: ","))
         appMenu.addItem(item("Reset Window Effects", #selector(resetWindowEffects), key: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(item("Quit Foldnote", #selector(quit), key: "q"))
+        appMenu.addItem(item("Quit Banana Notes", #selector(quit), key: "q"))
         appRoot.submenu = appMenu
         mainMenu.addItem(appRoot)
 
@@ -253,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             guard let self else { return }
             switch result {
             case .success: self.hidePanel()
-            case .failure(let error): self.showPanel(); self.showError("Foldnote stayed open because the latest changes could not be saved. " + error.localizedDescription)
+            case .failure(let error): self.showPanel(); self.showError("Banana Notes stayed open because the latest changes could not be saved. " + error.localizedDescription)
             }
         }
     }
@@ -263,7 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             guard let self else { return }
             switch result {
             case .success: NSApp.terminate(nil)
-            case .failure(let error): self.showPanel(); self.showError("Foldnote stayed open because the latest changes could not be saved. " + error.localizedDescription)
+            case .failure(let error): self.showPanel(); self.showError("Banana Notes stayed open because the latest changes could not be saved. " + error.localizedDescription)
             }
         }
     }
@@ -353,7 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 let library = try store.load()
                 let state: [String: Any] = ["library": library as Any? ?? NSNull(), "pinned": pinned,
                               "hotkey": "⌃⌥Space", "hotkeyAvailable": hotkeyAvailable,
-                              "hotkeyStatus": hotkeyAvailable ? "⌃⌥Space toggles Foldnote." : "⌃⌥Space could not be registered. Use the Foldnote menu bar icon to open the app.",
+                              "hotkeyStatus": hotkeyAvailable ? "⌃⌥Space toggles Banana Notes." : "⌃⌥Space could not be registered. Use the Banana Notes menu bar icon to open the app.",
                               "dataDirectory": store.directory.path, "themeID": appearancePreferences.selectedID,
                               "themeWarning": appearancePreferences.catalogError as Any? ?? NSNull(),
                               "focused": panel.isKeyWindow, "windowStyle": windowStylePreferences.style.bridgeValue,
@@ -479,18 +480,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme?.lowercased() == "foldnote" else { return }
+        guard let command = AppDeepLink.command(for: url) else { return }
         showPanel()
-        let action = url.host?.lowercased() ?? url.path.split(separator: "/").first.map(String.init)?.lowercased() ?? "show"
-        switch action {
-        case "show": sendCommand(["action": "show"])
-        case "new", "explorer", "themes": sendCommand(["action": action])
-        case "tag":
-            let components = url.path.split(separator: "/")
-            let tag = (url.host == nil ? components.dropFirst() : components[...]).joined(separator: "/")
-            sendCommand(["action": "tag", "tag": tag])
-        default: break
-        }
+        sendCommand(command)
     }
 
     private func registerHotkey() {

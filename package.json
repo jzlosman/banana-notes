@@ -1,5 +1,5 @@
 {
-  "name": "foldnote",
+  "name": "banana-notes",
   "version": "0.1.0",
   "private": true,
   "description": "A local-first macOS floating Markdown notepad.",
@@ -7,10 +7,10 @@
   "author": "Jeremy Zaborowski",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jzlosman/foldnote.git"
+    "url": "https://github.com/jzlosman/banana-notes.git"
   },
-  "bugs": { "url": "https://github.com/jzlosman/foldnote/issues" },
-  "homepage": "https://github.com/jzlosman/foldnote#readme",
+  "bugs": { "url": "https://github.com/jzlosman/banana-notes/issues" },
+  "homepage": "https://github.com/jzlosman/banana-notes#readme",
   "engines": { "node": ">=22" },
   "type": "module",
   "scripts": {

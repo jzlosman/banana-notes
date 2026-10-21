@@ -6,10 +6,13 @@ struct StatusItemIconSelfTest {
     static func main() {
         _ = NSApplication.shared
         let image = StatusItemIcon.make()
-        precondition(image.isTemplate, "macOS must own white/dark menu-bar tinting")
+        precondition(image.isTemplate, "macOS must own menu-bar tinting")
         precondition(image.size == NSSize(width: 18, height: 18))
+        precondition(image.accessibilityDescription == "Banana Notes")
+
         for scale in [1, 2] {
-            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 18 * scale, pixelsHigh: 18 * scale,
+            let dimension = 18 * scale
+            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: dimension, pixelsHigh: dimension,
                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                          isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
             let context = NSGraphicsContext(bitmapImageRep: bitmap)!
@@ -18,18 +21,27 @@ struct StatusItemIconSelfTest {
             context.cgContext.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
             image.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
             NSGraphicsContext.restoreGraphicsState()
-            // Horizontal/vertical strokes are solid even at 1x, with no fractional
-            // resize softening. Diagonal-fold antialiasing is intentionally allowed.
-            for x in (3 * scale)..<(5 * scale) {
-                precondition(bitmap.colorAt(x: x, y: 8 * scale)!.alphaComponent > 0.99,
-                             "the page edge must be fully opaque at \(scale)x")
+
+            var covered = 0
+            var solid = 0
+            for y in 0..<dimension {
+                for x in 0..<dimension {
+                    let alpha = bitmap.colorAt(x: x, y: y)!.alphaComponent
+                    if alpha > 0.05 { covered += 1 }
+                    if alpha > 0.99 { solid += 1 }
+                }
             }
-            precondition(bitmap.colorAt(x: 0, y: 8 * scale)!.alphaComponent == 0)
+            let total = dimension * dimension
+            precondition(covered > total / 5 && covered < total * 3 / 4, "banana coverage should be substantial but leave transparent space at \(scale)x")
+            precondition(solid > total / 20, "banana interior should render solidly at \(scale)x; got \(solid) solid pixels")
+            precondition(bitmap.colorAt(x: 0, y: 0)!.alphaComponent == 0, "outside the mark must remain transparent")
+            precondition(bitmap.colorAt(x: dimension - 1, y: dimension - 1)!.alphaComponent == 0, "outside the mark must remain transparent")
+
             if CommandLine.arguments.count > 1 {
                 let path = URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("status-icon-\(scale)x.png")
                 try! bitmap.representation(using: .png, properties: [:])!.write(to: path)
             }
         }
-        print("Native status icon checks passed (template, integer sizing, opaque edges at 1x/2x)")
+        print("Native status icon checks passed (template, 18pt sizing, Banana Notes label, curved silhouette at 1x/2x)")
     }
 }

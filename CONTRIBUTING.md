@@ -20,8 +20,8 @@ To test the native UI without touching your notes or preferences, create an isol
 
 ```sh
 PROFILE="$(bash scripts/prepare-verification-profile.sh)"
-FOLDNOTE_DATA_DIR="$PROFILE/data" \
-  "$PROFILE/Foldnote Verification.app/Contents/MacOS/Foldnote"
+BANANA_NOTES_DATA_DIR="$PROFILE/data" \
+  "$PROFILE/Banana Notes Verification.app/Contents/MacOS/Banana Notes"
 ```
 
 Quit the verification app before removing its temporary directory. It has a separate bundle identity and synthetic notes; do not substitute your personal library.
@@ -33,6 +33,7 @@ Quit the verification app before removing its temporary directory. It has a sepa
 - Keep the single-window interface compact. Infrequent actions belong in menus or settings.
 - Network requests, downloads, OCR, startup registration, and local model startup must remain explicit and optional.
 - Test destructive operations with synthetic data. Never include personal notes, credentials, local research, planning artifacts, generated app bundles, or test recordings in a contribution.
+- Preserve the legacy bundle ID, storage directory, managed media/font URL schemes, and preference keys when changing branding; existing notes and settings must continue to load. Public app links support both `banananotes://` and `foldnote://`.
 - Preserve third-party license notices. User-downloaded fonts and models are governed by their respective licenses; do not add them to the repository.
 
 By contributing, you agree that your contributions are licensed under the repository's MIT license. Respectful, constructive communication is expected.

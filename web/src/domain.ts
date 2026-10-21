@@ -234,5 +234,5 @@ export function validateLibrary(value: unknown): Library {
 }
 export function welcomeLibrary(id: string, now: string): Library {
   return { version: 1, activeTag: null, selectedID: id, notes: [{ id, createdAt: now, updatedAt: now,
-    markdown: '# Welcome to Foldnote\n\nCreate a note with **⌘N**. Notes save automatically on this Mac.\n\n## Markdown\n\nUse headings, **bold**, *italic*, lists, tables, and code blocks. Press Return twice to end a list.\n\n## Tags\n\nAdd a tag such as #project to organize notes into a notebook. Open the notes list with **⌘⇧E**.\n\n## Shortcuts\n\nUse **⌃⌥Space** to show or hide Foldnote. Open Settings with **⌘,**. The help button lists all keyboard shortcuts.' }] };
+    markdown: '# Welcome to Banana Notes\n\nCreate a note with **⌘N**. Notes save automatically on this Mac.\n\n## Markdown\n\nUse headings, **bold**, *italic*, lists, tables, and code blocks. Press Return twice to end a list.\n\n## Tags\n\nAdd a tag such as #project to organize notes into a notebook. Open the notes list with **⌘⇧E**.\n\n## Shortcuts\n\nUse **⌃⌥Space** to show or hide Banana Notes. Open Settings with **⌘,**. The help button lists all keyboard shortcuts.' }] };
 }

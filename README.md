@@ -1,4 +1,6 @@
-# Foldnote
+<img src="assets/banana-notes-logo.svg" alt="Banana Notes logo" width="96" height="96">
+
+# Banana Notes
 
 A small, local-first Mac notepad with live Markdown, tagged notebooks, and a borderless floating window. Notes stay on your Mac; no account is required.
 
@@ -11,10 +13,10 @@ Requirements: macOS 14+, Xcode command-line tools, Node 22+.
 ```sh
 npm ci --ignore-scripts
 npm run build
-open build/Foldnote.app
+open "build/Banana Notes.app"
 ```
 
-Install by copying `build/Foldnote.app` into `~/Applications`. Open **Foldnote** from Raycast or Finder. There is no Dock icon or normal Command–Tab entry: the menu-bar folded-note icon and the global shortcut summon the existing single window. The process stays running until **Quit Foldnote**; closing the notepad only hides it. Launch-at-login is not enabled by the app.
+Install by copying `build/Banana Notes.app` into `~/Applications`. Open **Banana Notes** from Raycast or Finder. There is no Dock icon or normal Command–Tab entry: the menu-bar banana icon and the global shortcut summon the existing single window. The process stays running until **Quit Banana Notes**; closing the notepad only hides it. Launch-at-login is not enabled by the app.
 
 ## Controls
 
@@ -52,15 +54,15 @@ Normal Markdown follows.
 
 Click a badge to open that notebook’s overview. The explorer supports multiple tag filters (AND/intersection), text search, edited/created ordering, and an exclusive **before date (UTC)** filter. New notes inherit every selected tag; previous/next navigation remains creation-ordered within the scope. Clear selected tag chips or the scope’s × to leave the notebook.
 
-The list starts with search and notes, not a control panel. The filter icon reveals tags, before-date, sorting and search method; only active filters stay visible. The heading’s **…** opens Trash, the notebook overview, or **Select notes**. Selection checkboxes and bulk tag/archive/Trash/restore actions appear only in selection mode. **Select all filtered notes** selects the complete result set, not only visible rows. Right-click a note or use its hover/focus **…** for individual actions. Archive is the ordinary `#archive` tag; archived notes are hidden by default and reappear when that tag is selected, including alongside other tags. Trash retains the original note for 30 days. Expired notes cannot be restored and are purged on launch or hourly while Foldnote runs.
+The list starts with search and notes, not a control panel. The filter icon reveals tags, before-date, sorting and search method; only active filters stay visible. The heading’s **…** opens Trash, the notebook overview, or **Select notes**. Selection checkboxes and bulk tag/archive/Trash/restore actions appear only in selection mode. **Select all filtered notes** selects the complete result set, not only visible rows. Right-click a note or use its hover/focus **…** for individual actions. Archive is the ordinary `#archive` tag; archived notes are hidden by default and reappear when that tag is selected, including alongside other tags. Trash retains the original note for 30 days. Expired notes cannot be restored and are purged on launch or hourly while Banana Notes runs.
 
 The pad is a borderless card: no app title or traffic-light buttons. Notebook controls sit at the top left, with pin, explorer, new-note and `<>` source controls on the top right. Tags sit just underneath. Drag the empty space between the left and right controls to move it. Escape, Command–W, the hotkey or the menu bar can hide it.
 
-The pin keeps the floating panel visible while switching apps. Otherwise it hides when focus leaves. The footer and formatting strip appear only while the notepad window is focused; the writing area expands when they disappear. Deep links: `foldnote://show`, `foldnote://new`, `foldnote://explorer`, `foldnote://tag/work`, `foldnote://themes`.
+The pin keeps the floating panel visible while switching apps. Otherwise it hides when focus leaves. The footer and formatting strip appear only while the notepad window is focused; the writing area expands when they disappear. Deep links: `banananotes://show`, `banananotes://new`, `banananotes://explorer`, `banananotes://tag/work`, `banananotes://themes`. Existing `foldnote://` links remain supported.
 
 ## Settings and appearance
 
-Click the gear in the top toolbar, press **Command–,**, or choose **Settings…** in the menu bar. Formatting and note navigation share one bottom row. Notes save automatically; save failures show a persistent notice with a Retry action. There is no permanent save-status icon. At compact widths, Heading/Quote/Code are available under **Note actions (…) → Formatting…**. Search or filter the 30 bundled [Agent Paint](https://github.com/jzlosman/agent-paint) palettes by light/dark appearance. Choosing a palette updates the editor, explorer, controls and native Mac chrome immediately and survives relaunch. **Follow macOS** restores Foldnote's original system-following light/dark appearance.
+Click the gear in the top toolbar, press **Command–,**, or choose **Settings…** in the menu bar. Formatting and note navigation share one bottom row. Notes save automatically; save failures show a persistent notice with a Retry action. There is no permanent save-status icon. At compact widths, Heading/Quote/Code are available under **Note actions (…) → Formatting…**. Search or filter the 30 bundled [Agent Paint](https://github.com/jzlosman/agent-paint) palettes by light/dark appearance. Choosing a palette updates the editor, explorer, controls and native Mac chrome immediately and survives relaunch. **Follow macOS** restores Banana Notes’ system-following light/dark appearance.
 
 The **Code** tab selects an independent syntax palette from the same 30 themes, or **Match app**. Fenced code is highlighted locally. Put the cursor inside a code block to choose its language. The **Window** tab provides note typography and persistent text sizing; ⌘+/⌘− and ⌘0 work without modifying the note.
 
@@ -68,7 +70,7 @@ Notes default to **SF Mono · Medium** for slightly heavier monospaced writing. 
 
 The **Window** tab has separate **Active window opacity** and **Inactive window opacity** sliders (5–100%), plus **Glass** (0–100%). Opacity fades the entire window, including text; glass blends in macOS’s native frosted desktop backdrop. Defaults are fully opaque with no glass, and the settings apply across themes. Unfocused opacity is visible when the note is pinned. **Reset to solid**, or **Reset Window Effects** in the menu bar, restores safe defaults without changing the theme or notes. Window preferences are saved separately under `windowStyle`; the browser preview simulates opacity but cannot render the native desktop backdrop.
 
-Theme selection is stored independently in the app's preferences (`appearanceTheme`), not in any note or frontmatter. Themes are bundled: there are no runtime requests, plugins, or external installation steps. Theme provenance and licenses are retained under `vendor/agent-paint/` and included in the app bundle. Regenerate the pinned catalog offline with `node scripts/import-agent-paint.mjs`, or pass a checked-out Agent Paint directory explicitly when updating the source. Foldnote adapts functional text contrast without replacing palette backgrounds or theme identities.
+Theme selection is stored independently in the app's preferences (`appearanceTheme`), not in any note or frontmatter. Themes are bundled: there are no runtime requests, plugins, or external installation steps. Theme provenance and licenses are retained under `vendor/agent-paint/` and included in the app bundle. Regenerate the pinned catalog offline with `node scripts/import-agent-paint.mjs`, or pass a checked-out Agent Paint directory explicitly when updating the source. Banana Notes adapts functional text contrast without replacing palette backgrounds or theme identities.
 
 ## Project overview, media and OCR
 
@@ -96,9 +98,11 @@ The settings panel guides Ollama → Model → Index, with only the next relevan
 
 ## Data safety
 
-Native data lives in `~/Library/Application Support/Foldnote/library.json`. Content is Markdown in a versioned JSON envelope. Saves are serialized, atomically replaced, and maintain `library.json.bak` as the previous last-good snapshot. Save failures remain visible and retryable. Corrupt startup data is not replaced. **Help → Export Markdown** exports `.md` copies; **Data folder** opens the originals. No cloud service, account, remote editor resources, or telemetry.
+Banana Notes was previously called Foldnote. Native data remains in `~/Library/Application Support/Foldnote/library.json` deliberately: no move, import, or new empty library is needed. The bundle identifier (`dev.local.foldnote`), preference keys, managed attachment/font URL schemes, and browser-preview storage keys also stay stable. Existing notes—including any old welcome note—are never rewritten by the rename. Quit the old app before replacing `Foldnote.app` with `Banana Notes.app`; do not keep two installed copies with the same bundle identity.
 
-The welcome note is sample content, not imported personal data. The browser preview uses separate localStorage and does not access the Mac app's library. `FOLDNOTE_DATA_DIR=/absolute/path` isolates native testing. `FOLDNOTE_DEBUG=1 npm run build` enables the optional WebKit inspector; release builds do not.
+Content is Markdown in a versioned JSON envelope. Saves are serialized, atomically replaced, and maintain `library.json.bak` as the previous last-good snapshot. Save failures remain visible and retryable. Corrupt startup data is not replaced. **Help → Export Markdown** exports `.md` copies; **Data folder** opens the originals. No cloud service, account, remote editor resources, or telemetry.
+
+The welcome note is sample content, not imported personal data. The browser preview uses separate localStorage and does not access the Mac app's library. `BANANA_NOTES_DATA_DIR=/absolute/path` isolates native testing. `BANANA_NOTES_DEBUG=1 npm run build` enables the optional WebKit inspector; release builds do not. The former `FOLDNOTE_DATA_DIR`, `FOLDNOTE_DEBUG`, and `FOLDNOTE_ICON` environment variables remain compatibility aliases; the corresponding `BANANA_NOTES_*` variables take precedence.
 
 ## Verification
 
@@ -128,10 +132,13 @@ npm run build
 - `native/AppearancePreferences.swift`: validated bundled theme catalog and native appearance preference adapter.
 - `native/WindowStylePreferences.swift`: independent effect preferences, validation and persistence; AppKit applies key-window opacity and a behind-window `NSVisualEffectView`.
 - `native/NoteFontStore.swift`: typography preferences and explicit Google Fonts download/cache adapter; allowlisted URLs, bounded WOFF2 ingestion, atomic manifests and safe offline lookup. `FontSchemeHandler.swift` exposes only validated managed font files to WebKit and PNG export.
-- `native/StatusItemIcon.swift`: integer-aligned 18pt vector template glyph, rendered at native 1x/2x menu-bar scale without raster resizing.
+- `native/AppDeepLink.swift`: deterministic translation of current and legacy app links into editor commands.
+- `native/BananaMark.swift` / `StatusItemIcon.swift`: approved banana geometry and an 18pt native template glyph, rendered at native 1x/2x menu-bar scale without raster resizing.
+
+The logo lives in `assets/banana-notes-logo.svg`. Regenerate the app icon from the shared banana geometry with `bash scripts/build-icons.sh`. Branding is confined to the name, app/menu-bar icons, and documentation; the notepad’s layout, writing surface, and 30 themes are unchanged.
 
 ## License and release status
 
-Foldnote's original code and artwork are [MIT licensed](LICENSE). Third-party code and palettes retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
+Banana Notes’ original code and artwork are [MIT licensed](LICENSE). Third-party code and palettes retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 This is a source release. The build is ad-hoc signed for local use, not notarized for public binary distribution. Sync, configurable hotkeys, general note import, and edit-version history are not included.

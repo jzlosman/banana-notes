@@ -16,10 +16,11 @@ struct LibraryStore {
     init(directory: URL? = nil) {
         if let directory {
             self.directory = directory
-        } else if let override = ProcessInfo.processInfo.environment["FOLDNOTE_DATA_DIR"], !override.isEmpty {
+        } else if let override = Self.dataDirectoryOverride(environment: ProcessInfo.processInfo.environment) {
             self.directory = URL(fileURLWithPath: override, isDirectory: true)
         } else {
             let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            // Stable storage location across the Banana Notes rename; never silently start a new library.
             self.directory = support.appendingPathComponent("Foldnote", isDirectory: true)
         }
         self.startupError = nil
@@ -27,11 +28,18 @@ struct LibraryStore {
             try fileManager.createDirectory(at: self.directory, withIntermediateDirectories: true)
             if fileManager.fileExists(atPath: libraryURL.path) {
                 do { _ = try readValidatedLibrary() }
-                catch { self.startupError = "Foldnote could not read its library: \(error.localizedDescription). Your file was left untouched at \(libraryURL.path). To recover, restore library.json.bak if it contains your latest data, or move/repair library.json, then relaunch Foldnote before saving." }
+                catch { self.startupError = "Banana Notes could not read its library: \(error.localizedDescription). Your file was left untouched at \(libraryURL.path). To recover, restore library.json.bak if it contains your latest data, or move/repair library.json, then relaunch Banana Notes before saving." }
             }
         } catch {
-            self.startupError = "Foldnote could not prepare its data folder: \(error.localizedDescription)"
+            self.startupError = "Banana Notes could not prepare its data folder: \(error.localizedDescription)"
         }
+    }
+
+    static func dataDirectoryOverride(environment: [String: String]) -> String? {
+        for key in ["BANANA_NOTES_DATA_DIR", "FOLDNOTE_DATA_DIR"] {
+            if let path = environment[key], !path.isEmpty { return path }
+        }
+        return nil
     }
 
     var libraryURL: URL { directory.appendingPathComponent("library.json") }

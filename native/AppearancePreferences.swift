@@ -35,7 +35,7 @@ final class AppearancePreferences {
             self.catalogError = nil
         } catch {
             self.catalog = [:]
-            self.catalogError = "Themes could not be loaded. Foldnote is using system appearance; your notes are unaffected."
+            self.catalogError = "Themes could not be loaded. Banana Notes is using system appearance; your notes are unaffected."
         }
     }
 

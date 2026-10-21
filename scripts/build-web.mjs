@@ -5,7 +5,7 @@ import path from 'node:path';
 await mkdir('web/dist', { recursive: true });
 const result = await build({
   entryPoints: ['web/src/main.ts'], bundle: true, format: 'iife', target: ['safari17'],
-  outfile: 'web/dist/app.js', sourcemap: true, minify: !process.env.FOLDNOTE_DEBUG,
+  outfile: 'web/dist/app.js', sourcemap: true, minify: (process.env.BANANA_NOTES_DEBUG ?? process.env.FOLDNOTE_DEBUG) !== '1',
   legalComments: 'none', metafile: true,
 });
 await copyFile('web/index.html', 'web/dist/index.html');
@@ -16,7 +16,7 @@ const notices = 'web/dist/third-party';
 await rm(notices, { recursive: true, force: true });
 await mkdir(notices, { recursive: true });
 for (const [source, name] of [
-  ['LICENSE', 'Foldnote-LICENSE.txt'],
+  ['LICENSE', 'Banana-Notes-LICENSE.txt'],
   ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md'],
   ['vendor/agent-paint/LICENSE', 'agent-paint-LICENSE.txt'],
   ['vendor/agent-paint/THIRD_PARTY_NOTICES.md', 'agent-paint-NOTICES.md'],

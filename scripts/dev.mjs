@@ -11,4 +11,4 @@ http.createServer(async (req,res) => {
     res.setHeader('Content-Type', {'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.map':'application/json'}[ext] || 'application/octet-stream');
     res.end(await readFile(target));
   } catch { res.writeHead(404); res.end('Not found'); }
-}).listen(4177,'127.0.0.1',()=>console.log('Foldnote preview http://127.0.0.1:4177'));
+}).listen(4177,'127.0.0.1',()=>console.log('Banana Notes preview http://127.0.0.1:4177'));

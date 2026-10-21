@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WEB_DIST="$ROOT/web/dist"
-APP="$ROOT/build/Foldnote.app"
+APP="$ROOT/build/Banana Notes.app"
 CONTENTS="$APP/Contents"
 RESOURCES="$CONTENTS/Resources"
 
@@ -19,13 +19,15 @@ cp -R "$WEB_DIST/third-party" "$RESOURCES/web/"
 if [[ -f "$WEB_DIST/app.js.map" ]]; then cp "$WEB_DIST/app.js.map" "$RESOURCES/web/"; fi
 ARCH="$(uname -m)"
 FLAGS=(-target "$ARCH-apple-macosx14.0" -O -framework AppKit -framework WebKit -framework Carbon)
-if [[ "${FOLDNOTE_DEBUG:-}" == "1" ]]; then FLAGS+=(-D DEBUG); fi
-swiftc "${FLAGS[@]}" "$ROOT"/native/*.swift -o "$CONTENTS/MacOS/Foldnote"
+if [[ "${BANANA_NOTES_DEBUG-${FOLDNOTE_DEBUG:-}}" == "1" ]]; then FLAGS+=(-D DEBUG); fi
+swiftc "${FLAGS[@]}" "$ROOT"/native/*.swift -o "$CONTENTS/MacOS/Banana Notes"
 
 plutil -create xml1 "$CONTENTS/Info.plist"
+# Keep the bundle identity: existing preferences, login-item identity, and single-instance detection survive the rename.
 /usr/libexec/PlistBuddy -c 'Add :CFBundleIdentifier string dev.local.foldnote' "$CONTENTS/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleName string Foldnote' "$CONTENTS/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Foldnote' "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleName string Banana Notes' "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Banana Notes' "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Banana Notes' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundlePackageType string APPL' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :NSPrincipalClass string NSApplication' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleVersion string 1' "$CONTENTS/Info.plist"
@@ -37,9 +39,10 @@ plutil -create xml1 "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0 dict' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLName string dev.local.foldnote' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes array' "$CONTENTS/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string foldnote' "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string banananotes' "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:1 string foldnote' "$CONTENTS/Info.plist"
 
-ICON_PATH="${FOLDNOTE_ICON:-}"
+ICON_PATH="${BANANA_NOTES_ICON:-${FOLDNOTE_ICON:-}}"
 if [[ -z "$ICON_PATH" && -f "$ROOT/assets/AppIcon.icns" ]]; then ICON_PATH="$ROOT/assets/AppIcon.icns"; fi
 if [[ -n "$ICON_PATH" ]]; then
   cp "$ICON_PATH" "$RESOURCES/AppIcon.icns"

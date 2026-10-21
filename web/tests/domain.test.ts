@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createNote, updateNote, navigate, orderedNotes, notebookTags, selectNotebook, splitDocument, withTag, tagsOf, titleOf, validateLibrary, trashNote, restoreNote, trashedNotes, type Library } from '../src/domain';
+import { createNote, updateNote, navigate, orderedNotes, notebookTags, selectNotebook, splitDocument, withTag, tagsOf, titleOf, validateLibrary, trashNote, restoreNote, trashedNotes, welcomeLibrary, type Library } from '../src/domain';
 const time = (n:number) => `2026-10-${String(n).padStart(2,'0')}T12:00:00.000Z`;
 const empty = (): Library => ({version:1, notes:[], selectedID:null, activeTag:null});
 function fixture(): Library {
@@ -10,6 +10,13 @@ function fixture(): Library {
   }
   return lib;
 }
+test('only a new library receives Banana Notes welcome copy; existing note content survives loading',()=>{
+  const welcome = welcomeLibrary('welcome', time(1));
+  assert.match(welcome.notes[0].markdown, /^# Welcome to Banana Notes\n/);
+  const old = fixture();
+  old.notes[0].markdown = '# Welcome to Foldnote\n\nMy own edits and #ideas';
+  assert.equal(validateLibrary(old).notes[0].markdown, old.notes[0].markdown);
+});
 test('hashtags and YAML tags normalize, deduplicate, and ignore code/headings/URL fragments',()=>{
   const markdown='---\ntags: [Project, ideas]\ntitle: Keep me\n---\n# A heading\n#project (#work/project) #café\n`#literal` [link](https://site/#fragment) \\#escaped\n```js\n#not-a-tag\n```';
   assert.deepEqual(tagsOf(markdown),['café','ideas','project','work/project']);

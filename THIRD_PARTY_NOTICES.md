@@ -1,6 +1,6 @@
 # Third-party notices
 
-Foldnote's MIT license covers its original code and artwork, not third-party components or trademarks.
+Banana Notes’ MIT license covers its original code and artwork, not third-party components or trademarks.
 
 ## Web dependencies
 
@@ -12,7 +12,7 @@ The web build collects license and notice files from every npm package in its de
 
 The bundled palette adaptations come from [Agent Paint](https://github.com/jzlosman/agent-paint). Its [source record](vendor/agent-paint/SOURCE.md), [MIT license](vendor/agent-paint/LICENSE), [upstream attribution](vendor/agent-paint/THIRD_PARTY_NOTICES.md), and [upstream license texts](vendor/agent-paint/licenses/README.md) are preserved. These notices and license texts are also included in the app.
 
-The upstream Agent Paint notice mentions its separate web gallery and Mona Sans font. Neither that gallery nor its font is distributed with Foldnote.
+The upstream Agent Paint notice mentions its separate web gallery and Mona Sans font. Neither that gallery nor its font is distributed with Banana Notes.
 
 ## System and optional resources
 

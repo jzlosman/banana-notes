@@ -3,6 +3,10 @@ import Foundation
 @main
 struct LibraryStoreSelfTest {
     static func main() throws {
+        precondition(LibraryStore.dataDirectoryOverride(environment: [:]) == nil)
+        precondition(LibraryStore.dataDirectoryOverride(environment: ["FOLDNOTE_DATA_DIR": "/legacy"]) == "/legacy")
+        precondition(LibraryStore.dataDirectoryOverride(environment: ["BANANA_NOTES_DATA_DIR": "/banana", "FOLDNOTE_DATA_DIR": "/legacy"]) == "/banana")
+        precondition(LibraryStore.dataDirectoryOverride(environment: ["BANANA_NOTES_DATA_DIR": "", "FOLDNOTE_DATA_DIR": "/legacy"]) == "/legacy")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("FoldnoteStoreTest-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var store = LibraryStore(directory: directory)

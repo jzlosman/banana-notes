@@ -1,19 +1,36 @@
-.note-font-settings { margin: 0 0 22px; }
-.note-font-settings h2 { margin: 0 0 9px; font-size: 15px; font-weight: 600; }
-.note-font-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 7px 0; font-size: 13px; }
-.note-font-control { min-width: 0; max-width: 68%; padding: 5px 7px; color: var(--ink); background: var(--chrome); border: 1px solid var(--line); border-radius: 5px; font: inherit; font-size: 12px; }
+.note-font-settings { display: flex; flex-direction: column; gap: 12px; }
+.note-font-settings h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
+.note-font-fields { display: grid; grid-template-columns: minmax(0, 1fr) 112px 76px; gap: 12px; }
+.note-font-label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; font-weight: 500; color: var(--muted); }
+.note-font-select { display: block; position: relative; min-width: 0; color: var(--ink); }
+.note-font-select svg { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--muted); }
+.note-font-control { appearance: none; -webkit-appearance: none; display: block; width: 100%; min-width: 0; min-height: 32px; padding: 6px 10px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 5px; font: inherit; font-size: 13px; font-weight: 400; line-height: 1.4; }
+select.note-font-control { padding-right: 32px; text-overflow: ellipsis; cursor: pointer; }
+.note-font-control::placeholder { color: var(--muted); opacity: 1; }
+.note-font-control:disabled { color: var(--muted); cursor: default; }
 .note-font-control:focus-visible, .note-font-download-button:focus-visible, .note-font-cancel:focus-visible, .note-font-download summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.note-font-preview { margin: 8px 0 9px; padding: 2px 0; color: var(--ink); line-height: 1.55; overflow-wrap: anywhere; }
-.note-font-preview > div:first-child { font-size: 14px; }
-.note-font-preview > div:last-child { color: var(--muted); font-size: 12px; }
-.note-font-download { margin-top: 7px; }
-.note-font-download summary { width: fit-content; color: var(--muted); cursor: pointer; font-size: 12px; }
-.note-font-download summary:hover { color: var(--ink); }
-.note-font-download .note-font-label { margin: 9px 0 7px; }
-.note-font-download-button, .note-font-cancel { min-height: 28px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; }
-.note-font-download-button:hover:not(:disabled), .note-font-cancel:hover { background: var(--hover); }
+.note-font-preview { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 12px; margin: 0; padding: 8px 12px; background: var(--chrome); border-radius: 5px; }
+.note-font-preview figcaption { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.note-font-sample { color: var(--ink); font-size: var(--note-font-size, 15px); line-height: 1.6; overflow-wrap: anywhere; font-synthesis: weight style; }
+.note-font-sample > div:last-child { color: var(--muted); }
+.note-font-download { padding-top: 4px; border-top: 1px solid var(--line); }
+.note-font-download summary { min-height: 32px; padding: 6px 0; color: var(--ink); cursor: pointer; font-size: 13px; font-weight: 500; }
+.note-font-download summary:hover { color: var(--accent); }
+.note-font-download-form { display: grid; gap: 12px; margin: 8px 0 4px; padding-left: 16px; border-left: 1px solid var(--line); }
+.note-font-download-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.note-font-download-button, .note-font-cancel { min-height: 32px; padding: 6px 12px; border-radius: 5px; font-size: 13px; font-weight: 500; }
+.note-font-download-button { color: var(--on-accent); background: var(--accent); }
+.note-font-download-button:hover:not(:disabled) { filter: brightness(.94); }
 .note-font-download-button:disabled { cursor: progress; }
-.note-font-status, .note-font-error { margin: 6px 0; font-size: 12px; }
+.note-font-cancel { padding-inline: 4px; color: var(--muted); }
+.note-font-cancel:hover { color: var(--ink); }
+.note-font-status, .note-font-error { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .note-font-status { color: var(--muted); }
 .note-font-error { color: var(--danger); }
-.note-font-cancel { margin-left: 7px; }
+@media (max-width: 420px) {
+  .note-font-fields { grid-template-columns: minmax(0, 1fr) 100px 76px; gap: 8px; }
+}
+@media (max-height: 520px) {
+  .note-font-settings { gap: 8px; }
+  .note-font-sample > div:last-child { display: none; }
+}

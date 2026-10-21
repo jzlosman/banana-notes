@@ -178,20 +178,17 @@ html[data-focused='false'] .view-note .notice { bottom: 12px; }
 .appearance-tab { padding: 6px 0 8px; border-bottom: 2px solid transparent; font-size: 12px; color: var(--muted); }
 .appearance-tab[aria-selected='true'] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 550; }
 .appearance-tab:hover { color: var(--ink); }
-.window-settings { flex: 1; min-height: 0; overflow-y: auto; padding: 1px 3px 22px; margin: 0 -3px; }
-.text-size-setting { margin: 18px 0 24px; }
-.window-effects-heading { font-size: 15px; font-weight: 600; margin: 0 0 16px; }
-.text-size-heading, .text-size-controls { display: flex; align-items: center; gap: 8px; }
-.text-size-heading { justify-content: space-between; font-size: 13px; font-weight: 550; }
-.text-size-controls output { min-width: 40px; font-size: 12px; font-weight: 400; text-align: center; font-variant-numeric: tabular-nums; }
+.window-settings { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 2px 8px 24px 3px; margin: 0 -3px; }
+.window-settings h2 { font-size: 15px; font-weight: 600; line-height: 1.4; margin: 0 0 16px; }
+.window-settings > .settings-group + .settings-group { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
 .font-save-status { display: inline-block; min-width: 0; font-size: 11px; }
-.effect-setting { margin-bottom: 22px; }
+.effect-setting { margin-bottom: 20px; }
 .effect-labels { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; margin-bottom: 8px; }
 .effect-labels label { font-size: 13px; font-weight: 550; }
 .effect-labels output { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .effect-range { display: block; width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .effect-hint { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 7px 0 0; }
-.effects-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 26px 0 13px; }
+.effects-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0 8px; }
 .effects-recovery { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 0 0 10px; }
 .theme-filters { display: flex; gap: 6px; padding: 12px 0; }
 .theme-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start; padding: 3px 3px 16px; margin: 0 -3px; }

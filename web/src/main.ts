@@ -8,7 +8,7 @@ import './note-image.css';
 import './note-font.css';
 import './action-menu.css';
 import { closePopover, openActionMenu } from './action-menu';
-import { createElement, ChevronLeft, ChevronRight, Plus, Pin, Search, ArrowLeft, BookOpen, PanelTop, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Minus, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
+import { createElement, ChevronLeft, ChevronRight, Plus, Pin, Search, ArrowLeft, BookOpen, PanelTop, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
 import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor } from './editor';
 import { type Library, type Note, createNote, updateNote, navigate, orderedNotes, notebookTags, selectNotebook, splitDocument, withTag, tagsOf, titleOf, excerptOf, validateLibrary, welcomeLibrary, trashNote, restoreNote, trashedNotes, selectedTags, selectNotebooks, queryNotes, bulkTrashNotes, bulkRestoreNotes, bulkArchiveNotes, bulkTagNotes, purgeExpiredTrash } from './domain';
@@ -448,9 +448,7 @@ async function downloadNoteFont(family: string): Promise<{ fontState: NoteFontSt
 }
 function applyFontSize(): void {
   document.documentElement.style.setProperty('--note-font-size', `${fontSize}px`);
-  const output = app.querySelector<HTMLOutputElement>('[data-font-size]'); if (output) output.value = `${fontSize} px`;
-  const smaller = app.querySelector<HTMLButtonElement>('[data-font-action="smaller"]'); if (smaller) smaller.disabled = fontSize <= MIN_FONT_SIZE;
-  const bigger = app.querySelector<HTMLButtonElement>('[data-font-action="bigger"]'); if (bigger) bigger.disabled = fontSize >= MAX_FONT_SIZE;
+  const sizeControl = app.querySelector<HTMLSelectElement>('[data-font-size]'); if (sizeControl) sizeControl.value = String(fontSize);
   const status = app.querySelector<HTMLElement>('.font-save-status'); if (status) { status.textContent = fontStatus; status.hidden = !fontError; status.classList.toggle('save-error', fontError); }
 }
 function changeFontSize(value: number): void {
@@ -518,7 +516,7 @@ function refreshWindowStyleControls(): void {
     if (output) output.value = `${value}%`;
   }
   const status = app.querySelector<HTMLElement>('.effects-save-status');
-  if (status) { status.textContent = windowStyleStatus; status.classList.toggle('save-error', windowStyleError); }
+  if (status) { status.textContent = windowStyleStatus; status.hidden = !windowStyleError; status.classList.toggle('save-error', windowStyleError); }
 }
 function changeWindowStyle(style: WindowStyle): void {
   windowStyle = resolveWindowStyle(style);
@@ -578,15 +576,17 @@ function renderGeneralSettings(): HTMLElement {
 }
 function renderWindowStyleSettings(): HTMLElement {
   const settings = element('section', 'window-settings'); settings.id = 'appearance-content'; settings.setAttribute('role', 'tabpanel'); settings.setAttribute('aria-labelledby', 'appearance-tab-window');
-  settings.append(renderNoteFontSettings({ state: noteFonts, onSelect: chooseNoteFont, onDownload: downloadNoteFont, onCancelDownload: async () => { await native('cancelFontDownload'); } }));
-  const textSize = element('div', 'text-size-setting'); const sizeHeading = element('div', 'text-size-heading'); const controls = element('div', 'text-size-controls'); controls.setAttribute('role', 'group'); controls.setAttribute('aria-label', 'Note text size');
-  const smaller = button('Smaller note text · ⌘−', Minus, () => changeFontSize(stepFontSize(fontSize, -1))); smaller.dataset.fontAction = 'smaller';
-  const bigger = button('Bigger note text · ⌘+', Plus, () => changeFontSize(stepFontSize(fontSize, 1))); bigger.dataset.fontAction = 'bigger';
-  const output = element('output'); output.dataset.fontSize = ''; output.setAttribute('aria-label', 'Current note text size');
-  controls.append(smaller, output, bigger, button('Reset note text size · ⌘0', null, () => changeFontSize(DEFAULT_FONT_SIZE), 'text-button', 'Reset'));
-  sizeHeading.append(element('span', '', 'Note text size'), controls);
+  const sizeControl = element('select', 'note-font-control'); sizeControl.dataset.fontSize = ''; sizeControl.setAttribute('aria-label', 'Note text size');
+  sizeControl.title = 'Note text size · ⌘+/⌘− · Reset with ⌘0';
+  for (let size = MIN_FONT_SIZE; size <= MAX_FONT_SIZE; size++) {
+    const option = element('option', '', `${size} px`); option.value = String(size); sizeControl.append(option);
+  }
+  sizeControl.value = String(fontSize); sizeControl.onchange = () => changeFontSize(Number(sizeControl.value));
   const fontSaveStatus = button('Retry saving note text size', null, () => fontSizeQueue.flush(), 'save-status font-save-status'); fontSaveStatus.setAttribute('aria-live', 'polite');
-  textSize.append(sizeHeading, element('p', 'effect-hint', '⌘+ increases text size; ⌘− decreases it. Reset with ⌘0.'), fontSaveStatus); settings.append(textSize, element('h2', 'window-effects-heading', 'Window effects'));
+  settings.append(renderNoteFontSettings({ state: noteFonts, textSizeControl: { input: sizeControl, status: fontSaveStatus }, onSelect: chooseNoteFont, onDownload: downloadNoteFont, onCancelDownload: async () => { await native('cancelFontDownload'); } }));
+  const effects = element('section', 'settings-group window-effects');
+  const effectsHeading = element('h2', '', 'Window effects'); effectsHeading.id = 'window-effects-heading'; effects.setAttribute('aria-labelledby', effectsHeading.id);
+  effects.append(effectsHeading); settings.append(effects);
   for (const [field, label, hint] of [
     ['focusedOpacity', 'Active window opacity', 'Applies to the entire window, including text.'],
     ['unfocusedOpacity', 'Inactive window opacity', 'Applies when the pinned window is inactive.'],
@@ -599,13 +599,13 @@ function renderWindowStyleSettings(): HTMLElement {
     const input = element('input', 'effect-range'); input.type = 'range'; input.id = `effect-${field}`; input.dataset.windowStyle = field;
     input.min = field === 'glass' ? '0' : '5'; input.max = '100'; input.step = '1';
     input.oninput = () => changeWindowStyle({ ...windowStyle, [field]: Number(input.value) / 100 });
-    row.append(labels, input, element('p', 'effect-hint', hint)); settings.append(row);
+    row.append(labels, input, element('p', 'effect-hint', hint)); effects.append(row);
   }
   const actions = element('div', 'effects-actions');
   actions.append(button('Reset window effects', null, () => changeWindowStyle({ ...DEFAULT_WINDOW_STYLE }), 'text-button', 'Reset window effects'));
   const status = button('Retry saving window effects', null, () => windowStyleQueue.flush(), 'save-status effects-save-status'); status.setAttribute('aria-live', 'polite'); actions.append(status);
-  settings.append(actions, element('p', 'effects-recovery', 'Use the menu bar → Reset Window Effects to restore visibility.'));
-  if (!isNative) settings.append(element('p', 'effects-recovery', 'Background translucency is available in the Mac app only.'));
+  effects.append(actions, element('p', 'effects-recovery', 'Use the menu bar → Reset Window Effects to restore visibility.'));
+  if (!isNative) effects.append(element('p', 'effects-recovery', 'Background translucency is available in the Mac app only.'));
   return settings;
 }
 function renderThemes(): void {

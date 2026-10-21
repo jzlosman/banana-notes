@@ -70,7 +70,19 @@ function scopedNotes(library: Library, tags = selectedTags(library)): Note[] {
   return library.notes.filter(note => !note.trashedAt && inTagScope(note, tags));
 }
 export function orderedNotes(library: Library): Note[] {
-  return [...scopedNotes(library)].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  // Stable sorting preserves insertion order for simultaneous notes; a new UUID
+  // must not reshuffle existing pages when creation timestamps tie.
+  return [...scopedNotes(library)].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+export function noteNavigation(library: Library): { position: number | null; total: number; canMoveOlder: boolean; canMoveNewer: boolean } {
+  const notes = orderedNotes(library);
+  const index = notes.findIndex(note => note.id === library.selectedID);
+  return {
+    position: index < 0 ? null : notes.length - index,
+    total: notes.length,
+    canMoveOlder: notes.length > 0 && index < notes.length - 1,
+    canMoveNewer: index > 0,
+  };
 }
 export interface NoteQuery { query?: string; before?: string; sort?: 'edited' | 'created'; includeTrash?: boolean; tags?: string[] }
 export function queryNotes(library: Library, options: NoteQuery = {}): Note[] {
@@ -120,8 +132,20 @@ export function navigate(library: Library, delta: number): Library {
   const next = Math.min(notes.length - 1, Math.max(0, index + delta));
   return { ...library, selectedID: notes[next].id };
 }
+function isBlankNote(note: Note, inheritedTags: string[]): boolean {
+  const parts = splitDocument(note.markdown);
+  if (parts.error || parts.body.trim()) return false;
+  const keys = Object.keys(parts.metadata);
+  // Only the current notebook's generated tag scaffold is clean metadata.
+  if (!inheritedTags.length) return !keys.length;
+  const tags = parts.metadata.tags;
+  return keys.length === 1 && keys[0] === 'tags' && Array.isArray(tags)
+    && tags.length === inheritedTags.length && inheritedTags.every(tag => tags.includes(tag));
+}
 export function createNote(library: Library, id: string, now: string): Library {
   if (library.notes.some(note => note.id === id)) throw new Error('Duplicate note identity');
+  const newest = orderedNotes(library)[0];
+  if (newest && isBlankNote(newest, selectedTags(library))) return { ...library, selectedID: newest.id };
   const note: Note = { id, markdown: selectedTags(library).reduce((markdown, tag) => withTag(markdown, tag), ''), createdAt: now, updatedAt: now };
   return { ...library, notes: [note, ...library.notes], selectedID: id };
 }

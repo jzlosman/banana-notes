@@ -1,0 +1,27 @@
+# Dependencies and generated output
+node_modules/
+/build/
+/web/dist/
+/assets/AppIcon.iconset/
+*.app/
+*.log
+.DS_Store
+
+# Private local research, verification data, and planning
+/research/
+/evidence/
+/DESIGN.md
+/PRODUCT.md
+/assets/brand-exploration/
+/AGENTS.md
+/.agents/
+/.pi/
+/.claude/
+
+# Credentials and local configuration
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx

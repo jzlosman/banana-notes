@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Keep local artifacts out of source
+        run: |
+          forbidden="$(git ls-files -- evidence research build web/dist node_modules assets/AppIcon.iconset assets/brand-exploration DESIGN.md PRODUCT.md AGENTS.md '.env' '.env.*' '*.pem' '*.key' '*.p12' '*.pfx')"
+          if [[ -n "$forbidden" ]]; then
+            echo '::error::Private or generated artifacts must not be tracked.'
+            printf '%s\n' "$forbidden"
+            exit 1
+          fi
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test note behavior and web adapters
+        run: npm test
+      - name: Build web assets
+        run: npm run build:web
+      - name: Test native adapters
+        run: bash scripts/native-tests.sh
+      - name: Build and verify local app
+        run: bash scripts/build-app.sh

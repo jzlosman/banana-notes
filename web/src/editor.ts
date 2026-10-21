@@ -1,0 +1,34 @@
+import { Editor } from '@tiptap/core';
+import Placeholder from '@tiptap/extension-placeholder';
+import { markdownExtensions } from './editor-schema';
+import { handleEditorClipboardCopy, handleEditorClipboardCut, handleEditorClipboardPaste } from './clipboard';
+
+export function createMarkdownEditor(element: HTMLElement, markdown: string, onChange: (markdown: string) => void): Editor {
+  let editor!: Editor;
+  editor = new Editor({
+    element,
+    extensions: [
+      ...markdownExtensions(),
+      Placeholder.configure({ placeholder: 'Start typing…' }),
+    ],
+    content: markdown,
+    contentType: 'markdown',
+    editorProps: {
+      attributes: { class: 'markdown-editor', 'aria-label': 'Note editor', role: 'textbox', 'aria-multiline': 'true', spellcheck: 'true', 'data-gramm': 'false', 'data-gramm_editor': 'false', 'data-enable-grammarly': 'false' },
+      handleClick: (_view, _position, event) => {
+        const link = (event.target as HTMLElement).closest('a');
+        if (link && (event.metaKey || event.ctrlKey)) { window.open(link.href, '_blank', 'noopener'); return true; }
+        return false;
+      },
+      handleDOMEvents: {
+        copy: (_view, event) => handleEditorClipboardCopy(editor, event as ClipboardEvent),
+        cut: (_view, event) => handleEditorClipboardCut(editor, event as ClipboardEvent),
+        paste: (_view, event) => handleEditorClipboardPaste(editor, event as ClipboardEvent),
+      },
+    },
+    // Focus can append a trailing paragraph after tables. It is editor geometry,
+    // not a note edit; only a content-changing command should rewrite Markdown.
+    onUpdate: ({ editor, transaction }) => { if (transaction.docChanged) onChange(editor.getMarkdown()); },
+  });
+  return editor;
+}

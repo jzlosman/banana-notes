@@ -1,0 +1,14 @@
+.action-popover { position: fixed; z-index: 50; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto; border-radius: 8px; background: var(--paper); color: var(--ink); box-shadow: 0 6px 28px #0000002b; }
+.action-menu { width: 236px; padding: 5px; }
+.menu-action { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: 4px; font-size: 12px; text-align: left; }
+.menu-action:hover:not(:disabled), .menu-action:focus-visible { background: var(--hover); }
+.menu-action.danger { color: var(--danger); }
+.menu-action > span:first-of-type { flex: 1; }
+.menu-shortcut { margin-left: auto; color: var(--muted); font-size: 11px; }
+.menu-separator { height: 1px; background: var(--line); margin: 4px 5px; }
+.tag-popover { width: 270px; padding: 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.tag-popover label { display: flex; flex-direction: column; align-self: stretch; gap: 8px; font-size: 12px; }
+.tag-popover input { min-width: 0; padding: 7px 9px; background: var(--chrome); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; }
+.row-more { color: var(--muted); opacity: 0; }
+.note-list-entry:hover .row-more, .note-list-entry:focus-within .row-more, .project-row:hover .row-more, .project-row:focus-within .row-more, .row-more[aria-expanded='true'] { opacity: 1; }
+@media (hover: none) { .row-more { opacity: 1; } }

@@ -1,0 +1,4 @@
+.markdown-editor img { max-width: 100%; height: auto; border-radius: 6px; }
+.markdown-editor audio, .markdown-editor video { display: block; max-width: 100%; margin: .65em 0; }
+.markdown-editor audio { width: min(100%, 28rem); }
+.markdown-editor video { max-height: 28rem; }

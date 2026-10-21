@@ -105,7 +105,8 @@ test('font picker confirms selection only after persistence and offers supported
   gate.resolve({ ...withGoogle(), selection: { fontID: googleFont.id, weight: 500 } });
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(fontSelect.value, googleFont.id);
-  assert.equal(component.querySelector('.note-font-preview')?.textContent, 'Project notesDraft ready for review.');
+  assert.equal(component.querySelector('.note-font-preview figcaption')?.textContent, 'Preview');
+  assert.equal(component.querySelector('.note-font-sample')?.textContent, 'Project notesDraft ready for review.');
   window.close();
 });
 
@@ -127,6 +128,7 @@ test('Google Fonts download is explicit and selects only after cache result is p
   const next: NoteFontDefinition = { ...googleFont, id: 'dm-sans', name: 'DM Sans', family: 'DM Sans', weights: [400, 600], faces: [{ ...googleFont.faces[0], weight: '400 600' }] };
   const component = renderNoteFontSettings({ state: DEFAULT_NOTE_FONT_STATE, onSelect: async selection => { selectionCall = `${selection.fontID}:${selection.weight}`; return { selection, fonts: [...DEFAULT_NOTE_FONT_STATE.fonts, next] }; }, onDownload: async family => { downloads++; assert.equal(family, 'DM Sans'); return { fontState: { ...DEFAULT_NOTE_FONT_STATE, fonts: [...DEFAULT_NOTE_FONT_STATE.fonts, next] }, downloadedFontID: next.id }; } });
   const input = component.querySelector('input[aria-label="Google Fonts family name"]') as HTMLInputElement;
+  window.document.body.append(component);
   input.value = 'DM Sans';
   assert.equal(downloads, 0);
   component.querySelector<HTMLButtonElement>('button.note-font-download-button')!.click();
@@ -143,8 +145,9 @@ test('invalid family input is rejected and stale download completion cannot over
   const component = renderNoteFontSettings({ state: withGoogle(), onSelect: async selection => ({ ...withGoogle(), selection }), onDownload: () => gate.promise });
   const input = component.querySelector('input[aria-label="Google Fonts family name"]') as HTMLInputElement;
   const button = component.querySelector<HTMLButtonElement>('button.note-font-download-button')!;
+  window.document.body.append(component);
   input.value = 'Bad; url(https://example.com)'; button.click();
-  assert.equal(component.querySelector('[role="alert"]')?.textContent, 'Enter a valid Google Fonts family name.');
+  assert.equal(component.querySelector('.note-font-download [role="alert"]')?.textContent, 'Enter a valid Google Fonts family name.');
   input.value = 'IBM Plex Mono'; button.click();
   change(window, component.querySelector<HTMLSelectElement>('select[aria-label="Note font"]')!, 'system');
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -159,6 +162,7 @@ test('cancel calls the optional native cancellation port and ignores late result
   const gate = deferred<{ fontState: NoteFontState; downloadedFontID: string }>();
   let canceled = 0;
   const component = renderNoteFontSettings({ state: DEFAULT_NOTE_FONT_STATE, onSelect: async selection => ({ ...DEFAULT_NOTE_FONT_STATE, selection }), onDownload: () => gate.promise, onCancelDownload: async () => { canceled++; } });
+  window.document.body.append(component);
   (component.querySelector('input[aria-label="Google Fonts family name"]') as HTMLInputElement).value = 'IBM Plex Mono';
   component.querySelector<HTMLButtonElement>('button.note-font-download-button')!.click();
   component.querySelector<HTMLButtonElement>('button.note-font-cancel')!.click();
@@ -167,6 +171,46 @@ test('cancel calls the optional native cancellation port and ignores late result
   gate.resolve({ fontState: withGoogle(), downloadedFontID: googleFont.id });
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(component.querySelector<HTMLSelectElement>('select[aria-label="Note font"]')?.value, 'sf-mono');
+  window.close();
+});
+
+test('typography groups controls, text size and a labelled preview before the optional download form', () => {
+  const { window } = dom();
+  let downloads = 0;
+  const size = window.document.createElement('select'); size.setAttribute('aria-label', 'Note text size');
+  const status = window.document.createElement('button'); status.hidden = true;
+  const component = renderNoteFontSettings({ state: DEFAULT_NOTE_FONT_STATE, textSizeControl: { input: size, status }, onSelect: async selection => ({ ...DEFAULT_NOTE_FONT_STATE, selection }), onDownload: async () => { downloads++; throw new Error('Unexpected download'); } });
+  assert.equal(component.querySelector('h2')?.textContent, 'Note text');
+  assert.equal(component.getAttribute('aria-labelledby'), component.querySelector('h2')?.id);
+  const fields = component.querySelector('.note-font-fields')!;
+  assert.deepEqual(Array.from(fields.querySelectorAll('label'), field => field.firstChild?.textContent), ['Font', 'Weight', 'Size']);
+  assert.equal(fields.querySelectorAll('select').length, 3);
+  assert.ok(fields.contains(size));
+  assert.equal(status.parentElement, component, 'save failures stay visible outside the narrow size field');
+  const details = component.querySelector('details')!;
+  assert.equal(details.open, false);
+  assert.equal(details.querySelector('summary')?.textContent, 'Add a Google font');
+  const form = details.querySelector('form')!;
+  assert.ok(form.querySelector('label input[aria-label="Google Fonts family name"]'));
+  assert.equal(form.querySelector('button[type="submit"]')?.textContent, 'Download and use');
+  details.open = true;
+  assert.equal(downloads, 0, 'opening font setup never downloads anything');
+  window.close();
+});
+
+test('download form handles submit and keeps failures next to its controls', async () => {
+  const { window } = dom();
+  let requested = '';
+  const component = renderNoteFontSettings({ state: DEFAULT_NOTE_FONT_STATE, onSelect: async selection => ({ ...DEFAULT_NOTE_FONT_STATE, selection }), onDownload: async family => { requested = family; throw new Error('Download failed. Try again.'); } });
+  const form = component.querySelector('form')!;
+  component.querySelector<HTMLInputElement>('input')!.value = 'Lora';
+  const submit = new window.Event('submit', { bubbles: true, cancelable: true });
+  form.dispatchEvent(submit);
+  assert.equal(submit.defaultPrevented, true, 'Enter submits without navigating away from Settings');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(requested, 'Lora');
+  assert.equal(form.querySelector('[role="alert"]')?.textContent, 'Download failed. Try again.');
+  assert.equal(component.querySelector(':scope > [role="alert"]')?.textContent, '', 'download failures do not appear as selection failures');
   window.close();
 });
 

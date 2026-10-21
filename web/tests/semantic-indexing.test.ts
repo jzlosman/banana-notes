@@ -109,6 +109,12 @@ test('failed background attempt is reported and retryable; explicit errors propa
   await assert.rejects(new SemanticIndexCoordinator(disabled.adapter).refresh([note('a')]), /Enable semantic search/);
 });
 
+test('selected-provider readiness errors retain native guidance without assuming Ollama', async () => {
+  const unavailable = port({ status: async () => ({ ...ready, runtimeAvailable: false, unavailableReason: 'The native macOS embedding model is unavailable.' }) });
+  await assert.rejects(new SemanticIndexCoordinator(unavailable.adapter).refresh([note('a')]), /native macOS embedding model/);
+  assert.equal(unavailable.calls.length, 0);
+});
+
 test('invalidation suppresses obsolete background completion and callbacks', async () => {
   const build = deferred<Record<string, unknown>>(); const indexed: unknown[] = []; const errors: unknown[] = [];
   const adapter: SemanticIndexPort = { status: async () => ready, index: async () => build.promise };

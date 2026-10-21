@@ -3,6 +3,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { createExplorerState, renderExplorerView, type ExplorerViewOptions } from '../src/explorer-view';
 import { closePopover } from '../src/action-menu';
+import type { NoteSearchResult } from '../src/note-search';
 import { createNote, updateNote, trashNote, type Library } from '../src/domain';
 
 const at = (day: number) => `2026-10-${String(day).padStart(2, '0')}T12:00:00.000Z`;
@@ -74,20 +75,79 @@ test('right click and the overflow expose the same actions; Escape restores focu
 test('overview is available from overflow and carries the selected notebook scope', () => harness((_dom, root, calls) => {
   click(filters(root), 'Toggle work tag filter'); closePopover(); click(root, 'Notes actions'); menu(root, 'Notebook overview'); assert.deepEqual(calls.overview?.[0], [['work']]);
 }));
-test('semantic search rejects stale replies and preserves scoped ranking rather than substring results', async () => {
-  const pending: ((ids: string[]) => void)[] = [];
+test('one search field automatically enriches results and rejects stale or out-of-scope replies', async () => {
+  const pending: ((value: NoteSearchResult) => void)[] = [];
   await harness(async (dom, root, _calls, state) => {
-    state.semantic = true; const search = root.querySelector('[aria-label="Search notes"]') as HTMLInputElement;
+    const search = root.querySelector('[aria-label="Search notes"]') as HTMLInputElement;
     search.value = 'first'; search.dispatchEvent(new dom.window.Event('input')); search.value = 'second'; search.dispatchEvent(new dom.window.Event('input'));
-    pending[0](['one']); pending[1](['two', 'one', 'hidden']); await tick(); assert.deepEqual(state.semanticIDs, ['two', 'one']);
-    assert.deepEqual([...root.querySelectorAll<HTMLElement>('.library-entry')].map(row => row.dataset.noteId), ['two', 'one']); assert.equal(root.querySelector('.note-total')?.textContent, '2 notes'); assert.match(root.querySelector('.explorer-semantic-disclosure')?.textContent ?? '', /up to 50 semantic results/i);
-  }, { onSemanticSearch: async () => new Promise(resolve => pending.push(resolve)) });
+    pending[0]({ kind: 'semantic', ids: ['one'] }); pending[1]({ kind: 'semantic', ids: ['two', 'one', 'three', 'hidden'] }); await tick();
+    assert.deepEqual(state.searchResult, { kind: 'semantic', ids: ['two', 'one'] });
+    assert.deepEqual([...root.querySelectorAll<HTMLElement>('.library-entry')].map(row => row.dataset.noteId), ['two', 'one']);
+    assert.equal(root.querySelector('.note-total')?.textContent, '2 notes');
+    assert.match(root.querySelector('.explorer-semantic-disclosure')?.textContent ?? '', /up to 50 semantic matches/i);
+    assert.equal(search.placeholder, 'Search notes…');
+    assert.equal(root.querySelector('.library-filter-trigger')?.classList.contains('active'), false, 'semantic capability is not a user-selected filter');
+    const panel = filters(root); assert.equal(panel.querySelector('[aria-label="Search method"]'), null); assert.doesNotMatch(panel.querySelector('.library-filter-panel')!.textContent!, /Search using/);
+  }, { onSearch: async () => new Promise<NoteSearchResult>(resolve => pending.push(resolve)) });
 });
-test('tag changes rerun semantic candidates and ignore an earlier async response', async () => {
-  const pending: { candidates: string[]; resolve: (ids: string[]) => void }[] = [];
+test('tag changes rerun search candidates and ignore an earlier async response', async () => {
+  const pending: { candidates: string[]; resolve: (value: NoteSearchResult) => void }[] = [];
   await harness(async (dom, root, _calls, state) => {
-    state.semantic = true; const search = root.querySelector('[aria-label="Search notes"]') as HTMLInputElement; search.value = 'meaning'; search.dispatchEvent(new dom.window.Event('input'));
+    const search = root.querySelector('[aria-label="Search notes"]') as HTMLInputElement; search.value = 'meaning'; search.dispatchEvent(new dom.window.Event('input'));
     assert.deepEqual(pending[0].candidates, ['four', 'two', 'one']); click(filters(root), 'Toggle work tag filter'); assert.deepEqual(pending[1].candidates, ['two', 'one']);
-    pending[0].resolve(['four']); pending[1].resolve(['one', 'two']); await tick(); assert.deepEqual(state.semanticIDs, ['one', 'two']);
-  }, { onSemanticSearch: async (_query, candidates) => new Promise(resolve => pending.push({ candidates, resolve })) });
+    pending[0].resolve({ kind: 'semantic', ids: ['four'] }); pending[1].resolve({ kind: 'semantic', ids: ['one', 'two'] }); await tick(); assert.deepEqual(state.searchResult, { kind: 'semantic', ids: ['one', 'two'] });
+  }, { onSearch: async (_query, candidates) => new Promise<NoteSearchResult>(resolve => pending.push({ candidates, resolve })) });
+});
+
+test('literal matches remain visible while pending and come before additional semantic matches', async () => {
+  let complete!: (value: NoteSearchResult) => void;
+  await harness(async (dom, root) => {
+    const search = root.querySelector<HTMLInputElement>('[aria-label="Search notes"]')!;
+    search.value = 'One'; search.dispatchEvent(new dom.window.Event('input'));
+    const ids = () => [...root.querySelectorAll<HTMLElement>('.library-entry')].map(row => row.dataset.noteId);
+    assert.deepEqual(ids(), ['one']);
+    complete({ kind: 'semantic', ids: ['two', 'one', 'four'] }); await tick();
+    assert.deepEqual(ids(), ['one', 'two', 'four']);
+    selectMode(root); click(root, 'Select all filtered notes');
+    assert.match(root.querySelector('.selection-count')!.textContent!, /3 selected/);
+  }, { onSearch: async () => new Promise<NoteSearchResult>(resolve => { complete = resolve; }) });
+});
+
+test('unavailable enrichment keeps exact matches and offers Settings without a global error', async () => {
+  let configured = 0;
+  await harness(async (dom, root, calls) => {
+    const search = root.querySelector<HTMLInputElement>('[aria-label="Search notes"]')!;
+    search.value = 'One'; search.dispatchEvent(new dom.window.Event('input')); await tick();
+    assert.deepEqual([...root.querySelectorAll<HTMLElement>('.library-entry')].map(row => row.dataset.noteId), ['one']);
+    assert.match(root.querySelector('.explorer-semantic-status')!.textContent!, /Showing text matches/);
+    assert.equal(root.querySelector('.explorer-semantic-status')!.getAttribute('role'), 'status');
+    click(root, 'Search settings'); assert.equal(configured, 1); assert.equal(calls.error, undefined);
+  }, { onSearch: async () => { throw new Error('engine unavailable'); }, onConfigureSearch: () => { configured++; } });
+});
+
+test('Disabled configuration yields silent text-only results, and Trash never invokes embeddings', async () => {
+  let searches = 0;
+  await harness(async (dom, root) => {
+    const search = root.querySelector<HTMLInputElement>('[aria-label="Search notes"]')!;
+    search.value = 'One'; search.dispatchEvent(new dom.window.Event('input')); await tick();
+    assert.equal(root.querySelectorAll('.library-entry').length, 1);
+    assert.equal(root.querySelector<HTMLElement>('.explorer-semantic-status')!.hidden, true);
+    assert.equal(root.querySelector('.explorer-semantic-disclosure'), null);
+    click(root, 'Notes actions'); menu(root, 'Trash');
+    const trash = dom.window.document.querySelector<HTMLElement>('.library-explorer')!;
+    const trashSearch = trash.querySelector<HTMLInputElement>('[aria-label="Search notes"]')!;
+    trashSearch.value = 'Three'; trashSearch.dispatchEvent(new dom.window.Event('input')); await tick();
+    assert.equal(trash.querySelectorAll('.library-entry').length, 1); assert.equal(searches, 1);
+  }, { onSearch: async () => { searches++; return { kind: 'text' }; } });
+});
+
+test('resetting filters reruns enrichment against the restored scope', async () => {
+  const scopes: string[][] = [];
+  await harness(async (dom, root) => {
+    const search = root.querySelector<HTMLInputElement>('[aria-label="Search notes"]')!;
+    search.value = 'meaning'; search.dispatchEvent(new dom.window.Event('input')); await tick();
+    click(filters(root), 'Toggle work tag filter'); await tick();
+    closePopover(); click(filters(root), 'Reset note filters'); await tick();
+    assert.deepEqual(scopes, [['four', 'two', 'one'], ['two', 'one'], ['four', 'two', 'one']]);
+  }, { onSearch: async (_query, candidates) => { scopes.push(candidates); return { kind: 'semantic', ids: candidates }; } });
 });

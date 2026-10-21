@@ -18,7 +18,7 @@ cp "$WEB_DIST"/{index.html,app.js,app.css,theme-catalog.json} "$RESOURCES/web/"
 cp -R "$WEB_DIST/third-party" "$RESOURCES/web/"
 if [[ -f "$WEB_DIST/app.js.map" ]]; then cp "$WEB_DIST/app.js.map" "$RESOURCES/web/"; fi
 ARCH="$(uname -m)"
-FLAGS=(-target "$ARCH-apple-macosx14.0" -O -framework AppKit -framework WebKit -framework Carbon)
+FLAGS=(-target "$ARCH-apple-macosx14.0" -O -framework AppKit -framework WebKit -framework Carbon -framework NaturalLanguage)
 if [[ "${BANANA_NOTES_DEBUG-${FOLDNOTE_DEBUG:-}}" == "1" ]]; then FLAGS+=(-D DEBUG); fi
 swiftc "${FLAGS[@]}" "$ROOT"/native/*.swift -o "$CONTENTS/MacOS/Banana Notes"
 

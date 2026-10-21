@@ -13,7 +13,6 @@
 .active-filter { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; padding: 2px 6px; border-radius: 4px; color: var(--accent); background: var(--accent-soft); font-size: 11px; }
 .active-filter span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .active-filter svg { width: 11px; height: 11px; flex-shrink: 0; }
-.search-method-label { align-self: center; color: var(--muted); font-size: 11px; padding: 2px; }
 .library-trash-note { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 10px 0 0; }
 .library-note-list { flex: 1; min-height: 0; overscroll-behavior: contain; padding-bottom: 20px; }
 .library-entry { gap: 9px; }
@@ -27,8 +26,9 @@
 .library-empty { padding: 35px 10px; }
 .library-empty h2 { font-size: 17px; font-weight: 550; letter-spacing: -.015em; margin: 0 0 6px; }
 .library-empty p { font-size: 12px; margin: 0; }
-.explorer-semantic-status { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.explorer-semantic-status[role='alert'] { color: var(--danger); }
+.explorer-semantic-status { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.explorer-semantic-status[hidden] { display: none; }
+.explorer-semantic-status button { flex-shrink: 0; }
 .explorer-semantic-disclosure { margin: 15px 0 0; color: var(--muted); font-size: 11px; }
 .library-filter-panel { width: 304px; padding: 16px; }
 .filter-panel-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 13px; }
@@ -40,5 +40,4 @@
 .filter-tag-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; max-height: 180px; overflow: auto; }
 .filter-tag-list .filter-chip { width: 100%; justify-content: space-between; padding: 5px 6px; }
 .filter-tag-list .filter-chip > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.filter-search-mode { margin-top: 16px; padding-top: 5px; border-top: 1px solid var(--line); }
 @media (max-height: 520px) { .library-filter-panel { padding: 12px; } .filter-tag-list { max-height: 100px; } }

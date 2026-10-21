@@ -28,6 +28,7 @@ import { importAttachments, attachmentMarkdown, type AttachmentRecord } from './
 import { applyCodeAppearance, renderCodeSettings, renderCodeLanguageSelector, highlightCodeHTML, syntaxThemeIDs, type SyntaxThemeID } from './code-highlighting';
 import { renderSemanticSettings, semanticSearch, type SemanticInvoke, type SemanticStatus, type SemanticNoteSnapshot } from './semantic-search';
 import { SemanticIndexCoordinator } from './semantic-indexing';
+import { searchNotes } from './note-search';
 import { buildNoteImageRequest, renderNoteImageExportControls, type NoteImageOptions, type NoteImageRequest } from './note-image';
 
 type NativeReply = { library?: unknown; error?: string; pinned?: boolean; hotkeyAvailable?: boolean; dataDirectory?: string; saved?: boolean; themeID?: string; themeWarning?: string | null; focused?: boolean; windowStyle?: unknown; fontSize?: unknown; copied?: boolean; ocrEnabled?: boolean; syntaxThemeID?: string; launchAtLogin?: boolean; launchStatus?: string; launchError?: string | null; newNoteOnLaunch?: boolean; featureWarning?: string | null; imageOptions?: NoteImageOptions; noteFonts?: NoteFontState };
@@ -73,7 +74,7 @@ const featureInvoke: SemanticInvoke = async (action, data = {}) => {
     try { return await indexCoordinator.refresh((data.notes as SemanticNoteSnapshot[]) ?? library.notes, data.force === true); }
     finally { explicitIndexRequests--; }
   }
-  if (['semanticEnable', 'semanticClear', 'semanticCancel'].includes(action)) { indexCoordinator.invalidate(); automaticIndexError = ''; }
+  if (['semanticEnable', 'semanticClear', 'semanticCancel'].includes(action)) { semanticSequence++; indexCoordinator.invalidate(); automaticIndexError = ''; if (explorerState) explorerState.searchResult = null; }
   const result = await native<Record<string, unknown>>(action, data);
   if (['semanticEnable', 'semanticStartRuntime', 'semanticDownload'].includes(action)) indexCoordinator.schedule(library.notes, true);
   return result;
@@ -289,14 +290,14 @@ function renderExplorer(): void {
     onArchive: ids => { try { changed(bulkArchiveNotes(library, ids, new Date().toISOString()), 'Notes archived' ); } catch (error) { showError(error); } },
     onTag: (ids, tag) => { try { changed(bulkTagNotes(library, ids, tag, new Date().toISOString()), `Added #${tag.replace(/^#/, '')}`); } catch (error) { showError(error); } },
     onOverview: tags => openProject(tags),
-    onSemanticSearch: async (text, candidates) => {
-      if (!isNative) throw new Error('Local semantic search runs in the Mac app.');
+    onSearch: isNative ? async (text, candidates) => {
       const sequence = ++semanticSequence; await new Promise(resolve => setTimeout(resolve, 250));
-      if (sequence !== semanticSequence) return [];
-      await indexCoordinator.refresh(library.notes);
-      if (sequence !== semanticSequence) return [];
-      return (await semanticSearch(featureInvoke, text, candidates)).map(hit => hit.id);
-    }, onConfigureSearch: () => openThemes('search'), onError: showError,
+      return searchNotes(text, candidates, {
+        status: () => native<SemanticStatus>('semanticStatus'),
+        prepareIndex: () => indexCoordinator.refresh(library.notes),
+        semanticSearch: async (query, ids) => (await semanticSearch(featureInvoke, query, ids)).map(hit => hit.id),
+      }, () => sequence === semanticSequence);
+    } : undefined, onConfigureSearch: () => openThemes('search'), onError: showError,
   }));
 }
 function renderHeaderScope(): void {
@@ -725,6 +726,7 @@ function renderFooter(): void {
   footer.append(button('Shortcuts & Markdown help', CircleHelp, () => { view = view === 'help' ? 'note' : 'help'; render(); })); app.append(footer); renderCounter(); refreshCodeTools();
 }
 function render(): void {
+  semanticSequence++;
   refreshSemanticSettings = undefined;
   closePopover();
   disposeDragRegion?.(); disposeDragRegion = undefined;

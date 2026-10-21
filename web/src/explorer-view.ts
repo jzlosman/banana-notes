@@ -2,6 +2,7 @@ import { createElement, Search, ArrowLeft, Trash2, Ellipsis, SlidersHorizontal, 
 import { notebookTags, queryNotes, selectedTags, titleOf, trashExpiresAt, type Library, type Note } from './domain';
 import { openActionMenu, openPopover, type MenuItem } from './action-menu';
 import { renderNoteSummary } from './note-summary';
+import { mergeSearchMatches, type NoteSearchResult } from './note-search';
 
 export type ExplorerMode = 'notes' | 'trash';
 export interface ExplorerState {
@@ -12,11 +13,10 @@ export interface ExplorerState {
   mode: ExplorerMode;
   sort: 'edited' | 'created';
   selectedTags: string[];
-  semantic: boolean;
-  semanticIDs: string[] | null;
+  searchResult: NoteSearchResult | null;
 }
 export function createExplorerState(library?: Library): ExplorerState {
-  return { query: '', before: '', selectedIDs: new Set(), selecting: false, mode: 'notes', sort: 'edited', selectedTags: library ? selectedTags(library) : [], semantic: false, semanticIDs: null };
+  return { query: '', before: '', selectedIDs: new Set(), selecting: false, mode: 'notes', sort: 'edited', selectedTags: library ? selectedTags(library) : [], searchResult: null };
 }
 
 /** Read view; all business state changes and external queries belong to its host. */
@@ -32,7 +32,7 @@ export interface ExplorerViewOptions {
   onArchive(ids: string[], now: string): void;
   onTag(ids: string[], tag: string, now: string): void;
   onOverview(tags: string[]): void;
-  onSemanticSearch?(query: string, candidateIDs: string[]): Promise<string[]>;
+  onSearch?(query: string, candidateIDs: string[]): Promise<NoteSearchResult>;
   onConfigureSearch?(): void;
   onError?(error: Error): void;
 }
@@ -55,7 +55,7 @@ const generationOf = (state: ExplorerState) => generations.get(state) ?? 0;
 export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   const { library, state } = options;
   generations.set(state, generationOf(state) + 1);
-  let semanticBusy = false, semanticError = '';
+  let searchBusy = false;
   const root = el('main', 'explorer-side library-explorer'); root.setAttribute('aria-label', state.mode === 'trash' ? 'Trash' : 'Notes explorer');
   const heading = el('div', 'explorer-heading library-heading');
   if (state.mode === 'trash') heading.append(button('Back to notes', () => changeMode('notes'), ArrowLeft));
@@ -67,8 +67,8 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   const controls = el('div', 'library-controls');
   const searchRow = el('div', 'library-search-row');
   const searchLabel = el('label', 'search-field library-search'); searchLabel.append(icon(Search));
-  const search = el('input'); search.type = 'search'; search.placeholder = state.semantic ? 'Semantic search…' : 'Search notes…'; search.setAttribute('aria-label', 'Search notes'); search.value = state.query;
-  search.oninput = () => { state.query = search.value; invalidate(); redraw(); if (state.semantic) void runSemantic(); };
+  const search = el('input'); search.type = 'search'; search.placeholder = 'Search notes…'; search.setAttribute('aria-label', 'Search notes'); search.value = state.query;
+  search.oninput = () => { state.query = search.value; invalidate(); redraw(); void runSearch(); };
   search.onkeydown = event => { if (event.key === 'ArrowDown') { event.preventDefault(); root.querySelector<HTMLElement>('.library-row-title')?.focus(); } };
   searchLabel.append(search); searchRow.append(searchLabel);
   const filters = button('Filter and sort notes', () => openFilters(), SlidersHorizontal, 'icon-button library-filter-trigger'); filters.setAttribute('aria-haspopup', 'dialog');
@@ -82,15 +82,18 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   root.append(controls, bulk, status, list);
 
   function report(error: unknown) { options.onError?.(error instanceof Error ? error : new Error(String(error))); }
-  function visible(): Note[] {
-    const meaning = state.semantic && state.mode === 'notes' && !!state.query.trim();
-    const found = queryNotes(library, { query: meaning ? undefined : state.query, before: state.before || undefined, sort: state.sort, tags: state.selectedTags, includeTrash: state.mode === 'trash' })
+  function scopedNotes(query?: string): Note[] {
+    return queryNotes(library, { query, before: state.before || undefined, sort: state.sort, tags: state.selectedTags, includeTrash: state.mode === 'trash' })
       .filter(note => state.mode === 'trash' ? !!note.trashedAt && !expired(note, options.now) : !note.trashedAt);
-    if (!meaning) return found;
-    const rank = new Map((state.semanticIDs ?? []).map((id, index) => [id, index]));
-    return found.filter(note => rank.has(note.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
   }
-  function invalidate() { generations.set(state, generationOf(state) + 1); state.semanticIDs = null; semanticBusy = false; semanticError = ''; }
+  function visible(): Note[] {
+    const textMatches = scopedNotes(state.query);
+    if (state.mode !== 'notes' || !state.query.trim() || state.searchResult?.kind !== 'semantic') return textMatches;
+    const ids = mergeSearchMatches(textMatches.map(note => note.id), state.searchResult.ids);
+    const rank = new Map(ids.map((id, index) => [id, index]));
+    return scopedNotes().filter(note => rank.has(note.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+  }
+  function invalidate() { generations.set(state, generationOf(state) + 1); state.searchResult = null; searchBusy = false; }
   function changeMode(mode: ExplorerMode) {
     state.mode = mode; state.query = ''; state.before = ''; state.selectedIDs.clear(); state.selecting = false; invalidate();
     root.replaceWith(renderExplorerView(options)); options.onModeChange?.();
@@ -128,12 +131,12 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   function openFilters() {
     const panel = el('div', 'library-filter-panel');
     const top = el('div', 'filter-panel-heading'); top.append(el('h2', '', 'Filter & sort'));
-    const reset = button('Reset note filters', () => { state.selectedTags = []; state.before = ''; options.onScopeChange([]); invalidate(); redraw(); openFilters(); }, undefined, 'text-button'); reset.textContent = 'Reset'; top.append(reset); panel.append(top);
+    const reset = button('Reset note filters', () => { state.selectedTags = []; state.before = ''; options.onScopeChange([]); invalidate(); redraw(); void runSearch(); openFilters(); }, undefined, 'text-button'); reset.textContent = 'Reset'; top.append(reset); panel.append(top);
     const sortLabel = el('label', 'filter-setting', 'Sort by'); const sort = el('select'); sort.setAttribute('aria-label', 'Sort notes');
     for (const [value, text] of [['edited', 'Recently edited'], ['created', 'Recently created']]) { const option = el('option', '', text); option.value = value; sort.append(option); }
-    sort.value = state.sort; sort.onchange = () => { state.sort = sort.value as ExplorerState['sort']; invalidate(); redraw(); if (state.semantic) void runSemantic(); }; sortLabel.append(sort); panel.append(sortLabel);
+    sort.value = state.sort; sort.onchange = () => { state.sort = sort.value as ExplorerState['sort']; invalidate(); redraw(); void runSearch(); }; sortLabel.append(sort); panel.append(sortLabel);
     const dateLabel = el('label', 'filter-setting', 'Before date · UTC'); const date = el('input'); date.type = 'date'; date.value = state.before; date.setAttribute('aria-label', 'Before date (UTC)');
-    date.onchange = () => { state.before = date.value; invalidate(); redraw(); if (state.semantic) void runSemantic(); }; dateLabel.append(date); panel.append(dateLabel);
+    date.onchange = () => { state.before = date.value; invalidate(); redraw(); void runSearch(); }; dateLabel.append(date); panel.append(dateLabel);
     const tagHeading = el('h3', '', 'Tags'); panel.append(tagHeading, el('p', 'filter-hint', 'Match every selected tag.'));
     const tags = notebookTags(library); if (!tags.some(item => item.tag === 'archive')) tags.push({ tag: 'archive', count: 0 });
     const tagList = el('div', 'filter-tag-list'); tagList.setAttribute('aria-label', 'Filter by tags');
@@ -141,32 +144,30 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
       const chip = button(`Toggle ${tag} tag filter`, () => {
         state.selectedTags = state.selectedTags.includes(tag) ? state.selectedTags.filter(item => item !== tag) : [...state.selectedTags, tag];
         chip.setAttribute('aria-pressed', String(state.selectedTags.includes(tag))); chip.classList.toggle('selected', state.selectedTags.includes(tag));
-        options.onScopeChange([...state.selectedTags]); invalidate(); redraw(); if (state.semantic) void runSemantic();
+        options.onScopeChange([...state.selectedTags]); invalidate(); redraw(); void runSearch();
       }, undefined, `filter-chip${state.selectedTags.includes(tag) ? ' selected' : ''}`);
       chip.append(el('span', '', `#${tag}`), el('span', 'chip-count', String(total))); chip.setAttribute('aria-pressed', String(state.selectedTags.includes(tag))); tagList.append(chip);
     }
     panel.append(tagList);
-    if (options.onSemanticSearch) {
-      const modes = el('div', 'filter-search-mode'); const label = el('label', 'filter-setting', 'Search using'); const select = el('select'); select.setAttribute('aria-label', 'Search method');
-      for (const [value, text] of [['text', 'Text'], ['meaning', 'Semantic']]) { const item = el('option', '', text); item.value = value; select.append(item); }
-      select.value = state.semantic ? 'meaning' : 'text'; select.onchange = () => { state.semantic = select.value === 'meaning'; search.placeholder = state.semantic ? 'Semantic search…' : 'Search notes…'; invalidate(); redraw(); if (state.semantic) void runSemantic(); };
-      label.append(select); modes.append(label);
-      if (options.onConfigureSearch) { const setup = button('Configure semantic search', options.onConfigureSearch, undefined, 'text-button'); setup.textContent = 'Configure semantic search…'; modes.append(setup); }
-      panel.append(modes);
-    }
     openPopover(filters, panel, { label: 'Filter and sort notes' });
   }
-  async function runSemantic() {
-    if (!options.onSemanticSearch || !state.semantic || state.mode !== 'notes' || !state.query.trim()) return;
-    const generation = generationOf(state) + 1; generations.set(state, generation); semanticBusy = true; semanticError = ''; redraw();
-    const candidates = queryNotes(library, { before: state.before || undefined, sort: state.sort, tags: state.selectedTags }).filter(note => !note.trashedAt).map(note => note.id);
+  async function runSearch() {
+    if (!options.onSearch || state.mode !== 'notes' || !state.query.trim()) return;
+    const generation = generationOf(state) + 1; generations.set(state, generation); searchBusy = true; redraw();
+    const candidates = scopedNotes().map(note => note.id);
     try {
-      const ids = await options.onSemanticSearch(state.query, candidates);
+      const result = await options.onSearch(state.query, candidates);
       if (generation !== generationOf(state)) return;
-      const allowed = new Set(candidates); state.semanticIDs = [...new Set(ids)].filter(id => allowed.has(id)).slice(0, 50); semanticBusy = false; redraw();
-    } catch (error) {
+      if (result.kind === 'cancelled') { searchBusy = false; redraw(); return; }
+      if (result.kind === 'semantic') {
+        const allowed = new Set(candidates);
+        state.searchResult = { kind: 'semantic', ids: [...new Set(result.ids)].filter(id => allowed.has(id)).slice(0, 50) };
+      } else state.searchResult = result;
+      searchBusy = false; redraw();
+    } catch {
       if (generation !== generationOf(state)) return;
-      semanticBusy = false; semanticError = 'Semantic search is unavailable. Check Settings → Search.'; report(error); redraw();
+      state.searchResult = { kind: 'text', reason: 'Semantic search is unavailable. Showing text matches; check Settings → Search.' };
+      searchBusy = false; redraw();
     }
   }
   function redraw() {
@@ -176,13 +177,12 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
     scope.replaceChildren();
     if (state.mode === 'notes') {
       for (const tag of state.selectedTags) {
-        const chip = button(`Remove ${tag} filter`, () => { state.selectedTags = state.selectedTags.filter(value => value !== tag); options.onScopeChange([...state.selectedTags]); invalidate(); redraw(); if (state.semantic) void runSemantic(); }, X, 'active-filter');
+        const chip = button(`Remove ${tag} filter`, () => { state.selectedTags = state.selectedTags.filter(value => value !== tag); options.onScopeChange([...state.selectedTags]); invalidate(); redraw(); void runSearch(); }, X, 'active-filter');
         chip.prepend(el('span', '', `#${tag}`)); scope.append(chip);
       }
-      if (state.before) { const chip = button('Remove before-date filter', () => { state.before = ''; invalidate(); redraw(); if (state.semantic) void runSemantic(); }, X, 'active-filter'); chip.prepend(el('span', '', `Before ${state.before}`)); scope.append(chip); }
-      if (state.semantic) scope.append(el('span', 'search-method-label', 'Semantic'));
+      if (state.before) { const chip = button('Remove before-date filter', () => { state.before = ''; invalidate(); redraw(); void runSearch(); }, X, 'active-filter'); chip.prepend(el('span', '', `Before ${state.before}`)); scope.append(chip); }
     }
-    scope.hidden = !scope.childElementCount; filters.classList.toggle('active', !!state.before || !!state.selectedTags.length || state.semantic);
+    scope.hidden = !scope.childElementCount; filters.classList.toggle('active', !!state.before || !!state.selectedTags.length);
     bulk.replaceChildren(); bulk.hidden = !state.selecting;
     if (state.selecting) {
       const all = el('input'); all.type = 'checkbox'; all.setAttribute('aria-label', 'Select all filtered notes'); all.checked = results.length > 0 && results.every(note => state.selectedIDs.has(note.id)); all.indeterminate = state.selectedIDs.size > 0 && !all.checked;
@@ -197,12 +197,20 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
       }
       bulk.append(button('Done selecting', () => { state.selecting = false; state.selectedIDs.clear(); redraw(); }, X));
     }
-    const meaning = state.semantic && state.mode === 'notes' && !!state.query.trim();
-    status.textContent = semanticError || (semanticBusy ? 'Searching…' : ''); status.hidden = !status.textContent; status.setAttribute('role', semanticError ? 'alert' : 'status');
+    const reason = state.searchResult?.kind === 'text' ? state.searchResult.reason : undefined;
+    status.replaceChildren();
+    if (searchBusy) status.append(el('span', '', 'Searching…'));
+    else if (reason) {
+      status.append(el('span', '', reason));
+      if (options.onConfigureSearch) {
+        const setup = button('Search settings', options.onConfigureSearch, undefined, 'text-button'); setup.textContent = 'Search settings'; status.append(setup);
+      }
+    }
+    status.hidden = !status.childElementCount;
     list.replaceChildren();
     if (!results.length) {
-      const empty = el('div', 'empty-state library-empty'); empty.append(el('h2', '', state.mode === 'trash' ? 'Trash is empty' : semanticBusy ? 'Searching…' : state.query ? 'No matching notes' : 'No notes'));
-      empty.append(el('p', '', state.mode === 'trash' ? 'Deleted notes are kept for 30 days.' : semanticError ? 'Use text search or check semantic search settings.' : semanticBusy ? 'Searching the local index.' : state.query || state.selectedTags.length || state.before ? 'Try another search or adjust your filters.' : 'Create a note with ⌘N.'));
+      const empty = el('div', 'empty-state library-empty'); empty.append(el('h2', '', state.mode === 'trash' ? 'Trash is empty' : searchBusy ? 'Searching…' : state.query ? 'No matching notes' : 'No notes'));
+      empty.append(el('p', '', state.mode === 'trash' ? 'Deleted notes are kept for 30 days.' : searchBusy ? 'Searching the local index.' : state.query || state.selectedTags.length || state.before ? 'Try another search or adjust your filters.' : 'Create a note with ⌘N.'));
       list.append(empty);
     }
     for (const note of results) {
@@ -217,7 +225,7 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
       row.oncontextmenu = event => { event.preventDefault(); openActionMenu(action, rowActions(note, action), { label: 'Note actions', point: { x: event.clientX, y: event.clientY }, onError: report }); };
       list.append(row);
     }
-    if (meaning && !semanticBusy && !semanticError && results.length) list.append(el('p', 'explorer-semantic-disclosure', 'Showing up to 50 semantic results.'));
+    if (state.mode === 'notes' && state.query.trim() && state.searchResult?.kind === 'semantic' && !searchBusy && results.length) list.append(el('p', 'explorer-semantic-disclosure', 'Includes up to 50 semantic matches.'));
   }
   list.addEventListener('keydown', event => {
     const target = event.target as HTMLElement, row = target.closest<HTMLElement>('.library-entry'); if (!row) return;
@@ -226,5 +234,5 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
     const rows = [...list.querySelectorAll<HTMLElement>('.library-row-title')], next = rows[rows.indexOf(target.closest('.library-row-title') as HTMLElement) + (event.key === 'ArrowDown' ? 1 : -1)];
     if (next) { event.preventDefault(); next.focus(); }
   });
-  redraw(); if (state.semantic && state.query.trim()) void runSemantic(); return root;
+  redraw(); if (state.query.trim()) void runSearch(); return root;
 }

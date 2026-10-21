@@ -5,6 +5,7 @@ export interface SemanticIndexStatus {
   runtimeAvailable: boolean;
   installed: boolean;
   model: string;
+  unavailableReason?: string | null;
 }
 
 export interface SemanticIndexPort {
@@ -88,8 +89,7 @@ export class SemanticIndexCoordinator {
       assertActive();
       const status = await this.port.status(); assertActive();
       if (!status.enabled) throw new Error('Enable semantic search in Settings → Search.');
-      if (!status.runtimeAvailable) throw new Error('Start Ollama to use semantic search.');
-      if (!status.installed) throw new Error('Download a model in Settings → Search.');
+      if (!status.runtimeAvailable || !status.installed) throw new Error(status.unavailableReason || 'The selected search engine is not ready. Check Settings → Search.');
       return this.indexIfNeeded(snapshot, status.model, force, generation);
     });
   }

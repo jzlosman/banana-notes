@@ -9,7 +9,7 @@ for source in "$ROOT"/native/*.swift; do
 done
 for test in "$ROOT"/native/Tests/*SelfTest.swift; do
   name="$(basename "$test" .swift)"
-  swiftc -target "$(uname -m)-apple-macosx14.0" -framework AppKit -framework WebKit -framework Carbon \
+  swiftc -target "$(uname -m)-apple-macosx14.0" -framework AppKit -framework WebKit -framework Carbon -framework NaturalLanguage \
     "${SOURCES[@]}" "$test" -o "$TMP/$name"
   "$TMP/$name"
 done

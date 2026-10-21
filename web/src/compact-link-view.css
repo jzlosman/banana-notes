@@ -1,0 +1,8 @@
+.compact-link-source-range { font-size: 0; }
+.compact-link-label {
+  display: inline;
+  font: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

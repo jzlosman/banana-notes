@@ -37,8 +37,9 @@ Install by copying `build/Banana Notes.app` into `~/Applications`. Open **Banana
 | Trash focused note in list | Command–Delete |
 | Hide | Escape or Command–W |
 | Bold / italic | Command–B / Command–I |
+| Add / edit link | Command–K |
 
-Type Markdown directly: headings, bold, italic, strike-through, ordered/bullet/task lists, blockquotes, links, fenced code and tables. It renders in place. Press Return twice to leave a list. Command-click a link to open it externally. The source toggle is optional and replaces the editor; there is never a split preview.
+Type Markdown directly: headings, bold, italic, strike-through, ordered/bullet/task lists, blockquotes, links, fenced code and tables. It renders in place. Press Return twice to leave a list. Select text and press Command–K (or use the footer’s link button) to add a link. Click an existing link or press Command–K inside it to edit its address/text or remove the link. Command-click opens its destination. Long raw URL labels display with a middle ellipsis; the full text and destination remain intact in Markdown and copies. Custom link labels are never shortened, and no external shortening service is used. The source toggle is optional and replaces the editor; there is never a split preview.
 
 Write `#work` in the note, add a tag using **Tag**, or use YAML frontmatter:
 

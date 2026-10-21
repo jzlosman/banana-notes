@@ -10,7 +10,7 @@ import { createHighlightedCodeBlock } from './code-highlighting';
 /** The live editor and clipboard renderer must use the same safe Markdown grammar. */
 export function markdownExtensions() {
   return [
-    StarterKit.configure({ codeBlock: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https', protocols: ['http', 'https', 'mailto'] } }),
+    StarterKit.configure({ codeBlock: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https', protocols: ['http', 'https', 'mailto', 'banananotes', 'foldnote'] } }),
     // Never share Marked's mutable tokenizer registry across editor instances.
     Markdown.configure({ marked: new Marked() as unknown as typeof marked }),
     TaskList, TaskItem.configure({ nested: true }), TableKit.configure({ table: { resizable: false } }),

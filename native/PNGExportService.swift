@@ -182,7 +182,7 @@ enum PNGExportError: Error, LocalizedError {
     }
     private static func safeFilename(_ title: String) -> String {
         let cleaned = title.replacingOccurrences(of: "[^A-Za-z0-9 _-]", with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
-        return String((cleaned.isEmpty ? "Foldnote" : cleaned).prefix(80))
+        return String((cleaned.isEmpty ? "Banana Notes" : cleaned).prefix(80))
     }
 }
 

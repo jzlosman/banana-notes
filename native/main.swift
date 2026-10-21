@@ -5,7 +5,7 @@ let bundleID = Bundle.main.bundleIdentifier ?? "dev.local.foldnote"
 let currentPID = ProcessInfo.processInfo.processIdentifier
 if let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
     .first(where: { $0.processIdentifier != currentPID && !$0.isTerminated }) {
-    let showURL = URL(string: "foldnote://show")!
+    let showURL = URL(string: "banananotes://show")!
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = true
     NSWorkspace.shared.open([showURL], withApplicationAt: Bundle.main.bundleURL,
@@ -15,13 +15,13 @@ if let existing = NSRunningApplication.runningApplications(withBundleIdentifier:
 }
 
 guard let resources = Bundle.main.resourceURL else {
-    fputs("Foldnote bundle is missing its Resources directory.\n", stderr)
+    fputs("Banana Notes bundle is missing its Resources directory.\n", stderr)
     exit(EXIT_FAILURE)
 }
 let webDirectory = resources.appendingPathComponent("web", isDirectory: true)
 let indexURL = webDirectory.appendingPathComponent("index.html")
 guard FileManager.default.fileExists(atPath: indexURL.path) else {
-    fputs("Foldnote bundle is missing Resources/web/index.html. Build with scripts/build-app.sh after building web/dist.\n", stderr)
+    fputs("Banana Notes bundle is missing Resources/web/index.html. Build with scripts/build-app.sh after building web/dist.\n", stderr)
     exit(EXIT_FAILURE)
 }
 

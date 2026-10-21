@@ -557,7 +557,7 @@ function renderGeneralSettings(): HTMLElement {
   const panel = element('section', 'settings-panel'); const startup = element('section', 'settings-group'); startup.append(element('h2', '', 'Startup'));
   const status = element('p', 'tool-status'); status.setAttribute('role', 'status');
   const approval = button('Open macOS Login Items settings', null, () => native('openLoginSettings'), 'text-button', 'Open Login Items…');
-  const updateStatus = () => { status.textContent = startupState.launchError || (startupState.launchStatus === 'requiresApproval' ? 'Enable Foldnote in macOS Login Items.' : ''); status.hidden = !status.textContent; approval.hidden = !status.textContent; }; updateStatus();
+  const updateStatus = () => { status.textContent = startupState.launchError || (startupState.launchStatus === 'requiresApproval' ? 'Enable Banana Notes in macOS Login Items.' : ''); status.hidden = !status.textContent; approval.hidden = !status.textContent; }; updateStatus();
   for (const [key, label, hint] of [['launchAtLogin', 'Open at login', 'Managed by macOS Login Items.'], ['newNoteOnLaunch', 'New note on launch', 'Create a note each time the app starts.']] as const) {
     const row = element('label', 'setting-row'); const copy = element('span', 'setting-copy'); copy.append(element('span', 'setting-title', label), element('span', 'setting-hint', hint));
     const input = element('input'); input.type = 'checkbox'; input.checked = startupState[key]; input.setAttribute('aria-label', label);
@@ -680,7 +680,7 @@ function renderHelp(): void {
   const main = element('main', 'help-side');
   main.append(element('h1', '', 'Keyboard shortcuts'));
   const shortcuts = element('dl', 'shortcuts');
-  for (const [label, key] of [['Show / hide Foldnote', '⌃⌥Space'], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy Markdown selection', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Trash focused note in list', '⌘⌫']]) {
+  for (const [label, key] of [['Show / hide Banana Notes', '⌃⌥Space'], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy Markdown selection', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Trash focused note in list', '⌘⌫']]) {
     shortcuts.append(element('dt', '', label), element('dd', '', key));
   }
   main.append(shortcuts);
@@ -848,10 +848,10 @@ async function start(): Promise<void> {
     if (noteFontWarning) notify(noteFontWarning, true);
     if (loaded.themeWarning) notify(loaded.themeWarning, true);
     if (loaded.featureWarning) notify(loaded.featureWarning, true);
-    if (loaded.hotkeyAvailable === false) notify('The shortcut ⌃⌥Space is unavailable. Open Foldnote from the menu bar.', true);
+    if (loaded.hotkeyAvailable === false) notify('The shortcut ⌃⌥Space is unavailable. Open Banana Notes from the menu bar.', true);
   } catch (error) {
     app.replaceChildren(); const recovery = element('main', 'recovery');
-    recovery.append(element('h1', '', 'Unable to open notes'), element('p', '', (error as Error).message), element('p', '', 'Reopen Foldnote to retry, or open the data folder. The original files have not been changed.'), button('Open local data folder', FolderOpen, () => native('openData'), 'primary-button', 'Open data folder'));
+    recovery.append(element('h1', '', 'Unable to open notes'), element('p', '', (error as Error).message), element('p', '', 'Reopen Banana Notes to retry, or open the data folder. The original files have not been changed.'), button('Open local data folder', FolderOpen, () => native('openData'), 'primary-button', 'Open data folder'));
     app.append(recovery);
   }
 }

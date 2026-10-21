@@ -56,8 +56,9 @@ const catalog = upstream.map((theme) => {
   const dangerSource = theme.superset?.destructive;
   if (!hex(dangerSource)) throw new Error(`${theme.id}: missing superset.destructive`);
   const { foreground: danger, soft: dangerSoft } = readableTintedForeground(dangerSource);
-  const selection = accentSoft;
-  const selectionText = ensureContrast(ink, [selection], 4.5);
+  // Invert the readable ink/paper pair: selection must stand out from the page, too.
+  const selection = ink;
+  const selectionText = paper;
   const ring = ensureContrast(p.ring, [paper, chrome], 3);
   const onAccent = contrast('#000000', accent) >= contrast('#ffffff', accent) ? '#000000' : '#ffffff';
   const colors = { paper, chrome, ink, muted, line: p.border.toLowerCase(), hover, accent, accentSoft, onAccent, ring, danger, dangerSoft, selection, selectionText };

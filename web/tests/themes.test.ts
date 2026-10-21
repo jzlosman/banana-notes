@@ -37,6 +37,17 @@ test('adapted colors meet readable foreground/background contrast combinations',
   }
 });
 
+test('selection inverts each theme and stands out against both editor and control surfaces', () => {
+  for (const { id, colors: c } of themes) {
+    assert.equal(c.selection, c.ink, `${id}: highlight uses the theme's text color`);
+    assert.equal(c.selectionText, c.paper, `${id}: selected text uses the theme's page color`);
+    for (const surface of [c.paper, c.chrome, c.hover]) {
+      assert.ok(contrast(c.selection, surface) >= 4.5, `${id}: highlight must be distinct from ${surface}`);
+    }
+    assert.ok(contrast(c.selectionText, c.selection) >= 4.5, `${id}: selected text stays readable`);
+  }
+});
+
 test('known palette backgrounds retain upstream identity', () => {
   const known = {
     nord: ['dark', '#2e3440'],

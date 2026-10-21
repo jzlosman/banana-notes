@@ -3,7 +3,7 @@
   --paper: #ffffff; --chrome: #f7f8fa; --ink: #24282c; --muted: #626b73;
   --line: #e9ecee; --hover: #edf0f2; --accent: #276b54; --accent-soft: #eaf3ee;
   --danger: #a02f3a; --danger-soft: #fff0f1; --on-accent: #ffffff; --ring: var(--accent);
-  --selection: color-mix(in srgb, var(--accent) 22%, transparent); --selection-text: var(--ink);
+  --selection: var(--ink); --selection-text: var(--paper);
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   font-size: 14px; line-height: 1.5; color: var(--ink); background: var(--paper);
   font-synthesis: none; -webkit-font-smoothing: antialiased;

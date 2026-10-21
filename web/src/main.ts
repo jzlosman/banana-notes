@@ -14,7 +14,7 @@ import { closePopover, openActionMenu } from './action-menu';
 import { createElement, ChevronLeft, ChevronRight, Plus, Pin, Search, ArrowLeft, BookOpen, PanelTop, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
 import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor } from './editor';
-import { type Library, type Note, createNote, updateNote, navigate, orderedNotes, notebookTags, selectNotebook, splitDocument, withTag, tagsOf, titleOf, excerptOf, validateLibrary, welcomeLibrary, trashNote, restoreNote, trashedNotes, selectedTags, selectNotebooks, queryNotes, bulkTrashNotes, bulkRestoreNotes, bulkArchiveNotes, bulkTagNotes, purgeExpiredTrash } from './domain';
+import { type Library, type Note, createNote, updateNote, navigate, noteNavigation, notebookTags, selectNotebook, splitDocument, withTag, tagsOf, titleOf, excerptOf, validateLibrary, welcomeLibrary, trashNote, restoreNote, trashedNotes, selectedTags, selectNotebooks, queryNotes, bulkTrashNotes, bulkRestoreNotes, bulkArchiveNotes, bulkTagNotes, purgeExpiredTrash } from './domain';
 import { SaveQueue } from './persistence';
 import { themes, themeByID, resolveThemeID, SYSTEM_THEME, type ThemeDefinition } from './themes';
 import { applyAppearance } from './appearance';
@@ -570,7 +570,7 @@ function renderGeneralSettings(): HTMLElement {
   const status = element('p', 'tool-status'); status.setAttribute('role', 'status');
   const approval = button('Open macOS Login Items settings', null, () => native('openLoginSettings'), 'text-button', 'Open Login Items…');
   const updateStatus = () => { status.textContent = startupState.launchError || (startupState.launchStatus === 'requiresApproval' ? 'Enable Banana Notes in macOS Login Items.' : ''); status.hidden = !status.textContent; approval.hidden = !status.textContent; }; updateStatus();
-  for (const [key, label, hint] of [['launchAtLogin', 'Open at login', 'Managed by macOS Login Items.'], ['newNoteOnLaunch', 'New note on launch', 'Create a note each time the app starts.']] as const) {
+  for (const [key, label, hint] of [['launchAtLogin', 'Open at login', 'Managed by macOS Login Items.'], ['newNoteOnLaunch', 'New note on launch', 'Start with a new note, or reuse the newest blank note.']] as const) {
     const row = element('label', 'setting-row'); const copy = element('span', 'setting-copy'); copy.append(element('span', 'setting-title', label), element('span', 'setting-hint', hint));
     const input = element('input'); input.type = 'checkbox'; input.checked = startupState[key]; input.setAttribute('aria-label', label);
     input.onchange = async () => {
@@ -714,12 +714,12 @@ async function exportNotes(): Promise<void> {
 }
 function renderCounter(): void {
   if (!counterElement) return;
-  const notes = orderedNotes(library); const index = notes.findIndex(note => note.id === library.selectedID);
-  counterElement.textContent = notes.length ? (index < 0 ? `— / ${notes.length}` : `${index + 1} / ${notes.length}`) : '0 notes';
-  counterElement.title = index < 0 && notes.length ? 'This note is outside the current notebook' : 'Note position in this notebook';
+  const { position, total, canMoveOlder, canMoveNewer } = noteNavigation(library);
+  counterElement.textContent = total ? `${position ?? '—'} / ${total}` : '0 notes';
+  counterElement.title = position === null && total ? 'This note is outside the current notebook' : 'Note position in this notebook · oldest first';
   const older = app.querySelector<HTMLButtonElement>('[data-navigation="older"]'); const newer = app.querySelector<HTMLButtonElement>('[data-navigation="newer"]');
-  if (older) older.disabled = !notes.length || index >= notes.length - 1;
-  if (newer) newer.disabled = index <= 0;
+  if (older) older.disabled = !canMoveOlder;
+  if (newer) newer.disabled = !canMoveNewer;
 }
 function renderFooter(): void {
   const footer = element('footer'); footer.setAttribute('aria-label', 'Note tools');

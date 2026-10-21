@@ -98,7 +98,7 @@ Headings, bold, italic, strikethrough, bullet, numbered and task lists, blockquo
 
 ![⌘N for a new note, ⌘[ and ⌘] to flip between notes](docs/media/no-file-names.gif)
 
-There's no save button and nothing to name. Press <kbd>⌘</kbd><kbd>N</kbd> and start typing; the first line becomes the title, and every keystroke is saved. Flip back through your day with <kbd>⌘</kbd><kbd>[</kbd> and <kbd>⌘</kbd><kbd>]</kbd>, like turning pages.
+There's no save button and nothing to name. Press <kbd>⌘</kbd><kbd>N</kbd> and start typing; the first line becomes the title, and every keystroke is saved. If the newest note in the current notebook is still blank, it is reused instead of adding another empty note. Flip back through your day with <kbd>⌘</kbd><kbd>[</kbd> and <kbd>⌘</kbd><kbd>]</kbd>, like turning pages. Notes are numbered oldest-first: adding a note leaves earlier page numbers unchanged. Left moves to a lower number; right moves to a higher one.
 
 > **Try it:** <kbd>⌘</kbd><kbd>N</kbd>, write one line, then <kbd>⌘</kbd><kbd>[</kbd> to step back to your previous note.
 
@@ -273,7 +273,7 @@ Indexing updates automatically on launch, focus and saved edits; queries ensure 
 <details>
 <summary><strong>Startup</strong></summary>
 
-**Settings → General** has separate controls for opening at login and creating a new note on a cold launch. Reopening/summoning a running app does not create another note. Both remain off until selected. macOS may require Login Items approval; errors/status are shown rather than pretending registration succeeded.
+**Settings → General** has separate controls for opening at login and creating a new note on a cold launch. The launch option reuses the newest blank note in the current notebook, just like **New note**. Reopening/summoning a running app does not create another note. Both remain off until selected. macOS may require Login Items approval; errors/status are shown rather than pretending registration succeeded.
 
 </details>
 

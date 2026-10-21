@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import QuartzCore
 import WebKit
 
 @MainActor
@@ -25,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var flushGeneration = 0
     private var flushCompletions: [(Result<Void, Error>) -> Void] = []
     private var presentingNativeUI = false
+    private var windowFocus = WindowFocusState()
+    private var focusLossTimer: Timer?
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
 
@@ -69,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        focusLossTimer?.invalidate()
         features?.cancelFontDownload()
         if let hotkey = hotKeyRef { UnregisterEventHotKey(hotkey) }
         if let handler = eventHandler { RemoveEventHandler(handler) }
@@ -235,25 +239,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             blue: CGFloat(value & 255) / 255, alpha: 1)
     }
 
-    private func applyWindowStyle() {
+    private func applyWindowStyle(animated: Bool = false) {
         guard let panel, let windowStylePreferences else { return }
-        panel.alphaValue = windowStylePreferences.style.opacity(isFocused: panel.isKeyWindow)
+        let opacity = windowStylePreferences.style.opacity(isFocused: windowFocus.isFocused)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated && panel.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.2 : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = opacity
+        }
         (panel.contentView as? WindowContentView)?.setGlassAmount(windowStylePreferences.style.glass)
     }
 
-    private func publishFocus() {
+    private func publishFocus(animated: Bool = false) {
+        applyWindowStyle(animated: animated)
+        sendCommand(["action": "focus", "focused": windowFocus.isFocused])
+    }
+
+    @objc private func updateWindowFocus() {
         guard let panel else { return }
-        applyWindowStyle()
-        sendCommand(["action": "focus", "focused": panel.isKeyWindow])
+        focusLossTimer?.invalidate()
+        focusLossTimer = nil
+        let now = ProcessInfo.processInfo.systemUptime
+        if windowFocus.update(isKeyWindow: panel.isKeyWindow, at: now) {
+            publishFocus(animated: true)
+            if !windowFocus.isFocused && !pinned && !presentingNativeUI && panel.isVisible && !flushInProgress {
+                hideAfterFlush(onlyIfUnfocused: true)
+            }
+        }
+        if let deadline = windowFocus.lossDeadline {
+            let timer = Timer(timeInterval: max(0, deadline - now), target: self,
+                              selector: #selector(updateWindowFocus), userInfo: nil, repeats: false)
+            focusLossTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
     }
 
     private func hidePanel() { panel.orderOut(nil) }
 
-    private func hideAfterFlush() {
+    private func hideAfterFlush(onlyIfUnfocused: Bool = false) {
         flushThen { [weak self] result in
             guard let self else { return }
             switch result {
-            case .success: self.hidePanel()
+            case .success:
+                if onlyIfUnfocused && (self.windowFocus.isFocused || self.panel.isKeyWindow || self.pinned || self.presentingNativeUI) { return }
+                self.hidePanel()
             case .failure(let error): self.showPanel(); self.showError("Banana Notes stayed open because the latest changes could not be saved. " + error.localizedDescription)
             }
         }
@@ -303,11 +332,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool { hideAfterFlush(); return false }
-    func windowDidBecomeKey(_ notification: Notification) { publishFocus() }
-    func windowDidResignKey(_ notification: Notification) {
-        publishFocus()
-        if !pinned && !presentingNativeUI && panel.isVisible && !flushInProgress { hideAfterFlush() }
-    }
+    func windowDidBecomeKey(_ notification: Notification) { updateWindowFocus() }
+    func windowDidResignKey(_ notification: Notification) { updateWindowFocus() }
 
     // WKWebView must never navigate beyond the bundled app. Intentional web links
     // leave the app and open in the user's default browser.
@@ -357,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                               "hotkeyStatus": hotkeyAvailable ? "⌃⌥Space toggles Banana Notes." : "⌃⌥Space could not be registered. Use the Banana Notes menu bar icon to open the app.",
                               "dataDirectory": store.directory.path, "themeID": appearancePreferences.selectedID,
                               "themeWarning": appearancePreferences.catalogError as Any? ?? NSNull(),
-                              "focused": panel.isKeyWindow, "windowStyle": windowStylePreferences.style.bridgeValue,
+                              "focused": windowFocus.isFocused, "windowStyle": windowStylePreferences.style.bridgeValue,
                               "fontSize": fontSizePreferences.size, "ocrEnabled": featurePreferences.ocrEnabled,
                               "featureWarning": featureSetupError as Any? ?? NSNull()]
                 replyHandler(state.merging(features?.preferences ?? [:]) { _, new in new }, nil)
@@ -416,6 +442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 let pending = queuedCommands
                 queuedCommands.removeAll()
                 pending.forEach(evaluateCommand)
+                updateWindowFocus()
                 publishFocus()
                 replyHandler(["ok": true], nil)
             case "quit":

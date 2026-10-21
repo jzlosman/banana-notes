@@ -7,6 +7,7 @@ APP="$PROFILE/Banana Notes Verification.app"
 cp -R "$ROOT/build/Banana Notes.app" "$APP"
 ID="dev.local.foldnote.verification.$(uuidgen | tr '[:upper:]' '[:lower:]')"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $ID" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :BananaNotesVerificationDataDirectory string $PROFILE/data" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Delete :CFBundleURLTypes' "$APP/Contents/Info.plist"
 codesign --force --deep --sign - "$APP" >&2
 codesign --verify --deep --strict "$APP" >&2

@@ -24,7 +24,7 @@ BANANA_NOTES_DATA_DIR="$PROFILE/data" \
   "$PROFILE/Banana Notes Verification.app/Contents/MacOS/Banana Notes"
 ```
 
-Quit the verification app before removing its temporary directory. It has a separate bundle identity and synthetic notes; do not substitute your personal library.
+Quit the verification app before removing its temporary directory. It has a separate bundle identity and synthetic notes. Its bundle also requires a binding to that profile’s sibling `data/` directory, so reopening through LaunchServices cannot fall back to personal notes when an environment variable is absent. Never substitute your personal library.
 
 ## Design and safety
 

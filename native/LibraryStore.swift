@@ -16,6 +16,15 @@ struct LibraryStore {
     init(directory: URL? = nil) {
         if let directory {
             self.directory = directory
+        } else if Bundle.main.bundleIdentifier?.hasPrefix("dev.local.foldnote.verification.") == true {
+            do {
+                self.directory = try Self.verificationDirectory(bundleURL: Bundle.main.bundleURL,
+                    binding: Bundle.main.object(forInfoDictionaryKey: "BananaNotesVerificationDataDirectory"))
+            } catch {
+                self.directory = fileManager.temporaryDirectory.appendingPathComponent("BananaNotes-unconfigured-verification", isDirectory: true)
+                self.startupError = error.localizedDescription
+                return
+            }
         } else if let override = Self.dataDirectoryOverride(environment: ProcessInfo.processInfo.environment) {
             self.directory = URL(fileURLWithPath: override, isDirectory: true)
         } else {
@@ -33,6 +42,16 @@ struct LibraryStore {
         } catch {
             self.startupError = "Banana Notes could not prepare its data folder: \(error.localizedDescription)"
         }
+    }
+
+    /// Verification bundles must stay bound to their sibling synthetic data, including LaunchServices reopens.
+    static func verificationDirectory(bundleURL: URL, binding: Any?) throws -> URL {
+        guard let path = binding as? String, path.hasPrefix("/"),
+              URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL ==
+                bundleURL.deletingLastPathComponent().appendingPathComponent("data", isDirectory: true).resolvingSymlinksInPath().standardizedFileURL else {
+            throw StoreError(message: "This verification app has no valid isolated data binding. Recreate its verification profile; personal notes were not opened.")
+        }
+        return URL(fileURLWithPath: path, isDirectory: true)
     }
 
     static func dataDirectoryOverride(environment: [String: String]) -> String? {

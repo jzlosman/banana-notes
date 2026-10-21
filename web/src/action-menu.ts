@@ -18,7 +18,7 @@ export function closePopover(restoreFocus = false): boolean {
 }
 
 /** Ephemeral view adapter: one anchored surface, with shared dismissal/focus behavior. */
-export function openPopover(trigger: HTMLElement, content: HTMLElement, options: { label: string; point?: { x: number; y: number }; menu?: boolean }): void {
+export function openPopover(trigger: HTMLElement, content: HTMLElement, options: { label: string; point?: { x: number; y: number }; menu?: boolean; restoreFocus?: () => void }): void {
   closePopover();
   const doc = trigger.ownerDocument;
   content.classList.add('action-popover');
@@ -38,7 +38,10 @@ export function openPopover(trigger: HTMLElement, content: HTMLElement, options:
     content.remove(); trigger.setAttribute('aria-expanded', 'false');
     doc.removeEventListener('pointerdown', outside, true); doc.removeEventListener('keydown', keydown, true);
     dismiss = undefined;
-    if (restoreFocus && trigger.isConnected) trigger.focus();
+    if (restoreFocus) {
+      if (options.restoreFocus) options.restoreFocus();
+      else if (trigger.isConnected) trigger.focus();
+    }
   };
   const outside = (event: PointerEvent) => { if (!content.contains(event.target as Node) && !trigger.contains(event.target as Node)) close(); };
   const keydown = (event: KeyboardEvent) => {

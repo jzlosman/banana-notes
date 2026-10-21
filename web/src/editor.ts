@@ -1,23 +1,25 @@
 import { Editor } from '@tiptap/core';
 import Placeholder from '@tiptap/extension-placeholder';
 import { markdownExtensions } from './editor-schema';
+import { CompactLinkView } from './compact-link-view';
 import { handleEditorClipboardCopy, handleEditorClipboardCut, handleEditorClipboardPaste } from './clipboard';
 
-export function createMarkdownEditor(element: HTMLElement, markdown: string, onChange: (markdown: string) => void): Editor {
+export function createMarkdownEditor(element: HTMLElement, markdown: string, onChange: (markdown: string) => void, onEditLink?: (editor: Editor, anchor: HTMLElement) => void): Editor {
   let editor!: Editor;
   editor = new Editor({
     element,
     extensions: [
-      ...markdownExtensions(),
+      ...markdownExtensions(), CompactLinkView,
       Placeholder.configure({ placeholder: 'Start typing…' }),
     ],
     content: markdown,
     contentType: 'markdown',
     editorProps: {
       attributes: { class: 'markdown-editor', 'aria-label': 'Note editor', role: 'textbox', 'aria-multiline': 'true', spellcheck: 'true', 'data-gramm': 'false', 'data-gramm_editor': 'false', 'data-enable-grammarly': 'false' },
-      handleClick: (_view, _position, event) => {
+      handleClick: (_view, position, event) => {
         const link = (event.target as HTMLElement).closest('a');
         if (link && (event.metaKey || event.ctrlKey)) { window.open(link.href, '_blank', 'noopener'); return true; }
+        if (link && onEditLink) { editor.commands.setTextSelection(position); onEditLink(editor, link); return true; }
         return false;
       },
       handleDOMEvents: {

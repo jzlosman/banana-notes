@@ -159,6 +159,7 @@ Dracula, Nord, Catppuccin, Rosé Pine, Tokyo Night, Gruvbox, Solarized, GitHub a
 | Markdown source / frontmatter | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd> |
 | Settings and themes | <kbd>⌘</kbd><kbd>,</kbd> |
 | Bold / italic | <kbd>⌘</kbd><kbd>B</kbd> / <kbd>⌘</kbd><kbd>I</kbd> |
+| Add / edit link | <kbd>⌘</kbd><kbd>K</kbd> |
 | Bigger / smaller / reset text | <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>−</kbd> / <kbd>⌘</kbd><kbd>0</kbd> |
 | Copy selection as Markdown | <kbd>⌘</kbd><kbd>C</kbd> |
 | Copy as formatted text | <kbd>⌘</kbd><kbd>⌥</kbd><kbd>C</kbd> |
@@ -187,7 +188,7 @@ It has no Dock icon and, unless pinned, tucks itself away when you click elsewhe
 <details>
 <summary><strong>Writing, tags and frontmatter</strong></summary>
 
-Type Markdown directly: headings, bold, italic, strike-through, ordered/bullet/task lists, blockquotes, links, fenced code and tables. It renders in place. Press Return twice to leave a list. Command-click a link to open it externally. The source toggle is optional and replaces the editor; there is never a split preview.
+Type Markdown directly: headings, bold, italic, strike-through, ordered/bullet/task lists, blockquotes, links, fenced code and tables. It renders in place. Press Return twice to leave a list. Select text and press Command–K (or use the footer’s link button) to add a link. Click an existing link or press Command–K inside it to edit its address/text or remove the link. Command-click opens its destination. Long raw URL labels display with a middle ellipsis; the full text and destination remain intact in Markdown and copies. Custom link labels are never shortened, and no external shortening service is used. The source toggle is optional and replaces the editor; there is never a split preview.
 
 Write `#work` in the note, add a tag using **Tag**, or use YAML frontmatter:
 

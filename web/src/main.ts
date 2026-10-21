@@ -7,8 +7,11 @@ import './semantic-search.css';
 import './note-image.css';
 import './note-font.css';
 import './action-menu.css';
+import './link-editor.css';
+import './compact-link-view.css';
+import { openLinkEditor } from './link-editor';
 import { closePopover, openActionMenu } from './action-menu';
-import { createElement, ChevronLeft, ChevronRight, Plus, Pin, Search, ArrowLeft, BookOpen, PanelTop, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
+import { createElement, ChevronLeft, ChevronRight, Plus, Pin, Search, ArrowLeft, BookOpen, PanelTop, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
 import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor } from './editor';
 import { type Library, type Note, createNote, updateNote, navigate, orderedNotes, notebookTags, selectNotebook, splitDocument, withTag, tagsOf, titleOf, excerptOf, validateLibrary, welcomeLibrary, trashNote, restoreNote, trashedNotes, selectedTags, selectNotebooks, queryNotes, bulkTrashNotes, bulkRestoreNotes, bulkArchiveNotes, bulkTagNotes, purgeExpiredTrash } from './domain';
@@ -226,10 +229,18 @@ function tagInput(): void {
   input.onkeydown = event => { if (event.key === 'Escape') { event.stopPropagation(); form.remove(); editor?.commands.focus(); } };
   badgeElement.append(form); input.focus();
 }
+function editNoteLink(trigger?: HTMLElement): void {
+  if (!editor || view !== 'note' || sourceMode) return;
+  const existing = document.querySelector<HTMLInputElement>('.link-editor input[name="address"]');
+  if (existing) { existing.focus(); existing.select(); return; }
+  const anchor = trigger || app.querySelector<HTMLElement>('[aria-label="Link · ⌘K"]') || editor.view.dom;
+  if (!openLinkEditor(editor, anchor)) notify('Select regular note text to make a link.');
+}
 function formattingActions(): { label: string; icon: IconNode; run: () => void; secondary?: boolean }[] {
   return [
     { label: 'Bold · ⌘B', icon: Bold, run: () => { editor?.chain().focus().toggleBold().run(); } },
     { label: 'Italic · ⌘I', icon: Italic, run: () => { editor?.chain().focus().toggleItalic().run(); } },
+    { label: 'Link · ⌘K', icon: Link, run: () => editNoteLink() },
     { label: 'Heading', icon: Heading2, secondary: true, run: () => { editor?.chain().focus().toggleHeading({ level: 2 }).run(); } },
     { label: 'Bullet list', icon: List, run: () => { editor?.chain().focus().toggleBulletList().run(); } },
     { label: 'Task list', icon: ListTodo, run: () => { editor?.chain().focus().toggleTaskList().run(); } },
@@ -264,7 +275,7 @@ function renderNote(): void {
     app.append(contentElement); requestAnimationFrame(() => area.focus());
   } else {
     const scroll = element('div', 'editor-scroll'); const mount = element('div', 'editor-mount'); scroll.append(mount); contentElement.append(scroll); app.append(contentElement);
-    editor = createMarkdownEditor(mount, parts.body, markdown => commitMarkdown(prefix + markdown));
+    editor = createMarkdownEditor(mount, parts.body, markdown => commitMarkdown(prefix + markdown), (_editor, anchor) => editNoteLink(anchor));
     editor.on('selectionUpdate', refreshCodeTools); editor.on('update', refreshCodeTools); refreshCodeTools();
     requestAnimationFrame(() => editor?.commands.focus('start'));
   }
@@ -681,11 +692,11 @@ function renderHelp(): void {
   const main = element('main', 'help-side');
   main.append(element('h1', '', 'Keyboard shortcuts'));
   const shortcuts = element('dl', 'shortcuts');
-  for (const [label, key] of [['Show / hide Banana Notes', '⌃⌥Space'], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy Markdown selection', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Trash focused note in list', '⌘⌫']]) {
+  for (const [label, key] of [['Show / hide Banana Notes', '⌃⌥Space'], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy Markdown selection', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Trash focused note in list', '⌘⌫']]) {
     shortcuts.append(element('dt', '', label), element('dd', '', key));
   }
   main.append(shortcuts);
-  main.append(element('h2', '', 'Markdown'), element('p', '', 'Supports headings, bold, italic, links, block quotes, code, tables, lists, and checkboxes. Press Return twice to end a list. ⌘-click a link to open it.'));
+  main.append(element('h2', '', 'Markdown'), element('p', '', 'Supports headings, bold, italic, links, block quotes, code, tables, lists, and checkboxes. Press Return twice to end a list. Select text and press ⌘K to make a link. Click a link or press ⌘K inside it to edit its text or address. ⌘-click opens the destination. Long raw URLs display with a middle ellipsis; their full address remains in Markdown.'));
   main.append(element('h2', '', 'Notebooks and tags'), element('p', '', 'Add a #project tag in the note, use Add tag, or set tags: [project] in YAML frontmatter. Click a tag to open its notebook. Select All notes to clear the notebook scope.'));
   main.append(element('h2', '', 'Copy formats'), element('p', '', '⌘C copies selected editor content as Markdown. Note actions → Copy as offers Markdown, formatted text, HTML source, and plain text. With no selection, it copies the entire note. Markdown copy includes frontmatter. Search fields and the source editor use standard text copying.'));
   const actions = element('div', 'help-actions');
@@ -760,6 +771,7 @@ document.addEventListener('keydown', event => {
   if (!sessionLoaded || event.isComposing) return;
   const mod = event.metaKey || event.ctrlKey;
   const key = event.key.toLowerCase();
+  const field = event.target instanceof Element ? event.target.closest('input,textarea,select') : null;
   let run: (() => void | Promise<unknown>) | undefined;
   if (event.key === 'Escape' && closePopover(true)) { event.preventDefault(); event.stopImmediatePropagation(); return; }
   if (event.key === 'Escape' && app.querySelector('.ocr-result')) { event.preventDefault(); event.stopPropagation(); app.querySelector('.ocr-result')?.remove(); return; }
@@ -767,6 +779,7 @@ document.addEventListener('keydown', event => {
   else if (mod && !event.altKey && key === '-') run = () => changeFontSize(stepFontSize(fontSize, -1));
   else if (mod && !event.altKey && key === '0') run = () => changeFontSize(DEFAULT_FONT_SIZE);
   else if (mod && event.altKey && key === 'c') run = () => copyNote('formatted');
+  else if (mod && !event.altKey && !event.shiftKey && key === 'k' && view === 'note' && !sourceMode && editor && (!field || field.closest('.link-editor'))) run = () => editNoteLink();
   else if (mod && key === 'n' && !event.shiftKey) run = newNote;
   else if (mod && ((key === '[' && !event.shiftKey) || (event.shiftKey && key === 'arrowleft'))) run = () => move(1);
   else if (mod && ((key === ']' && !event.shiftKey) || (event.shiftKey && key === 'arrowright'))) run = () => move(-1);

@@ -42,7 +42,7 @@
 
 ## Download
 
-Download the latest signed, notarized macOS disk image from [GitHub Releases](https://github.com/jzlosman/banana-notes/releases). Open the DMG and drag **Banana Notes.app** to **Applications**. On first launch, macOS verifies the Developer ID signature and notarization; if it asks you to confirm, choose **Open**. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> anywhere to bring it up.
+Download the latest signed, notarized universal macOS disk image from [GitHub Releases](https://github.com/jzlosman/banana-notes/releases). Open the DMG and drag **Banana Notes.app** to **Applications**. On first launch, macOS verifies the Developer ID signature and notarization; if it asks you to confirm, choose **Open**. Press the global shortcut anywhere to bring it up: new installs default to <kbd>⌃</kbd><kbd>⇧</kbd><kbd>Space</kbd>; installs with an existing library and no saved shortcut retain the legacy <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> default.
 
 ## Build from source
 
@@ -91,7 +91,7 @@ There's nothing to set up and nothing to file. Just tag your notes.
 
 Type `# ` for a title, `[ ] ` for a checkbox, `**bold**`, `> quote` or three backticks for code. It renders in place, with no split preview. Prefer buttons? Use the format bar, or <kbd>⌘</kbd><kbd>B</kbd> and <kbd>⌘</kbd><kbd>I</kbd>. Press Return twice to leave a list. <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd> shows the raw Markdown whenever you want it.
 
-Headings, bold, italic, strikethrough, bullet, numbered and task lists, blockquotes, links, tables, and fenced code with syntax highlighting.
+Headings, bold, italic, strikethrough, bullet, numbered and task lists, blockquotes, links, tables, and fenced code with syntax highlighting. Press <kbd>⌘</kbd><kbd>F</kbd> to find text in the current note; Return / Shift–Return or <kbd>⌘</kbd><kbd>G</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>G</kbd> moves through matches.
 
 > **Try it:** start a new note and type `# Today`, then `[ ] ` and a task.
 
@@ -133,12 +133,12 @@ Drag or paste images into a note, or use **Note actions (…) → Attach file…
 
 | Open it with | |
 | --- | --- |
-| Global shortcut | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> shows or hides it from any app |
+| Global shortcut | <kbd>⌃</kbd><kbd>⇧</kbd><kbd>Space</kbd> shows or hides it from any app |
 | Raycast or Spotlight | Type "Banana" |
 | Menu bar | Click the banana icon |
 | Deep links | `banananotes://new`, `banananotes://tag/work`, and [more](#deep-links) |
 
-Pin it to keep it on screen while you switch apps, or unpin it so it tucks away as soon as you click elsewhere. <kbd>Esc</kbd> or <kbd>⌘</kbd><kbd>W</kbd> hides it; it keeps running for next time. No Dock icon, no <kbd>⌘</kbd><kbd>Tab</kbd> clutter.
+Pin it to keep it on screen while you switch apps, or unpin it so it tucks away as soon as you click elsewhere. <kbd>Esc</kbd> or <kbd>⌘</kbd><kbd>W</kbd> hides it; it keeps running for next time. No Dock icon, no <kbd>⌘</kbd><kbd>Tab</kbd> clutter. Set or reset the shortcut in **Settings → General → Global shortcut**; new installs default to <kbd>⌃</kbd><kbd>⇧</kbd><kbd>Space</kbd>, while installs with an existing library and no saved shortcut retain the legacy <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> default. The app menu includes **About Banana Notes**; **Check for Updates…** is available in builds packaged with Sparkle.
 
 <a id="themes"></a>
 ### 30 themes. Any Google Font.
@@ -151,22 +151,28 @@ Dracula, Nord, Catppuccin, Rosé Pine, Tokyo Night, Gruvbox, Solarized, GitHub a
 
 ## Keyboard shortcuts
 
+The Help view shows your configured global shortcut; this table shows the new-install default. The labels and remaining shortcuts match the app's Help list.
+
 | Action | Shortcut |
 | --- | --- |
-| Show / hide from anywhere | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> |
-| New note | <kbd>⌘</kbd><kbd>N</kbd> |
-| Older / newer note | <kbd>⌘</kbd><kbd>[</kbd> / <kbd>⌘</kbd><kbd>]</kbd> (or <kbd>⌘</kbd><kbd>⇧</kbd><kbd>←</kbd> / <kbd>⌘</kbd><kbd>⇧</kbd><kbd>→</kbd>) |
-| Flip between note and notes list | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>E</kbd> |
-| Find notes | <kbd>⌘</kbd><kbd>P</kbd> |
-| Markdown source / frontmatter | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd> |
-| Settings and themes | <kbd>⌘</kbd><kbd>,</kbd> |
-| Bold / italic | <kbd>⌘</kbd><kbd>B</kbd> / <kbd>⌘</kbd><kbd>I</kbd> |
-| Add / edit link | <kbd>⌘</kbd><kbd>K</kbd> |
-| Bigger / smaller / reset text | <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>−</kbd> / <kbd>⌘</kbd><kbd>0</kbd> |
-| Copy selection as Markdown | <kbd>⌘</kbd><kbd>C</kbd> |
-| Copy as formatted text | <kbd>⌘</kbd><kbd>⌥</kbd><kbd>C</kbd> |
-| Move open note or focused list note to Trash | <kbd>⌘</kbd><kbd>Backspace</kbd> (⌘⌫) |
-| Hide | <kbd>Esc</kbd> or <kbd>⌘</kbd><kbd>W</kbd> |
+| Show / hide Banana Notes | ⌃⇧Space |
+| New note | ⌘N |
+| Older / newer note | ⌘[  /  ⌘] |
+| Alternate navigation | ⌘⇧←  /  ⌘⇧→ |
+| Show notes | ⌘⇧E |
+| Find in note | ⌘F |
+| Next / previous match | ↵ / ⇧↵ · ⌘G / ⇧⌘G |
+| Find notes | ⌘P |
+| Markdown source / frontmatter | ⌘⇧M |
+| Settings | ⌘, |
+| Hide window | Esc |
+| Bold / italic | ⌘B  /  ⌘I |
+| Add / edit link | ⌘K |
+| Bigger / smaller note text | ⌘+  /  ⌘− |
+| Reset note text size | ⌘0 |
+| Copy selected text | ⌘C |
+| Copy formatted text | ⌘⌥C |
+| Move open note / focused list note to Trash | ⌘Backspace (⌘⌫) |
 
 ## FAQ
 
@@ -174,7 +180,7 @@ Dracula, Nord, Catppuccin, Rosé Pine, Tokyo Night, Gruvbox, Solarized, GitHub a
 Yes. Banana Notes is free and open source under the MIT license. Download a signed, notarized build from GitHub Releases, or build it from source.
 
 **Where do my notes live?**
-On your Mac, as Markdown inside a versioned JSON file at `~/Library/Application Support/Foldnote/library.json` (the folder keeps the app's original name), with an automatic last-good backup. **Help → Export Markdown** writes plain `.md` copies any time.
+On your Mac, as Markdown inside a versioned JSON file at `~/Library/Application Support/Foldnote/library.json` (the folder keeps the app's original name), with an automatic last-good backup. Use the menu-bar banana menu's **Shortcuts** item to open Help, then click **Export all notes as Markdown files** to write plain `.md` copies any time.
 
 **Does it sync or need an account?**
 No. There's no account, no cloud service and no telemetry.
@@ -190,7 +196,7 @@ It has no Dock icon and, unless pinned, tucks itself away when you click elsewhe
 <details>
 <summary><strong>Writing, tags and frontmatter</strong></summary>
 
-Type Markdown directly: headings, bold, italic, strike-through, ordered/bullet/task lists, blockquotes, links, fenced code and tables. It renders in place. Press Return twice to leave a list. Select text and press Command–K (or use the footer’s link button) to add a link. Click an existing link or press Command–K inside it to edit its address/text or remove the link. Command-click opens its destination. Long raw URL labels display with a middle ellipsis; the full text and destination remain intact in Markdown and copies. Custom link labels are never shortened, and no external shortening service is used. The source toggle is optional and replaces the editor; there is never a split preview.
+Type Markdown directly: headings, bold, italic, strike-through, ordered/bullet/task lists, blockquotes, links, fenced code and tables. It renders in place. Press Return twice to leave a list. Select text and press Command–K (or use the footer’s link button) to add a link. Click an existing link or press Command–K inside it to edit its address/text or remove the link. Command-click opens its destination. Long raw URL labels display with a middle ellipsis; the full text and destination remain intact in Markdown and copies. Custom link labels are never shortened, and no external shortening service is used. The source toggle is optional and replaces the editor; there is never a split preview. Untouched Markdown blocks are saved byte-for-byte. Unsupported syntax such as raw HTML, footnotes, reference links and math appears as labelled source blocks, editable in source mode with <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd>; an edited block may be normalized.
 
 Write `#work` in the note, add a tag using **Tag**, or use YAML frontmatter:
 
@@ -226,7 +232,7 @@ The pin keeps the floating panel visible while switching apps. Otherwise it hide
 <details>
 <summary><strong>Settings and appearance</strong></summary>
 
-Click the gear in the top toolbar, press **Command–,**, or choose **Settings…** in the menu bar. Formatting and note navigation share one bottom row. Notes save automatically; save failures show a persistent notice with a Retry action. There is no permanent save-status icon. At compact widths, Heading/Quote/Code are available under **Note actions (…) → Formatting…**. Search or filter the 30 bundled [Agent Paint](https://github.com/jzlosman/agent-paint) palettes by light/dark appearance. Choosing a palette updates the editor, explorer, controls and native Mac chrome immediately and survives relaunch. **Follow macOS** restores Banana Notes' system-following light/dark appearance.
+Click the gear in the top toolbar, press **Command–,**, or choose **Settings…** in the menu bar. **General → Global shortcut** has a shortcut recorder and **Reset** button. Formatting and note navigation share one bottom row. Notes save automatically; save failures show a persistent notice with a Retry action. There is no permanent save-status icon. At compact widths, Heading/Quote/Code are available under **Note actions (…) → Formatting…**. Search or filter the 30 bundled [Agent Paint](https://github.com/jzlosman/agent-paint) palettes by light/dark appearance. Choosing a palette updates the editor, explorer, controls and native Mac chrome immediately and survives relaunch. **Follow macOS** restores Banana Notes' system-following light/dark appearance.
 
 The **Code** tab selects an independent syntax palette from the same 30 themes, or **Match app**. Fenced code is highlighted locally. Put the cursor inside a code block to choose its language. The **Window** tab provides note typography and persistent text sizing; ⌘+/⌘− and ⌘0 work without modifying the note.
 
@@ -254,7 +260,7 @@ Drop or paste local images into the note, or use **Note actions (…) → Attach
 
 Regular ⌘C in the live editor copies the visible selected text without adding Markdown escapes: `file_name` pastes as `file_name`, not `file\_name`. A separate Markdown clipboard flavor preserves formatting when pasting within Banana Notes; ordinary copy does not include HTML. Raw source and search fields keep ordinary text copying. **Copy as…** and **Edit → Copy As** offer Markdown, formatted text (HTML plus plain-text fallback), HTML source, and rendered plain text. With no selection, Copy as copies the whole note; whole-note Markdown preserves frontmatter and source bytes. Cut uses the same visible-text and Markdown clipboard flavors and remains undoable.
 
-**Note actions (…) → Export PNG…** opens the gradient/width preview and saves a styled PNG through the Mac Save dialog; the last exported style is remembered. Export is intentionally absent from the everyday toolbar and settings tabs. The exported artwork has decorative Mac-window dots, gradient, padding, safe rendered content, and syntax colors—no traffic lights are added to the actual app. Managed images are rendered; audio/video become labelled placeholders. Long notes exceeding the explicit image bounds are rejected, not silently cropped.
+**Note actions (…) → Export PNG…** opens the gradient/width preview and saves a styled PNG through the Mac Save dialog; the last exported style is remembered. The exported artwork includes Banana Notes' full-color logo and wordmark in the gradient gutter when there is room. Export is intentionally absent from the everyday toolbar and settings tabs. The exported artwork has decorative Mac-window dots, gradient, padding, safe rendered content, and syntax colors—no traffic lights are added to the actual app. Managed images are rendered; audio/video become labelled placeholders. Long notes exceeding the explicit image bounds are rejected, not silently cropped.
 
 </details>
 
@@ -280,13 +286,13 @@ Indexing updates automatically on launch, focus and saved edits; queries ensure 
 </details>
 
 <details>
-<summary><strong>Data safety and the Foldnote rename</strong></summary>
+<summary><strong>Data safety, uninstall and the Foldnote rename</strong></summary>
 
-Banana Notes was previously called Foldnote. Native data remains in `~/Library/Application Support/Foldnote/library.json` deliberately: no move, import, or new empty library is needed. The bundle identifier (`dev.local.foldnote`), preference keys, managed attachment/font URL schemes, and browser-preview storage keys also stay stable. Existing notes—including any old welcome note—are never rewritten by the rename. Quit the old app before replacing `Foldnote.app` with `Banana Notes.app`; do not keep two installed copies with the same bundle identity.
+Banana Notes was previously called Foldnote. Native data remains in `~/Library/Application Support/Foldnote/` deliberately: no move, import, or new empty library is needed. The folder stores `library.json`; after a later save, `library.json.bak` holds the previous last-good snapshot, and `library.lock` protects the writer. App-managed files include `attachments/`, `fonts/` (when downloaded fonts are used), and the optional `semantic-index.json` search cache. Preferences use the `dev.local.foldnote` domain (stored at `~/Library/Preferences/dev.local.foldnote.plist`). Existing notes—including any old welcome note—are never rewritten by the rename. Quit the old app before replacing `Foldnote.app` with `Banana Notes.app`; do not keep two installed copies with the same bundle identity.
 
-Content is Markdown in a versioned JSON envelope. Saves are serialized, atomically replaced, and maintain `library.json.bak` as the previous last-good snapshot. Save failures remain visible and retryable. Corrupt startup data is not replaced. **Help → Export Markdown** exports `.md` copies; **Data folder** opens the originals. No cloud service, account, remote editor resources, or telemetry.
+Content is Markdown in a versioned JSON envelope, with a 2 MB per-note limit and a 20,000-note library limit. Saves are serialized, atomically replaced, and flushed to storage; `library.json.bak` keeps the previous last-good snapshot. Banana Notes waits for pending saves before quitting. Save failures remain visible and retryable. Corrupt startup data is not replaced: the recovery screen offers **Restore last backup** when a valid backup is available. The menu-bar banana menu's **Shortcuts** item opens Help, where **Export all notes as Markdown files** exports `.md` copies; **Open local data folder** opens the originals. No cloud service, account, remote editor resources, or telemetry.
 
-The welcome note is sample content, not imported personal data. The browser preview uses separate localStorage and does not access the Mac app's library. `BANANA_NOTES_DATA_DIR=/absolute/path` isolates native testing. `BANANA_NOTES_DEBUG=1 npm run build` enables the optional WebKit inspector; release builds do not. The former `FOLDNOTE_DATA_DIR`, `FOLDNOTE_DEBUG`, and `FOLDNOTE_ICON` environment variables remain compatibility aliases; the corresponding `BANANA_NOTES_*` variables take precedence.
+To uninstall, quit Banana Notes and remove **Banana Notes.app**. To remove its data too, delete `~/Library/Application Support/Foldnote/` and run `defaults delete dev.local.foldnote`. The Homebrew cask's `zap` stanza removes both the data folder and preferences; `brew uninstall --zap banana-notes` erases them. The browser preview uses separate localStorage and does not access the Mac app's library. `BANANA_NOTES_DATA_DIR=/absolute/path` isolates native testing. `BANANA_NOTES_DEBUG=1 npm run build` enables the optional WebKit inspector; release builds do not. The former `FOLDNOTE_DATA_DIR`, `FOLDNOTE_DEBUG`, and `FOLDNOTE_ICON` environment variables remain compatibility aliases; the corresponding `BANANA_NOTES_*` variables take precedence.
 
 </details>
 
@@ -309,23 +315,11 @@ The README media in `docs/media/` were captured from a real build running agains
 <details>
 <summary><strong>Architecture boundaries</strong></summary>
 
-- `web/src/domain.ts`: deterministic note commands and notebook/tag queries; no browser, native bridge, storage, or clocks.
-- `web/src/persistence.ts`: repository port and serialized save pipeline, with failure/retry semantics.
-- `web/src/editor.ts`: TipTap/ProseMirror Markdown adapter.
-- `web/src/themes.ts` / `theme-catalog.json`: pinned theme definitions and deterministic theme queries.
-- `web/src/appearance.ts`: DOM token adapter; separate from note commands and persistence.
-- `web/src/window-style.ts`: deterministic effect preference normalization and a separate serialized preference-save port/pipeline.
-- `web/src/note-font.ts`: typography validation and settings; managed local FontFace loading and DOM token adapter, independent of note content.
-- `web/src/window-drag.ts`: toolbar-layout observation adapter; sends only the empty spacer rectangle to the native drag surface.
-- `web/src/main.ts`: UI/application orchestration; supplies IDs and time, invokes commands and effect adapters.
-- `native/LibraryStore.swift`: local filesystem adapter and envelope validation.
-- `native/AppDelegate.swift`: AppKit/WebKit, hotkey, single-window lifecycle, external links and export adapters.
-- `native/WindowContentView.swift`: native titlebar drag handling, independent of WebKit focus; excludes controls and editable text.
-- `native/AppearancePreferences.swift`: validated bundled theme catalog and native appearance preference adapter.
-- `native/WindowStylePreferences.swift`: independent effect preferences, validation and persistence; AppKit applies key-window opacity and a behind-window `NSVisualEffectView`.
-- `native/NoteFontStore.swift`: typography preferences and explicit Google Fonts download/cache adapter; allowlisted URLs, bounded WOFF2 ingestion, atomic manifests and safe offline lookup. `FontSchemeHandler.swift` exposes only validated managed font files to WebKit and PNG export.
-- `native/AppDeepLink.swift`: deterministic translation of current and legacy app links into editor commands.
-- `native/BananaMark.swift` / `StatusItemIcon.swift`: approved banana geometry and an 18pt native template glyph, rendered at native 1x/2x menu-bar scale without raster resizing.
+- `web/src/domain/`: deterministic note, tag, and preference policies.
+- `web/src/application/`: use cases and capability ports; `web/src/adapters/` implements native-bridge and browser-preview effects.
+- `web/src/ui/`: editor and interface; `web/src/main.ts` composes capabilities and mounts the UI. `web/tests/architecture.test.ts` checks the dependency boundaries.
+- `native/AppDelegate.swift`: small lifecycle adapter; `native/NativeApplicationRuntime.swift` composes the window, bridge, hotkey, menu, and termination behavior.
+- `native/BridgeCommand.swift`: validates wire requests into typed commands and routes each to a capability handler. Effect ports are defined in `native/NativePorts.swift`; framework-independent policies are checked by `native/Tests/ArchitectureSelfTest.swift`.
 
 The logo lives in `assets/banana-notes-logo.svg`. Regenerate the app icon from the shared banana geometry with `bash scripts/build-icons.sh`. Branding is confined to the name, app/menu-bar icons, and documentation; the notepad's layout, writing surface, and 30 themes are unchanged.
 
@@ -335,7 +329,7 @@ The logo lives in `assets/banana-notes-logo.svg`. Regenerate the app icon from t
 
 Banana Notes' original code and artwork are [MIT licensed](LICENSE). Third-party code and palettes retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). Themes come from [Agent Paint](https://github.com/jzlosman/agent-paint).
 
-The source remains available here; signed and notarized binary releases will be published through GitHub Releases when a tagged release is approved. Launch-at-login is off unless you enable it. Sync, configurable hotkeys, general note import, and edit-version history are not included.
+The source remains available here; signed and notarized binary releases will be published through GitHub Releases when a tagged release is approved. Launch-at-login is off unless you enable it. Sync, general note import, and edit-version history are not included.
 
 ---
 

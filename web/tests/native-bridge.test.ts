@@ -27,7 +27,7 @@ test('native capabilities preserve recovery, hotkey, and preference wire actions
   const { bridge, messages } = bridgeWith(action => {
     if (action === 'libraryRecovery') return { startupError: 'Corrupt library', backupAvailable: true, backupUpdatedAt: '2026-05-01T12:00:00Z', backupNoteCount: 12 };
     if (action === 'restoreBackup') return { restored: true };
-    if (action === 'load') return { hotkeyAvailable: true, hotkeyDisplay: '⌃⇧Space' };
+    if (action === 'load') return { hotkeyAvailable: true, hotkey: '⌃⇧Space' };
     if (action === 'hotkeyPreferences') return { keyCode: 49, modifiers: 768, display: '⌃⇧Space', registered: false, error: 'Shortcut unavailable' };
     return {};
   });
@@ -71,4 +71,31 @@ test('native command decoding maps the established wire command to a typed appli
   assert.deepEqual(received, { type: 'flush' });
   await assert.rejects(target.foldnoteCommand!({ action: 'unknown' }), /Unknown application command/);
   dispose(); assert.equal(target.foldnoteCommand, undefined);
+});
+
+// Mirrors the exact keys and JSON null encoding of native/ApplicationBridgeHandlers.swift `load`
+// plus NativeFeatures.preferenceReply. Update both together when the wire contract changes.
+const nativeLoadReply = {
+  library: { version: 1, notes: [{ id: 'n', createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-01T12:00:00.000Z', markdown: '# Note' }], selectedID: 'n', activeTag: null },
+  pinned: false, hotkey: '⌃⌥Space', hotkeyAvailable: true, hotkeyStatus: '⌃⌥Space toggles Banana Notes.',
+  dataDirectory: '/tmp/data', themeID: 'system', themeWarning: null, focused: true,
+  windowStyle: { focusedOpacity: 1, unfocusedOpacity: 1, glass: 0 }, fontSize: 15, ocrEnabled: false, featureWarning: null,
+  imageOptions: {}, launchAtLogin: false, launchError: null, launchStatus: 'notRegistered', newNoteOnLaunch: false,
+  noteFonts: { selection: { fontID: 'sf-mono', weight: 500 }, fonts: [] }, syntaxThemeID: 'app',
+};
+
+test('native load reply shape, including JSON null for absent warnings, is accepted', async () => {
+  const { bridge } = bridgeWith(action => action === 'load' ? nativeLoadReply : {});
+  const library = await bridge.library.load();
+  assert.equal(library?.notes[0].id, 'n');
+  assert.equal(await bridge.window.pin!.load(), false);
+  const startup = await bridge.startup!.load();
+  assert.equal(startup.launchAtLogin, false);
+});
+
+test('a present native warning string still reaches the UI; a wrong type is rejected', async () => {
+  const { bridge } = bridgeWith(action => action === 'load' ? { ...nativeLoadReply, featureWarning: 'OCR is unavailable.' } : {});
+  assert.equal((await bridge.features!.load()).warning, 'OCR is unavailable.');
+  const { bridge: malformed } = bridgeWith(action => action === 'load' ? { ...nativeLoadReply, featureWarning: 42 } : {});
+  await assert.rejects(malformed.library.load(), /featureWarning/);
 });

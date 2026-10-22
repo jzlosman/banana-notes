@@ -115,3 +115,56 @@ test('raw media source blocks remain safe, visible and byte-identical around edi
     assert.equal(writes.at(-1), source.replace('Editable target', 'Editable target!'));
   } finally { editor.destroy(); }
 });
+
+// Notes usually end with a newline and often end with a non-paragraph block, after which TipTap keeps an
+// empty trailing paragraph. Editing that last block, or typing after it, must neither add blank lines nor
+// merge the new text into the preceding quote, table, list or fence when the note is reloaded.
+const endingBlocks: [string, string, string][] = [
+  ['fenced code', '# T\n\n```ts\nconst a = 1;\n```\n', 'const a = 1;'],
+  ['blockquote', '# T\n\n> quote\n', 'quote'],
+  ['table', '# T\n\n| a |\n| - |\n| b |\n', 'b'],
+  ['list', '# T\n\n- one\n- two\n', 'two'],
+  ['paragraph', '# T\n\nLast para\n', 'Last para'],
+  ['CRLF paragraph', 'Para\r\n\r\nLast\r\n', 'Last'],
+];
+function textEnd(editor: ReturnType<typeof mount>, text: string): number {
+  let position = -1;
+  editor.state.doc.descendants((node, offset) => {
+    if (node.isText && node.text?.endsWith(text)) position = offset + node.nodeSize;
+  });
+  assert.ok(position > 0, `found ${text}`);
+  return position;
+}
+for (const [name, body, lastText] of endingBlocks) {
+  test(`Markdown fidelity: editing the final ${name} keeps the note's ending`, () => {
+    const writes: string[] = [];
+    const editor = mount(body, markdown => writes.push(markdown));
+    try {
+      assert.equal(editor.getMarkdown(), body);
+      editor.view.dispatch(editor.state.tr.insertText('X', textEnd(editor, lastText)));
+      const saved = writes.at(-1)!, ending = body.endsWith('\r\n') ? '\r\n' : '\n';
+      const untouched = body.slice(0, body.lastIndexOf(ending + ending) + 2 * ending.length);
+      assert.ok(saved.startsWith(untouched), 'blocks before the edited one are byte-identical');
+      assert.ok(saved.includes(`${lastText}X`), 'the edit is saved');
+      assert.ok(saved.endsWith(ending) && !saved.endsWith(ending + ending), 'the single trailing line ending is kept');
+      if (name !== 'table') assert.equal(saved, body.replace(lastText, `${lastText}X`));
+      assert.equal(editor.commands.undo(), true);
+      assert.equal(writes.at(-1), body);
+    } finally { editor.destroy(); }
+  });
+  test(`Markdown fidelity: text added after the final ${name} stays a separate paragraph`, () => {
+    const writes: string[] = [];
+    const editor = mount(body, markdown => writes.push(markdown));
+    try {
+      editor.commands.insertContentAt(editor.state.doc.content.size, { type: 'paragraph', content: [{ type: 'text', text: 'Added' }] });
+      const saved = writes.at(-1)!;
+      const ending = body.endsWith('\r\n') ? '\r\n' : '\n';
+      assert.equal(saved, `${body.slice(0, -ending.length)}${ending}${ending}Added${ending}`);
+      const reloaded = mount(saved);
+      try {
+        const last = reloaded.state.doc.content.content.filter(node => node.content.size > 0).at(-1)!;
+        assert.equal(last.type.name, 'paragraph'); assert.equal(last.textContent, 'Added');
+      } finally { reloaded.destroy(); }
+    } finally { editor.destroy(); }
+  });
+}

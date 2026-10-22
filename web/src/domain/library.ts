@@ -313,5 +313,5 @@ export function validateLibrary(value: unknown): Library {
 }
 export function welcomeLibrary(id: string, now: string, hotkeyDisplay = '⌃⇧Space'): Library {
   return { version: 1, activeTag: null, selectedID: id, notes: [{ id, createdAt: now, updatedAt: now,
-    markdown: `# Welcome to Banana Notes\n\nPress **${hotkeyDisplay}** in any app to show or hide this \u0077indow.\n\n1. Type a thought. It saves automatically.\n2. Press **Esc** to tuck the \u0077indow away.\n3. Press **${hotkeyDisplay}** to bring it back, and **⌘P** to find any note.\n\nAdd a \`#tag\` to group related notes. Press **⌘N** for a new note.\n\nOpen **?** at the bottom right for all shortcuts.` }] };
+    markdown: `# Welcome to Banana Notes\n\nPress **${hotkeyDisplay}** in any app to show or hide this window.\n\n1. Type a thought. It saves automatically.\n2. Press **Esc** to tuck the window away.\n3. Press **${hotkeyDisplay}** to bring it back, and **⌘P** to find any note.\n\nAdd a \`#tag\` to group related notes. Press **⌘N** for a new note.\n\nOpen **?** at the bottom right for all shortcuts.` }] };
 }

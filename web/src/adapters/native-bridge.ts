@@ -16,12 +16,15 @@ const object = (value: unknown, action: NativeAction): Record<string, unknown> =
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`The ${action} response is invalid.`);
   return value as Record<string, unknown>;
 };
+// Native encodes absent optional values as JSON null (NSNull); treat it as absent.
 const optionalString = (value: unknown, action: NativeAction, key: string): string | undefined => {
-  if (value === undefined || typeof value === 'string') return value;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') return value;
   throw new Error(`The ${action} response is invalid (${key}).`);
 };
 const optionalBoolean = (value: unknown, action: NativeAction, key: string): boolean | undefined => {
-  if (value === undefined || typeof value === 'boolean') return value;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'boolean') return value;
   throw new Error(`The ${action} response is invalid (${key}).`);
 };
 
@@ -34,7 +37,7 @@ function validateReply(action: NativeAction, raw: unknown): NativeReply {
       result.library = reply.library == null ? null : validateLibrary(reply.library);
       result.pinned = optionalBoolean(reply.pinned, action, 'pinned');
       result.hotkeyAvailable = optionalBoolean(reply.hotkeyAvailable, action, 'hotkeyAvailable');
-      result.hotkeyDisplay = optionalString(reply.hotkeyDisplay, action, 'hotkeyDisplay');
+      result.hotkey = optionalString(reply.hotkey, action, 'hotkey');
       result.themeID = optionalString(reply.themeID, action, 'themeID');
       result.themeWarning = reply.themeWarning === null || typeof reply.themeWarning === 'string' ? reply.themeWarning : undefined;
       result.syntaxThemeID = optionalString(reply.syntaxThemeID, action, 'syntaxThemeID');
@@ -203,13 +206,13 @@ export class NativeBridge implements Capabilities {
       load: async () => {
         const [value, preferences] = await Promise.all([this.loaded(), this.call('hotkeyPreferences')]);
         return { keyCode: preferences.keyCode as number, modifiers: preferences.modifiers as number,
-          display: preferences.display || value.hotkeyDisplay || '⌃⇧Space', registered: preferences.registered === true,
+          display: preferences.display || value.hotkey || '⌃⇧Space', registered: preferences.registered === true,
           available: value.hotkeyAvailable !== false, error: preferences.error as string | null | undefined };
       },
       set: async shortcut => {
         const [value, preferences] = await Promise.all([this.loaded(), this.call('hotkeyPreferences', { shortcut })]);
         return { keyCode: preferences.keyCode as number, modifiers: preferences.modifiers as number,
-          display: preferences.display || value.hotkeyDisplay || '⌃⇧Space', registered: preferences.registered === true,
+          display: preferences.display || value.hotkey || '⌃⇧Space', registered: preferences.registered === true,
           available: value.hotkeyAvailable !== false, error: preferences.error as string | null | undefined };
       },
     };

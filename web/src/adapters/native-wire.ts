@@ -12,7 +12,7 @@ export type NativeAction =
   | 'semanticStatus' | 'semanticIndex' | 'semanticSearch' | 'semanticEnable' | 'semanticClear' | 'semanticCancel' | 'semanticStartRuntime' | 'semanticDownload';
 
 export interface NativeReply {
-  library?: Library | null; error?: string | null; pinned?: boolean; hotkeyAvailable?: boolean; hotkeyDisplay?: string;
+  library?: Library | null; error?: string | null; pinned?: boolean; hotkeyAvailable?: boolean; hotkey?: string;
   dataDirectory?: string; saved?: boolean; themeID?: string; themeWarning?: string | null; focused?: boolean;
   windowStyle?: WindowStyle; fontSize?: number; copied?: boolean; ocrEnabled?: boolean; syntaxThemeID?: string;
   launchAtLogin?: boolean; launchStatus?: string; launchError?: string | null; newNoteOnLaunch?: boolean;

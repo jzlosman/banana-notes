@@ -142,9 +142,15 @@ function trailingLineEndings(source: string): string {
   return source.match(/(?:\r\n|\r|\n)+$/)?.[0] ?? '';
 }
 
+function lineEndingCount(ending: string): number { return ending.match(/\r\n|\r|\n/g)?.length ?? 0; }
+
 /** Reuse byte-identical source blocks; serialize only changed or newly inserted nodes. */
 function serializePreservingSource(editor: Editor, source: MarkdownSource): string {
-  const currentNodes = editor.state.doc.content.content;
+  const knownNodes = new Set(source.blocks.map(block => block.node));
+  // Empty paragraphs (including TipTap's trailing node) cannot be represented in Markdown and must never
+  // claim another block's source mapping.
+  const currentNodes = editor.state.doc.content.content
+    .filter(node => knownNodes.has(node) || !(node.type.name === 'paragraph' && node.content.size === 0));
   const current = currentNodes.map(node => node.toJSON() as JSONContent);
   const signatures = current.map(signature);
   const sourceAt = new Map<string, number[]>();
@@ -176,13 +182,15 @@ function serializePreservingSource(editor: Editor, source: MarkdownSource): stri
     }
   }
 
+  // Pair unanchored nodes with unanchored source blocks of the same node type (an edited block).
   let currentStart = 0, sourceStart = 0;
   for (const anchor of [...anchors, { current: current.length, source: source.blocks.length }]) {
     const currentCount = anchor.current - currentStart;
     const sourceCount = anchor.source - sourceStart;
     const pairedCount = Math.min(currentCount, sourceCount);
     for (let offset = 1; offset <= pairedCount; offset++) {
-      sourceForCurrent[anchor.current - offset] = anchor.source - offset;
+      const currentIndex = anchor.current - offset, sourceIndex = anchor.source - offset;
+      if (currentNodes[currentIndex].type === source.blocks[sourceIndex].node.type) sourceForCurrent[currentIndex] = sourceIndex;
     }
     currentStart = anchor.current + 1; sourceStart = anchor.source + 1;
   }
@@ -190,15 +198,27 @@ function serializePreservingSource(editor: Editor, source: MarkdownSource): stri
   if (current.length === source.blocks.length && current.every((_, index) => sourceForCurrent[index] === index && signatures[index] === source.blocks[index].signature)) {
     return source.prefix + source.blocks.map(block => block.source).join('');
   }
-  if (!current.length) return source.prefix + (source.blocks.length ? '' : '');
+  if (!current.length) return source.prefix;
 
-  const rendered = current.map((node, index) => {
+  type Piece = { body: string; ending: string; sourceIndex?: number; preserved: boolean };
+  const pieces: Piece[] = current.flatMap((node, index): Piece[] => {
     const sourceIndex = sourceForCurrent[index];
     const original = sourceIndex === undefined ? undefined : source.blocks[sourceIndex];
-    if (original && signatures[index] === original.signature) return original.source;
-    const markdown = serializedNode(editor, node, source.lineEnding);
-    const ending = original ? trailingLineEndings(original.source) : index < current.length - 1 ? source.lineEnding + source.lineEnding : '';
-    return markdown + ending;
+    if (original && signatures[index] === original.signature) {
+      const ending = trailingLineEndings(original.source);
+      return [{ body: original.source.slice(0, original.source.length - ending.length), ending, sourceIndex, preserved: true }];
+    }
+    const body = serializedNode(editor, node, source.lineEnding);
+    if (!body) return [];
+    return [{ body, ending: original ? trailingLineEndings(original.source) : '', sourceIndex, preserved: false }];
   });
-  return source.prefix + rendered.join('');
+  const documentEnding = source.blocks.length ? trailingLineEndings(source.blocks[source.blocks.length - 1].source) : '';
+  const blankLine = source.lineEnding + source.lineEnding;
+  return source.prefix + pieces.map((piece, index) => {
+    const next = pieces[index + 1];
+    if (!next) return piece.body + documentEnding;
+    const adjacentOriginals = piece.preserved && next.preserved && piece.sourceIndex !== undefined && next.sourceIndex === piece.sourceIndex + 1;
+    // Any join that is not an untouched original pair needs a blank line so blocks never merge on reload.
+    return piece.body + (adjacentOriginals || lineEndingCount(piece.ending) >= 2 ? piece.ending : blankLine);
+  }).join('');
 }

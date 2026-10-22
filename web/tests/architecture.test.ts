@@ -22,6 +22,18 @@ function resolvedImport(sourceFile: string, specifier: string): string | undefin
   });
 }
 
+// Code only: comments and the contents of string/template literals are not effects.
+function codeOnly(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:\\])\/\/.*$/gm, '$1')
+    .replace(/`(?:\\[\s\S]|\$\{[^}]*\}|[^`\\])*`|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/g, match => {
+      const quote = match[0];
+      const keepImports = quote !== '`' && /^['"](?:\.|@?[a-z])/.test(match);
+      return keepImports ? match : quote + quote;
+    });
+}
+
 test('domain is deterministic and imports no outward application, adapter, UI, or browser APIs', () => {
   const failures: string[] = [];
   for (const file of sourceFiles(join(sourceRoot, 'domain'))) {
@@ -30,7 +42,7 @@ test('domain is deterministic and imports no outward application, adapter, UI, o
       const target = resolvedImport(file, specifier);
       if (target && /\/(application|adapters|ui)\//.test(target)) failures.push(`${file}: imports ${specifier}`);
     }
-    if (/\b(?:window|document|localStorage|navigator|HTMLElement|FileReader|crypto|performance)\b|Date\.now\s*\(|from\s+['"](?:lucide|@tiptap\/)/.test(source)) {
+    if (/\b(?:window|document|localStorage|navigator|HTMLElement|FileReader|crypto|performance)\b|Date\.now\s*\(|from\s+['"](?:lucide|@tiptap\/)/.test(codeOnly(source))) {
       failures.push(`${file}: references a browser/UI effect`);
     }
   }

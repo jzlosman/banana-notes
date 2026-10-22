@@ -163,7 +163,7 @@ Dracula, Nord, Catppuccin, Rosé Pine, Tokyo Night, Gruvbox, Solarized, GitHub a
 | Bigger / smaller / reset text | <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>−</kbd> / <kbd>⌘</kbd><kbd>0</kbd> |
 | Copy selection as Markdown | <kbd>⌘</kbd><kbd>C</kbd> |
 | Copy as formatted text | <kbd>⌘</kbd><kbd>⌥</kbd><kbd>C</kbd> |
-| Move focused note to Trash (in the list) | <kbd>⌘</kbd><kbd>Delete</kbd> |
+| Move open note or focused list note to Trash | <kbd>⌘</kbd><kbd>Backspace</kbd> (⌘⌫) |
 | Hide | <kbd>Esc</kbd> or <kbd>⌘</kbd><kbd>W</kbd> |
 
 ## FAQ
@@ -204,7 +204,7 @@ Normal Markdown follows.
 
 Click a badge to open that notebook's overview. The explorer supports multiple tag filters (AND/intersection), text search, edited/created ordering, and an exclusive **before date (UTC)** filter. New notes inherit every selected tag; previous/next navigation remains creation-ordered within the scope. Clear selected tag chips or the scope's × to leave the notebook.
 
-The list starts with search and notes, not a control panel. The filter icon reveals tags, before-date, and sorting; only active filters stay visible. The heading's **…** opens Trash, the notebook overview, or **Select notes**. Selection checkboxes and bulk tag/archive/Trash/restore actions appear only in selection mode. **Select all filtered notes** selects the complete result set, not only visible rows. Right-click a note or use its hover/focus **…** for individual actions. Archive is the ordinary `#archive` tag; archived notes are hidden by default and reappear when that tag is selected, including alongside other tags. Trash retains the original note for 30 days. Expired notes cannot be restored and are purged on launch or hourly while Banana Notes runs.
+The list starts with search and notes, not a control panel. The filter icon reveals tags, before-date, and sorting; only active filters stay visible. The heading's **…** opens Trash, the notebook overview, or **Select notes**. Selection checkboxes and bulk tag/archive/Trash/restore actions appear only in selection mode. **Select all filtered notes** selects the complete result set, not only visible rows. Right-click a note or use its hover/focus **…** for individual actions. Archive is the ordinary `#archive` tag; archived notes are hidden by default and reappear when that tag is selected, including alongside other tags. **⌘Backspace (⌘⌫)** moves the open note—or the focused note in the list—to Trash, including while editing Markdown. Plain Backspace still edits text; search, tag, and dialog fields keep normal text deletion. An **Undo** action appears after trashing. Trash retains the original note for 30 days. Expired notes cannot be restored and are purged on launch or hourly while Banana Notes runs.
 
 </details>
 

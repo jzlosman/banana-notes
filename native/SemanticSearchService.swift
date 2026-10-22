@@ -39,9 +39,15 @@ private struct LoopbackOllamaClient: SemanticHTTPClient {
         request.httpBody = body
         request.timeoutInterval = 120
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
             throw SemanticSearchError(message: "Unable to connect to Ollama. Start Ollama and try again.")
+        }
+        let limit = OllamaResponsePolicy.byteLimit(for: path)
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < limit else { throw SemanticSearchError(message: "Ollama response exceeds the \(limit / 1_048_576) MiB safety limit.") }
+            data.append(byte)
         }
         return data
     }
@@ -73,41 +79,47 @@ public actor SemanticSearchService {
         ("embeddinggemma:latest", "300M parameters · approximately 622 MB")
     ]
     static let maximumNotes = 20_000
-    static let maximumMarkdownBytes = 1_000_000
+    static let maximumMarkdownBytes = 2_000_000
     static let maximumSnapshotBytes = 20_000_000
     static let maximumVectorDimension = 4_096
+    static let metadataResponseLimit = OllamaResponsePolicy.metadataLimit
+    static let embeddingResponseLimit = OllamaResponsePolicy.embeddingLimit
     static func isAllowedLoopbackRedirect(from source: URL, to target: URL) -> Bool {
-        let loopbackHosts: Set<String> = ["127.0.0.1", "::1"]
         return source.scheme == "http" && target.scheme == "http"
-            && loopbackHosts.contains((target.host ?? "").lowercased())
+            && (source.host ?? "").lowercased() == "127.0.0.1"
+            && (target.host ?? "").lowercased() == (source.host ?? "").lowercased()
             && target.port == 11434
             && source.port == target.port
     }
     private let directory: URL
-    private let defaults: UserDefaults
+    private let defaults: any PreferencesStore
     private let http: any SemanticHTTPClient
     private let apple: any SemanticEmbeddingProvider
     private let runtimeStarter: any SemanticRuntimeStarter
+    private let processInspector: any OllamaProcessInspecting
     private var generation = 0
     private var progress = ""
     private var indexing = false
 
-    public init(directory: URL, defaults: UserDefaults) {
+    public init(directory: URL, defaults: any PreferencesStore) {
         self.directory = directory
         self.defaults = defaults
         self.http = LoopbackOllamaClient()
         self.apple = AppleSemanticEmbeddingProvider()
         self.runtimeStarter = OllamaRuntimeStarter()
+        self.processInspector = SystemOllamaProcessInspector()
     }
 
-    init(directory: URL, defaults: UserDefaults, httpClient: any SemanticHTTPClient,
+    init(directory: URL, defaults: any PreferencesStore, httpClient: any SemanticHTTPClient,
          appleProvider: any SemanticEmbeddingProvider = AppleSemanticEmbeddingProvider(),
-         runtimeStarter: any SemanticRuntimeStarter = OllamaRuntimeStarter()) {
+         runtimeStarter: any SemanticRuntimeStarter = OllamaRuntimeStarter(),
+         processInspector: any OllamaProcessInspecting = NoOllamaProcessInspector()) {
         self.directory = directory
         self.defaults = defaults
         self.http = httpClient
         self.apple = appleProvider
         self.runtimeStarter = runtimeStarter
+        self.processInspector = processInspector
     }
 
     public func handle(action: String, payload: [String: Any]) async throws -> [String: Any] {
@@ -131,6 +143,7 @@ public actor SemanticSearchService {
             let generationAtStart = generation
             let model = try resolveModel(payload["model"])
             progress = "Downloading \(model)"
+            _ = try verifiedOllamaPath()
             let body = try json(["name": model, "stream": false])
             _ = try await http.post("api/pull", body: body)
             guard generation == generationAtStart else { throw SemanticSearchError(message: "Download cancellation requested; check model status before retrying.") }
@@ -158,6 +171,16 @@ public actor SemanticSearchService {
     private var ollamaModel: String { preferences.ollamaModel }
     private var currentModel: String { provider == "apple" ? apple.identity(for: "") : ollamaModel }
     private var selectedOllamaModel: String { ollamaModel }
+    private func verifiedOllamaPath() throws -> String {
+        guard let listener = processInspector.listener() else {
+            throw SemanticSearchError(message: "Ollama is unavailable. Get Ollama, install it, or open the Ollama app.")
+        }
+        guard OllamaRuntimePolicy.isTrusted(listener), let path = listener.executablePath else {
+            throw SemanticSearchError(message: "Another process is using Ollama's port.")
+        }
+        return URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
     private func resolveModel(_ value: Any?) throws -> String {
         if value != nil, !(value is String) { throw SemanticSearchError(message: "Select a supported embedding model in Settings → Search.") }
         let name = value as? String ?? ollamaModel
@@ -170,21 +193,26 @@ public actor SemanticSearchService {
     private func status() async throws -> [String: Any] {
         let installed: [String]
         let runtimeAvailable: Bool
+        var runtimePath: String?
         var unavailableReason: String?
         if !enabled {
             installed = []
             runtimeAvailable = false
+            runtimePath = nil
         } else if provider == "apple" {
             let availability = apple.availability()
             installed = []
             runtimeAvailable = availability.available
+            runtimePath = nil
             unavailableReason = availability.reason
         } else {
             do {
+                runtimePath = try verifiedOllamaPath()
                 let data = try await http.get("api/tags")
-                let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                installed = (object?["models"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+                installed = try OllamaResponsePolicy.modelNames(from: data)
                 runtimeAvailable = true
+            } catch let error as SemanticSearchError {
+                installed = []; runtimeAvailable = false; unavailableReason = error.message
             } catch { installed = []; runtimeAvailable = false; unavailableReason = "Ollama is unavailable. Get Ollama, install it, or open the Ollama app." }
         }
         let model = currentModel
@@ -201,7 +229,7 @@ public actor SemanticSearchService {
                     ["id": "ollama", "name": "Ollama", "disclosure": "Optional local runtime; model download is explicit.", "available": true]],
                 "unavailableReason": unavailableReason as Any? ?? NSNull(), "model": model,
                 "models": Self.models.map { ["name": $0.name, "disclosure": $0.disclosure] },
-                "installed": localMatches, "runtimeAvailable": runtimeAvailable,
+                "installed": localMatches, "runtimeAvailable": runtimeAvailable, "runtimePath": runtimePath as Any? ?? NSNull(),
                 "indexedNotes": matchingIndex ? indexedCount : 0, "progress": progress, "indexError": indexError as Any? ?? NSNull(),
                 "actionableState": state]
     }
@@ -278,8 +306,8 @@ public actor SemanticSearchService {
                 chunks: zip(pieces, vectors).map { VectorChunk(id: note.0, hash: hash, snippet: $0.0.snippet, vector: $0.1) })
         }
         guard generation == generationAtStart, enabled, currentModel == model else { throw SemanticSearchError(message: "Indexing cancelled because settings changed.") }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try JSONEncoder().encode(next).write(to: indexURL, options: .atomic)
+        try DurableFileWriter.prepareDirectory(directory)
+        try DurableFileWriter.write(try JSONEncoder().encode(next), replacing: indexURL)
         progress = "Index up to date"
         return ["ok": true, "indexedNotes": next.notes.count, "model": model, "dimension": next.dimension]
     }
@@ -337,14 +365,12 @@ public actor SemanticSearchService {
         guard !inputs.isEmpty else { return [] }
         if provider == "apple" { return try await apple.embed(inputs, model: model) }
         let data = try json(["model": model, "input": inputs, "truncate": true])
+        _ = try verifiedOllamaPath()
         let responseData = try await http.post("api/embed", body: data)
         try Task.checkCancellation()
-        let response = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        guard let vectors = response?["embeddings"] as? [[NSNumber]], vectors.count == inputs.count else {
-            throw SemanticSearchError(message: "Local model response did not contain the expected embeddings.")
-        }
-        let result = vectors.map { $0.map(\.doubleValue) }
-        guard result.allSatisfy({ !$0.isEmpty && $0.count <= Self.maximumVectorDimension && $0.allSatisfy(\.isFinite) }) else {
+        let result = try OllamaResponsePolicy.embeddings(from: responseData, expectedCount: inputs.count,
+                                                         maximumDimension: Self.maximumVectorDimension)
+        guard result.allSatisfy({ $0.contains(where: { $0 != 0 }) && $0.allSatisfy(\.isFinite) }) else {
             throw SemanticSearchError(message: "The local model returned an invalid or oversized embedding vector.")
         }
         return result

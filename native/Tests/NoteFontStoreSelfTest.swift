@@ -68,8 +68,16 @@ struct NoteFontStoreSelfTest {
         do { _ = try store.select(["fontID": fontID, "weight": 600]); preconditionFailure("Unsupported Google weight accepted") } catch is NoteFontError {}
         precondition(Set(http.requests).count == 3, "Deduplicate shared font URLs")
         let faceURL = URL(string: (cached["faces"] as! [[String: Any]])[0]["url"] as! String)!
-        let resolvedFontData = try Data(contentsOf: store.resolveFontURL(faceURL))
+        let resolvedFontURL = try store.resolveFontURL(faceURL)
+        let resolvedFontData = try Data(contentsOf: resolvedFontURL)
         precondition(resolvedFontData.prefix(4).elementsEqual("wOF2".utf8))
+        func permissions(_ path: String) throws -> Int { (try fm.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue ?? -1 }
+        let dataMode = try permissions(dataDir.path) & 0o777
+        let fontRootMode = try permissions(dataDir.appendingPathComponent("fonts").path) & 0o777
+        let fontFileMode = try permissions(resolvedFontURL.path) & 0o777
+        let manifestMode = try permissions(dataDir.appendingPathComponent("fonts/manifest.json").path) & 0o777
+        precondition(dataMode == 0o700 && fontRootMode == 0o700 && fontFileMode == 0o600 && manifestMode == 0o600,
+                     "downloaded fonts, manifests and their directories have private permissions")
         precondition(store.exportCSS(fontSize: 15).contains("font-weight:600") && store.exportCSS(fontSize: 15).contains("15px"))
         let offline = NoteFontStore(directory: dataDir, defaults: pref, client: FakeFontHTTPClient())
         _ = try await offline.download(family: "Test Mono")

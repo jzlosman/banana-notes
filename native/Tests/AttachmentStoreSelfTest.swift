@@ -60,6 +60,45 @@ struct AttachmentStoreSelfTest {
         let copiedData = try Data(contentsOf: copiedURL)
         precondition(copiedData == fixtures[0].2)
 
+        let batchBefore = try FileManager.default.contentsOfDirectory(atPath: store.attachmentsDirectory.path).count
+        let batchGood = source.appendingPathComponent("batch-good.png")
+        let batchBad = source.appendingPathComponent("batch-bad.jpg")
+        try fixtures[0].2.write(to: batchGood)
+        try Data("not a jpeg".utf8).write(to: batchBad)
+        do {
+            _ = try store.importURLs([batchGood, batchBad])
+            preconditionFailure("multi-file import with one invalid item must fail")
+        } catch is AttachmentError {}
+        let batchAfter = try FileManager.default.contentsOfDirectory(atPath: store.attachmentsDirectory.path).count
+        precondition(batchAfter == batchBefore, "failed multi-file import leaves no managed orphans")
+        let batchRecords = try store.importURLs([batchGood, external])
+        precondition(batchRecords.count == 2, "valid multi-file import commits as a batch")
+
+        let active = try store.importBase64(name: "active.png", mimeType: "image/png", base64: fixtures[0].2.base64EncodedString())
+        let trashed = try store.importBase64(name: "trashed.png", mimeType: "image/png", base64: fixtures[0].2.base64EncodedString())
+        let stale = try store.importBase64(name: "stale.png", mimeType: "image/png", base64: fixtures[0].2.base64EncodedString())
+        let young = try store.importBase64(name: "young.png", mimeType: "image/png", base64: fixtures[0].2.base64EncodedString())
+        func managedFile(_ record: AttachmentRecord) throws -> URL { try store.resolveAssetURL(URL(string: record.url)!).0 }
+        let oldDate = Date(timeIntervalSinceNow: -48 * 60 * 60)
+        for record in [active, trashed, stale] {
+            try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: try managedFile(record).path)
+        }
+        let outsideTarget = source.appendingPathComponent("symlink-target")
+        try Data("must not be touched".utf8).write(to: outsideTarget)
+        let linkName = "11111111-1111-1111-1111-111111111111.png"
+        let managedLink = store.attachmentsDirectory.appendingPathComponent(linkName)
+        try FileManager.default.createSymbolicLink(atPath: managedLink.path, withDestinationPath: outsideTarget.path)
+        let removed = try store.collectGarbage(referencedMarkdown: ["active note: \(active.url)", "trashed note: \(trashed.url)"], now: Date(), grace: 24 * 60 * 60)
+        precondition(removed == 1, "garbage collection removes only old unreferenced regular files")
+        let activePath = try managedFile(active).path
+        let trashedPath = try managedFile(trashed).path
+        let youngPath = try managedFile(young).path
+        precondition(FileManager.default.fileExists(atPath: activePath) && FileManager.default.fileExists(atPath: trashedPath),
+                     "active and trashed references keep their attachments")
+        precondition(FileManager.default.fileExists(atPath: youngPath), "young unreferenced files retain the 24-hour grace period")
+        precondition(FileManager.default.fileExists(atPath: managedLink.path) && FileManager.default.fileExists(atPath: outsideTarget.path),
+                     "garbage collection neither follows nor removes symlink targets")
+
         let movedRoot = store.attachmentsDirectory.deletingLastPathComponent().appendingPathComponent("attachments-real")
         try FileManager.default.moveItem(at: store.attachmentsDirectory, to: movedRoot)
         try FileManager.default.createSymbolicLink(at: store.attachmentsDirectory, withDestinationURL: source)

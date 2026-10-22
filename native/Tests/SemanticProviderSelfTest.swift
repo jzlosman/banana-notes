@@ -1,5 +1,12 @@
 import Foundation
 import NaturalLanguage
+import Darwin
+
+private struct FakeOllamaProcessInspector: OllamaProcessInspecting {
+    func listener() -> OllamaListener? {
+        OllamaListener(pid: getpid(), uid: UInt32(getuid()), executablePath: "/Applications/Ollama.app/Contents/MacOS/Ollama")
+    }
+}
 
 private actor NoSemanticHTTP: SemanticHTTPClient {
     private(set) var calls = 0
@@ -204,7 +211,7 @@ private actor FakeOllamaLauncher: OllamaRuntimeLaunching {
         let normalizedStatus = try await ollamaService.handle(action: "semanticStatus", payload: [:])
         precondition(normalizedStatus["provider"] as? String == "ollama", "unknown stored provider falls back to legacy Ollama selection")
 
-        let startingService = SemanticSearchService(directory: root, defaults: ollamaDefaults, httpClient: StartingSemanticHTTP(), appleProvider: FakeNativeProvider(available: true, revision: 7), runtimeStarter: RuntimeSpy())
+        let startingService = SemanticSearchService(directory: root, defaults: ollamaDefaults, httpClient: StartingSemanticHTTP(), appleProvider: FakeNativeProvider(available: true, revision: 7), runtimeStarter: RuntimeSpy(), processInspector: FakeOllamaProcessInspector())
         let startedStatus = try await startingService.handle(action: "semanticStartRuntime", payload: [:])
         precondition(startedStatus["runtimeAvailable"] as? Bool == true, "one explicit start waits briefly for observed server readiness")
 
@@ -222,6 +229,12 @@ private actor FakeOllamaLauncher: OllamaRuntimeLaunching {
             precondition(error.message.contains("Get Ollama") && error.message.contains("install"), "missing app failure contains installation guidance")
         }
         let namedLaunchCount = await missingLauncher.namedCount()
+        let trusted = OllamaListener(pid: 42, uid: UInt32(getuid()), executablePath: "/opt/homebrew/bin/ollama")
+        let wrongOwner = OllamaListener(pid: 42, uid: UInt32(getuid()) &+ 1, executablePath: "/opt/homebrew/bin/ollama")
+        let wrongProgram = OllamaListener(pid: 42, uid: UInt32(getuid()), executablePath: "/tmp/rogue-server")
+        precondition(OllamaRuntimePolicy.isTrusted(trusted), "current-user Ollama executable is trusted")
+        precondition(!OllamaRuntimePolicy.isTrusted(wrongOwner), "another user's listener is rejected")
+        precondition(!OllamaRuntimePolicy.isTrusted(wrongProgram), "unrelated executable is rejected")
         precondition(namedLaunchCount == 1, "missing app uses deterministic named-open fallback")
 
         if let native = NLEmbedding.sentenceEmbedding(for: .english), let vector = native.vector(for: "A synthetic sentence for a local embedding smoke test.") {

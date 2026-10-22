@@ -26,6 +26,17 @@ struct LibraryStoreSelfTest {
         let savedLoad = try store.load()
         precondition(savedLoad?["notes"] != nil, "saved library should load")
         try store.save(library(markdown: "second"))
+        let contender = LibraryStore(directory: directory)
+        precondition(contender.startupError?.contains("Another Banana Notes instance") == true, "a second store cannot acquire the single-writer lock")
+        do { try contender.save(library(markdown: "must not write")); preconditionFailure("lock loser must not save") }
+        catch is StoreError {}
+        let lockWinnerLibrary = try store.load()
+        precondition((lockWinnerLibrary?["notes"] as? [[String: Any]])?.first?["markdown"] as? String == "second", "lock loser leaves the primary untouched")
+        let directoryMode = (try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber)?.intValue
+        let primaryMode = (try FileManager.default.attributesOfItem(atPath: store.libraryURL.path)[.posixPermissions] as? NSNumber)?.intValue
+        let lockMode = (try FileManager.default.attributesOfItem(atPath: store.lockURL.path)[.posixPermissions] as? NSNumber)?.intValue
+        precondition(directoryMode.map { $0 & 0o777 } == 0o700 && primaryMode.map { $0 & 0o777 } == 0o600 && lockMode.map { $0 & 0o777 } == 0o600,
+                     "the data folder and files have explicit private permissions")
         assertRejected(version: true, label: "boolean version")
         assertRejected(version: 1.5, label: "fractional version")
         var invalidTimestamp = library(markdown: "bad date")
@@ -36,7 +47,7 @@ struct LibraryStoreSelfTest {
         var trashed = library(markdown: "keep this **Markdown**")
         var trashedNotes = trashed["notes"] as! [[String: Any]]
         trashedNotes[0]["trashedAt"] = "2026-10-20T12:00:00.000Z"; trashed["notes"] = trashedNotes
-        var trashStore = LibraryStore(directory: directory.appendingPathComponent("trash"))
+        let trashStore = LibraryStore(directory: directory.appendingPathComponent("trash"))
         try trashStore.save(trashed)
         let trashReload = try trashStore.load()!
         precondition((trashReload["notes"] as! [[String: Any]])[0]["trashedAt"] as? String == "2026-10-20T12:00:00.000Z")
@@ -78,13 +89,32 @@ struct LibraryStoreSelfTest {
         let backupObject = try JSONSerialization.jsonObject(with: backup) as! [String: Any]
         let backupNote = (backupObject["notes"] as! [[String: Any]])[0]
         precondition(backupNote["markdown"] as? String == "first", "backup should retain last-good library")
+        let backupMode = (try FileManager.default.attributesOfItem(atPath: store.backupURL.path)[.posixPermissions] as? NSNumber)?.intValue
+        precondition(backupMode.map { $0 & 0o777 } == 0o600, "the backup is private")
+
+        let writeGroup = DispatchGroup()
+        for value in ["queued-1", "queued-2", "queued-3"] {
+            writeGroup.enter()
+            store.saveAsync(library(markdown: value)) { result in
+                if case .failure(let error) = result { preconditionFailure("queued durable save failed: \(error)") }
+                writeGroup.leave()
+            }
+        }
+        precondition(writeGroup.wait(timeout: .now() + 10) == .success, "off-main ordered saves complete")
+        let finalAsyncLibrary = try store.load()
+        precondition((finalAsyncLibrary?["notes"] as? [[String: Any]])?.first?["markdown"] as? String == "queued-3", "serial writer preserves submission order")
+        try store.save(library(markdown: String(repeating: "x", count: LibraryStore.maximumNoteBytes)))
+        do {
+            try store.save(library(markdown: String(repeating: "x", count: LibraryStore.maximumNoteBytes + 1)))
+            preconditionFailure("note larger than 2 MB accepted")
+        } catch let error as StoreError { precondition(error.message.contains("2 MB limit") && error.message.contains("Shorten")) }
 
         let corruptDirectory = directory.appendingPathComponent("corrupt", isDirectory: true)
         try FileManager.default.createDirectory(at: corruptDirectory, withIntermediateDirectories: true)
         let corruptURL = corruptDirectory.appendingPathComponent("library.json")
         let corruptBytes = Data("not json".utf8)
         try corruptBytes.write(to: corruptURL)
-        var corruptStore = LibraryStore(directory: corruptDirectory)
+        let corruptStore = LibraryStore(directory: corruptDirectory)
         precondition(corruptStore.startupError != nil, "corrupt startup data should be reported")
         do {
             try corruptStore.save(first)
@@ -92,7 +122,26 @@ struct LibraryStoreSelfTest {
         } catch is StoreError {}
         let untouchedBytes = try Data(contentsOf: corruptURL)
         precondition(untouchedBytes == corruptBytes, "corrupt bytes must remain untouched")
-        print("Native persistence checks passed")
+
+        let recoveryDirectory = directory.appendingPathComponent("recovery", isDirectory: true)
+        try FileManager.default.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
+        let recoveryPrimary = recoveryDirectory.appendingPathComponent("library.json")
+        let recoveryBackup = recoveryDirectory.appendingPathComponent("library.json.bak")
+        try Data("corrupt primary".utf8).write(to: recoveryPrimary)
+        try JSONSerialization.data(withJSONObject: first, options: [.sortedKeys]).write(to: recoveryBackup)
+        let recoveryStore = LibraryStore(directory: recoveryDirectory)
+        precondition(recoveryStore.startupError != nil, "invalid primary remains a startup error despite valid backup")
+        let recoveryStatus = recoveryStore.recoveryStatus()
+        precondition(recoveryStatus.backupAvailable && recoveryStatus.backupNoteCount == 1 && recoveryStatus.backupUpdatedAt != nil,
+                     "backup status exposes validated note count and update time")
+        try recoveryStore.restoreBackup(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let recoveredLibrary = try recoveryStore.load()
+        precondition(recoveryStore.startupError == nil && recoveredLibrary != nil, "restoring a verified backup reinitializes the store")
+        let quarantined = try FileManager.default.contentsOfDirectory(atPath: recoveryDirectory.path).filter { $0.hasPrefix("library.corrupt-") }
+        let quarantinedBytes = try Data(contentsOf: recoveryDirectory.appendingPathComponent(quarantined[0]))
+        precondition(quarantined.count == 1 && quarantinedBytes == Data("corrupt primary".utf8),
+                     "restore preserves corrupt primary bytes under a unique recovery name")
+        print("Native persistence, durability, permissions, recovery, limits and lock checks passed")
     }
 
     private static func assertRejected(_ library: Any, label: String) {

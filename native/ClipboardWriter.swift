@@ -6,15 +6,10 @@ struct ClipboardContent {
     let markdown: String?
     static let markdownType = NSPasteboard.PasteboardType("net.daringfireball.markdown")
 
-    init(_ fields: [String: Any]) throws {
-        guard let text = fields["text"] as? String else { throw StoreError(message: "Clipboard text is required.") }
-        for key in ["html", "markdown"] where fields[key] != nil {
-            guard fields[key] is String else { throw StoreError(message: "Clipboard \(key) must be text.") }
-        }
-        self.text = text; self.html = fields["html"] as? String; self.markdown = fields["markdown"] as? String
-        guard text.utf8.count + (html?.utf8.count ?? 0) + (markdown?.utf8.count ?? 0) <= 10_000_000 else {
-            throw StoreError(message: "This clipboard content is too large.")
-        }
+    init(_ payload: ClipboardPayload) {
+        text = payload.text
+        html = payload.html
+        markdown = payload.markdown
     }
 
     @MainActor

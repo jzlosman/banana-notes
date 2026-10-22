@@ -33,13 +33,12 @@ struct NoteFontStoreSelfTest {
         precondition(initialFonts.map { $0["id"] as! String } == ["sf-mono", "system", "avenir", "georgia"])
         precondition(initialFonts[0]["family"] as? String == "ui-monospace, \"SFMono-Regular\", Menlo, monospace")
         precondition(initialFonts.last!["weights"] as! [Int] == [400])
-        let selected = try store.select(["fontID": "avenir", "weight": 600])
+        let selected = try store.select(NoteFontSelection(fontID: "avenir", weight: 600))
         precondition(selected["selection"] as? [String: Any] != nil)
         let reload = NoteFontStore(directory: dataDir, defaults: pref, client: http)
         precondition((reload.state["selection"] as! [String: Any])["fontID"] as? String == "avenir")
-        for invalid in [["fontID": "georgia", "weight": 700], ["fontID": "unknown", "weight": 400], ["fontID": "sf-mono", "weight": true]] as [Any] {
-            do { _ = try store.select(invalid); preconditionFailure("Invalid font selection accepted") } catch is NoteFontError {}
-        }
+        do { _ = try NoteFontSelection(fontID: "georgia", weight: 700); preconditionFailure("Invalid font weight accepted") } catch is NoteFontError {}
+        do { _ = try store.select(NoteFontSelection(fontID: "unknown", weight: 400)); preconditionFailure("Unknown font accepted") } catch is NoteFontError {}
         precondition(http.requests.isEmpty, "No network access before explicit download")
 
         var cssComponents = URLComponents(string: "https://fonts.googleapis.com/css2")!
@@ -65,11 +64,19 @@ struct NoteFontStoreSelfTest {
         let cached = (store.state["fonts"] as! [[String: Any]]).first { $0["id"] as? String == fontID }!
         precondition((cached["faces"] as! [[String: Any]]).count == 3, "Keep per-face weight and unicode ranges")
         precondition(cached["weights"] as? [Int] == [400, 500], "Expose only weights returned by Google")
-        do { _ = try store.select(["fontID": fontID, "weight": 600]); preconditionFailure("Unsupported Google weight accepted") } catch is NoteFontError {}
+        do { _ = try store.select(NoteFontSelection(fontID: fontID, weight: 600)); preconditionFailure("Unsupported Google weight accepted") } catch is NoteFontError {}
         precondition(Set(http.requests).count == 3, "Deduplicate shared font URLs")
         let faceURL = URL(string: (cached["faces"] as! [[String: Any]])[0]["url"] as! String)!
-        let resolvedFontData = try Data(contentsOf: store.resolveFontURL(faceURL))
+        let resolvedFontURL = try store.resolveFontURL(faceURL)
+        let resolvedFontData = try Data(contentsOf: resolvedFontURL)
         precondition(resolvedFontData.prefix(4).elementsEqual("wOF2".utf8))
+        func permissions(_ path: String) throws -> Int { (try fm.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue ?? -1 }
+        let dataMode = try permissions(dataDir.path) & 0o777
+        let fontRootMode = try permissions(dataDir.appendingPathComponent("fonts").path) & 0o777
+        let fontFileMode = try permissions(resolvedFontURL.path) & 0o777
+        let manifestMode = try permissions(dataDir.appendingPathComponent("fonts/manifest.json").path) & 0o777
+        precondition(dataMode == 0o700 && fontRootMode == 0o700 && fontFileMode == 0o600 && manifestMode == 0o600,
+                     "downloaded fonts, manifests and their directories have private permissions")
         precondition(store.exportCSS(fontSize: 15).contains("font-weight:600") && store.exportCSS(fontSize: 15).contains("15px"))
         let offline = NoteFontStore(directory: dataDir, defaults: pref, client: FakeFontHTTPClient())
         _ = try await offline.download(family: "Test Mono")

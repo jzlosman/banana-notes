@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct AttachmentError: Error, LocalizedError {
     let message: String
@@ -15,7 +16,7 @@ struct AttachmentRecord: Encodable {
     var bridgeValue: [String: Any] { ["id": id, "name": name, "kind": kind, "url": url, "size": size, "mimeType": mimeType] }
 }
 
-struct AttachmentStore {
+struct AttachmentStore: AttachmentRepository {
     static let maximumBytes = 50 * 1024 * 1024
     private struct Format { let ext: String; let mime: String; let kind: String }
     private static let formats: [String: Format] = [
@@ -35,14 +36,14 @@ struct AttachmentStore {
     init(directory: URL) throws {
         self.directory = directory.standardizedFileURL
         self.attachmentsDirectory = directory.appendingPathComponent("attachments", isDirectory: true).standardizedFileURL
-        try fm.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+        try DurableFileWriter.prepareDirectory(attachmentsDirectory)
         try verifyAttachmentRoot()
     }
 
     func importBase64(name: String, mimeType: String, base64: String) throws -> AttachmentRecord {
         guard base64.utf8.count <= ((Self.maximumBytes + 2) / 3) * 4 + 8 else { throw AttachmentError(message: "Attachment exceeds the 50 MiB limit.") }
         guard let data = Data(base64Encoded: base64, options: []) else { throw AttachmentError(message: "Attachment data is malformed base64.") }
-        return try store(data: data, name: name, mimeType: mimeType, extHint: URL(fileURLWithPath: name).pathExtension)
+        return try importBatch([(data: data, name: name, mimeType: mimeType, extHint: URL(fileURLWithPath: name).pathExtension)])[0]
     }
 
     func importURL(_ url: URL) throws -> AttachmentRecord {
@@ -57,12 +58,59 @@ struct AttachmentStore {
         guard resource.isSymbolicLink != true, resource.isRegularFile == true else { throw AttachmentError(message: "Attachment must be a regular non-symlink file.") }
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
         guard data.count <= Self.maximumBytes else { throw AttachmentError(message: "Attachment exceeds the 50 MiB limit.") }
-        return try store(data: data, name: url.lastPathComponent, mimeType: Self.mimeForExtension(url.pathExtension), extHint: url.pathExtension)
+        return try importBatch([(data: data, name: url.lastPathComponent, mimeType: Self.mimeForExtension(url.pathExtension), extHint: url.pathExtension)])[0]
     }
 
-    static func mimeForExtension(_ ext: String) -> String { (formats[ext.lowercased()] ?? Format(ext: "", mime: "", kind: "")).mime }
+    func importURLs(_ urls: [URL]) throws -> [AttachmentRecord] {
+        guard !urls.isEmpty else { return [] }
+        let inputs = try urls.map { url -> (data: Data, name: String, mimeType: String, extHint: String) in
+            guard url.isFileURL, !url.pathComponents.contains("..") else { throw AttachmentError(message: "Only valid local files can be attached.") }
+            let attrs = try fm.attributesOfItem(atPath: url.path)
+            guard attrs[.type] as? FileAttributeType == .typeRegular,
+                  let size = (attrs[.size] as? NSNumber)?.intValue,
+                  try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else {
+                throw AttachmentError(message: "Attachment must be a regular non-symlink file.")
+            }
+            guard size <= Self.maximumBytes else { throw AttachmentError(message: "Attachment exceeds the 50 MiB limit.") }
+            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+            guard data.count <= Self.maximumBytes else { throw AttachmentError(message: "Attachment exceeds the 50 MiB limit.") }
+            return (data, url.lastPathComponent, Self.mimeForExtension(url.pathExtension), url.pathExtension)
+        }
+        return try importBatch(inputs)
+    }
 
-    private func store(data: Data, name: String, mimeType: String, extHint: String) throws -> AttachmentRecord {
+    private struct PendingAttachment {
+        let data: Data
+        let fileName: String
+        let record: AttachmentRecord
+    }
+
+    private func importBatch(_ inputs: [(data: Data, name: String, mimeType: String, extHint: String)]) throws -> [AttachmentRecord] {
+        try verifyAttachmentRoot()
+        let pending = try inputs.map { try prepare(data: $0.data, name: $0.name, mimeType: $0.mimeType, extHint: $0.extHint) }
+        let stage = attachmentsDirectory.appendingPathComponent(".staging-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? fm.removeItem(at: stage) }
+        for item in pending {
+            try DurableFileWriter.write(item.data, replacing: stage.appendingPathComponent(item.fileName))
+        }
+        var committed: [URL] = []
+        do {
+            for item in pending {
+                let destination = attachmentsDirectory.appendingPathComponent(item.fileName)
+                try DurableFileWriter.replaceByRename(stage.appendingPathComponent(item.fileName), with: destination)
+                committed.append(destination)
+            }
+        } catch {
+            for url in committed where url.deletingLastPathComponent().standardizedFileURL == attachmentsDirectory {
+                _ = unlink(url.path)
+            }
+            throw AttachmentError(message: "Could not finish importing attachments; no files were kept. \(error.localizedDescription)")
+        }
+        return pending.map(\.record)
+    }
+
+    private func prepare(data: Data, name: String, mimeType: String, extHint: String) throws -> PendingAttachment {
         guard !data.isEmpty, data.count <= Self.maximumBytes else { throw AttachmentError(message: "Attachment must be between 1 byte and 50 MiB.") }
         let ext = extHint.lowercased()
         guard let format = Self.formats[ext], mimeType.lowercased().split(separator: ";", maxSplits: 1).first.map(String.init) == format.mime else {
@@ -72,11 +120,47 @@ struct AttachmentStore {
         let safeName = URL(fileURLWithPath: name).lastPathComponent
         guard !safeName.isEmpty, safeName != ".", safeName != "..", !safeName.contains("/") else { throw AttachmentError(message: "Invalid attachment filename.") }
         let id = UUID().uuidString.lowercased()
-        let fileURL = attachmentsDirectory.appendingPathComponent("\(id).\(format.ext)")
-        do { try data.write(to: fileURL, options: [.withoutOverwriting]) }
-        catch { throw AttachmentError(message: "Could not save attachment: \(error.localizedDescription)") }
-        return AttachmentRecord(id: id, name: safeName, kind: format.kind, url: "foldnote-asset://media/\(id).\(format.ext)", size: data.count, mimeType: format.mime)
+        let fileName = "\(id).\(format.ext)"
+        let record = AttachmentRecord(id: id, name: safeName, kind: format.kind,
+                                      url: "foldnote-asset://media/\(fileName)", size: data.count, mimeType: format.mime)
+        return PendingAttachment(data: data, fileName: fileName, record: record)
     }
+
+    /// Removes only old, direct regular files in the managed root that are not
+    /// referenced by any active or trashed note. Symlinks and unknown files are skipped.
+    func collectGarbage(referencedMarkdown: [String], now: Date = Date(), grace: TimeInterval = 24 * 60 * 60) throws -> Int {
+        try verifyAttachmentRoot()
+        let pattern = try! NSRegularExpression(pattern: "foldnote-asset://media/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.[a-z0-9]+)", options: [.caseInsensitive])
+        let references = referencedMarkdown.reduce(into: Set<String>()) { result, markdown in
+            let range = NSRange(markdown.startIndex..., in: markdown)
+            for match in pattern.matches(in: markdown, range: range) where match.numberOfRanges > 1 {
+                if let range = Range(match.range(at: 1), in: markdown) { result.insert(String(markdown[range]).lowercased()) }
+            }
+        }
+        let cutoff = now.addingTimeInterval(-grace)
+        let directoryFD = open(attachmentsDirectory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard directoryFD >= 0 else { throw AttachmentError(message: "The attachments folder is unavailable or unsafe.") }
+        defer { _ = close(directoryFD) }
+        var directoryInfo = stat()
+        guard fstat(directoryFD, &directoryInfo) == 0, (directoryInfo.st_mode & S_IFMT) == S_IFDIR else {
+            throw AttachmentError(message: "The attachments folder is not a real directory.")
+        }
+        let names = try fm.contentsOfDirectory(atPath: attachmentsDirectory.path)
+        var removed = 0
+        for name in names {
+            guard name.range(of: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.[a-z0-9]+$", options: .regularExpression) != nil,
+                  !references.contains(name.lowercased()) else { continue }
+            var info = stat()
+            guard fstatat(directoryFD, name, &info, AT_SYMLINK_NOFOLLOW) == 0,
+                  (info.st_mode & S_IFMT) == S_IFREG else { continue }
+            let modified = Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000)
+            guard modified < cutoff else { continue }
+            if unlinkat(directoryFD, name, 0) == 0 { removed += 1 }
+        }
+        return removed
+    }
+
+    static func mimeForExtension(_ ext: String) -> String { (formats[ext.lowercased()] ?? Format(ext: "", mime: "", kind: "")).mime }
 
     private static func hasValidSignature(_ data: Data, extension ext: String) -> Bool {
         func bytes(_ offset: Int, _ expected: [UInt8]) -> Bool {

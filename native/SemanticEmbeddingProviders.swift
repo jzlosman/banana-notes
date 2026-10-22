@@ -1,6 +1,7 @@
 import Foundation
 import NaturalLanguage
 import AppKit
+import Darwin
 
 protocol SemanticEmbeddingProvider: Sendable {
     func identity(for model: String) -> String
@@ -28,6 +29,54 @@ struct AppleSemanticEmbeddingProvider: SemanticEmbeddingProvider {
             guard let vector = embedding.vector(for: text) else { throw SemanticSearchError(message: "Apple could not create an English sentence embedding.") }
             return vector.map { Double($0) }
         }
+    }
+}
+
+struct OllamaListener: Sendable {
+    let pid: Int32
+    let uid: UInt32?
+    let executablePath: String?
+}
+protocol OllamaProcessInspecting: Sendable { func listener() -> OllamaListener? }
+struct NoOllamaProcessInspector: OllamaProcessInspecting { func listener() -> OllamaListener? { nil } }
+
+struct SystemOllamaProcessInspector: OllamaProcessInspecting {
+    func listener() -> OllamaListener? {
+        guard let output = run("/usr/sbin/lsof", ["-nP", "-iTCP@127.0.0.1:11434", "-sTCP:LISTEN", "-Fpu"]) else { return nil }
+        let lines = output.split(whereSeparator: \.isNewline).map(String.init)
+        let pidLines = lines.filter { $0.hasPrefix("p") }
+        let pids = Set(pidLines.compactMap { Int32($0.dropFirst()) })
+        guard pids.count == 1, let pid = pids.first else {
+            return OllamaListener(pid: 0, uid: nil, executablePath: nil)
+        }
+        let uidLine = lines.first(where: { $0.hasPrefix("u") })
+        let uid = uidLine.flatMap { UInt32($0.dropFirst()) }
+        let processFiles = run("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "txt", "-Fn"])
+        let executable = processFiles?.split(whereSeparator: \.isNewline).map(String.init).first(where: { $0.hasPrefix("n/") }).map { String($0.dropFirst()) }
+        return OllamaListener(pid: pid, uid: uid, executablePath: executable)
+    }
+
+    private func run(_ path: String, _ arguments: [String]) -> String? {
+        guard FileManager.default.isExecutableFile(atPath: path) else { return nil }
+        let process = Process(); process.executableURL = URL(fileURLWithPath: path); process.arguments = arguments
+        let output = Pipe(); process.standardOutput = output; process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return String(data: data, encoding: .utf8)
+        } catch { return nil }
+    }
+}
+
+enum OllamaRuntimePolicy {
+    static func isTrusted(_ listener: OllamaListener, currentUID: UInt32 = UInt32(getuid())) -> Bool {
+        guard listener.pid > 0, listener.uid == currentUID, let path = listener.executablePath else { return false }
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        let basename = URL(fileURLWithPath: normalized).lastPathComponent.lowercased()
+        let inOllamaBundle = normalized.contains("/Ollama.app/")
+        return basename == "ollama" || inOllamaBundle
     }
 }
 
@@ -88,7 +137,7 @@ struct OllamaRuntimeStarter: SemanticRuntimeStarter {
 }
 
 struct SemanticProviderPreferences {
-    let defaults: UserDefaults
+    let defaults: any PreferencesStore
     var enabled: Bool { defaults.object(forKey: "semanticSearch.enabled") as? Bool ?? true }
     var provider: String {
         if let explicit = defaults.string(forKey: "semanticSearch.provider"), ["apple", "ollama"].contains(explicit) { return explicit }

@@ -39,9 +39,15 @@ private struct LoopbackOllamaClient: SemanticHTTPClient {
         request.httpBody = body
         request.timeoutInterval = 120
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
             throw SemanticSearchError(message: "Unable to connect to Ollama. Start Ollama and try again.")
+        }
+        let limit = OllamaResponsePolicy.byteLimit(for: path)
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < limit else { throw SemanticSearchError(message: "Ollama response exceeds the \(limit / 1_048_576) MiB safety limit.") }
+            data.append(byte)
         }
         return data
     }
@@ -73,81 +79,85 @@ public actor SemanticSearchService {
         ("embeddinggemma:latest", "300M parameters · approximately 622 MB")
     ]
     static let maximumNotes = 20_000
-    static let maximumMarkdownBytes = 1_000_000
+    static let maximumMarkdownBytes = 2_000_000
     static let maximumSnapshotBytes = 20_000_000
     static let maximumVectorDimension = 4_096
+    static let metadataResponseLimit = OllamaResponsePolicy.metadataLimit
+    static let embeddingResponseLimit = OllamaResponsePolicy.embeddingLimit
     static func isAllowedLoopbackRedirect(from source: URL, to target: URL) -> Bool {
-        let loopbackHosts: Set<String> = ["127.0.0.1", "::1"]
         return source.scheme == "http" && target.scheme == "http"
-            && loopbackHosts.contains((target.host ?? "").lowercased())
+            && (source.host ?? "").lowercased() == "127.0.0.1"
+            && (target.host ?? "").lowercased() == (source.host ?? "").lowercased()
             && target.port == 11434
             && source.port == target.port
     }
     private let directory: URL
-    private let defaults: UserDefaults
+    private let defaults: any PreferencesStore
     private let http: any SemanticHTTPClient
     private let apple: any SemanticEmbeddingProvider
     private let runtimeStarter: any SemanticRuntimeStarter
+    private let processInspector: any OllamaProcessInspecting
     private var generation = 0
     private var progress = ""
     private var indexing = false
 
-    public init(directory: URL, defaults: UserDefaults) {
+    public init(directory: URL, defaults: any PreferencesStore) {
         self.directory = directory
         self.defaults = defaults
         self.http = LoopbackOllamaClient()
         self.apple = AppleSemanticEmbeddingProvider()
         self.runtimeStarter = OllamaRuntimeStarter()
+        self.processInspector = SystemOllamaProcessInspector()
     }
 
-    init(directory: URL, defaults: UserDefaults, httpClient: any SemanticHTTPClient,
+    init(directory: URL, defaults: any PreferencesStore, httpClient: any SemanticHTTPClient,
          appleProvider: any SemanticEmbeddingProvider = AppleSemanticEmbeddingProvider(),
-         runtimeStarter: any SemanticRuntimeStarter = OllamaRuntimeStarter()) {
+         runtimeStarter: any SemanticRuntimeStarter = OllamaRuntimeStarter(),
+         processInspector: any OllamaProcessInspecting = NoOllamaProcessInspector()) {
         self.directory = directory
         self.defaults = defaults
         self.http = httpClient
         self.apple = appleProvider
         self.runtimeStarter = runtimeStarter
+        self.processInspector = processInspector
     }
 
-    public func handle(action: String, payload: [String: Any]) async throws -> [String: Any] {
-        switch action {
-        case "semanticStatus": return try await status()
-        case "semanticEnable":
-            guard let enabled = payload["enabled"] as? Bool else { throw SemanticSearchError(message: "Enable action requires a boolean enabled value.") }
-            if payload["provider"] != nil, !(payload["provider"] is String) { throw SemanticSearchError(message: "Select Apple or Ollama as the semantic provider.") }
-            let selectedProvider = payload["provider"] as? String ?? provider
-            guard ["apple", "ollama"].contains(selectedProvider) else { throw SemanticSearchError(message: "Select Apple or Ollama as the semantic provider.") }
-            let selectedModel = selectedProvider == "ollama" ? try resolveModel(payload["model"]) : ollamaModel
-            if selectedProvider == "apple", payload["model"] != nil { throw SemanticSearchError(message: "Apple uses its built-in English embedding model.") }
-            if selectedProvider != provider || selectedModel != ollamaModel || enabled != self.enabled { generation += 1 }
-            defaults.set(selectedProvider, forKey: "semanticSearch.provider")
-            if selectedProvider == "ollama", payload["model"] != nil { defaults.set(selectedModel, forKey: "semanticSearch.model") }
-            defaults.set(enabled, forKey: "semanticSearch.enabled")
+    func handle(_ command: SemanticCommand) async throws -> [String: Any] {
+        switch command {
+        case .status: return try await status()
+        case .enable(let requested, let selectedProvider, let requestedModel):
+            let provider = selectedProvider ?? self.provider
+            guard ["apple", "ollama"].contains(provider) else { throw SemanticSearchError(message: "Select Apple or Ollama as the semantic provider.") }
+            let model = provider == "ollama" ? try resolveModel(requestedModel) : ollamaModel
+            if provider == "apple", requestedModel != nil { throw SemanticSearchError(message: "Apple uses its built-in English embedding model.") }
+            if provider != self.provider || model != ollamaModel || requested != enabled { generation += 1 }
+            defaults.set(provider, forKey: "semanticSearch.provider")
+            if provider == "ollama", requestedModel != nil { defaults.set(model, forKey: "semanticSearch.model") }
+            defaults.set(requested, forKey: "semanticSearch.enabled")
             return try await status()
-        case "semanticStartRuntime": return try await startRuntime()
-        case "semanticDownload":
+        case .startRuntime: return try await startRuntime()
+        case .download(let requestedModel):
             guard provider == "ollama", enabled else { throw SemanticSearchError(message: "Enable semantic search and select Ollama before downloading a model.") }
             let generationAtStart = generation
-            let model = try resolveModel(payload["model"])
+            let model = try resolveModel(requestedModel)
             progress = "Downloading \(model)"
+            _ = try verifiedOllamaPath()
             let body = try json(["name": model, "stream": false])
             _ = try await http.post("api/pull", body: body)
             guard generation == generationAtStart else { throw SemanticSearchError(message: "Download cancellation requested; check model status before retrying.") }
             progress = "Model download complete"
             return try await status()
-        case "semanticIndex": return try await buildIndex(payload)
-        case "semanticSearch": return try await search(payload)
-        case "semanticClear":
+        case .index(let notes, let force): return try await buildIndex(notes: notes, force: force)
+        case .search(let query, let candidateIDs): return try await search(query: query, candidateIDs: candidateIDs)
+        case .clear:
             generation += 1
             if FileManager.default.fileExists(atPath: indexURL.path) { try FileManager.default.removeItem(at: indexURL) }
             progress = "Index cleared"
             return ["ok": true, "indexedNotes": 0]
-        case "semanticCancel":
+        case .cancel:
             generation += 1
             progress = "Cancellation requested"
             return ["ok": true, "progress": progress]
-        default: throw SemanticSearchError(message: "Unknown semantic search action.")
         }
     }
 
@@ -158,9 +168,18 @@ public actor SemanticSearchService {
     private var ollamaModel: String { preferences.ollamaModel }
     private var currentModel: String { provider == "apple" ? apple.identity(for: "") : ollamaModel }
     private var selectedOllamaModel: String { ollamaModel }
-    private func resolveModel(_ value: Any?) throws -> String {
-        if value != nil, !(value is String) { throw SemanticSearchError(message: "Select a supported embedding model in Settings → Search.") }
-        let name = value as? String ?? ollamaModel
+    private func verifiedOllamaPath() throws -> String {
+        guard let listener = processInspector.listener() else {
+            throw SemanticSearchError(message: "Ollama is unavailable. Get Ollama, install it, or open the Ollama app.")
+        }
+        guard OllamaRuntimePolicy.isTrusted(listener), let path = listener.executablePath else {
+            throw SemanticSearchError(message: "Another process is using Ollama's port.")
+        }
+        return URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func resolveModel(_ value: String?) throws -> String {
+        let name = value ?? ollamaModel
         guard Self.models.contains(where: { $0.name == name }) else {
             throw SemanticSearchError(message: "Select a supported embedding model in Settings → Search.")
         }
@@ -170,21 +189,26 @@ public actor SemanticSearchService {
     private func status() async throws -> [String: Any] {
         let installed: [String]
         let runtimeAvailable: Bool
+        var runtimePath: String?
         var unavailableReason: String?
         if !enabled {
             installed = []
             runtimeAvailable = false
+            runtimePath = nil
         } else if provider == "apple" {
             let availability = apple.availability()
             installed = []
             runtimeAvailable = availability.available
+            runtimePath = nil
             unavailableReason = availability.reason
         } else {
             do {
+                runtimePath = try verifiedOllamaPath()
                 let data = try await http.get("api/tags")
-                let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                installed = (object?["models"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+                installed = try OllamaResponsePolicy.modelNames(from: data)
                 runtimeAvailable = true
+            } catch let error as SemanticSearchError {
+                installed = []; runtimeAvailable = false; unavailableReason = error.message
             } catch { installed = []; runtimeAvailable = false; unavailableReason = "Ollama is unavailable. Get Ollama, install it, or open the Ollama app." }
         }
         let model = currentModel
@@ -201,7 +225,7 @@ public actor SemanticSearchService {
                     ["id": "ollama", "name": "Ollama", "disclosure": "Optional local runtime; model download is explicit.", "available": true]],
                 "unavailableReason": unavailableReason as Any? ?? NSNull(), "model": model,
                 "models": Self.models.map { ["name": $0.name, "disclosure": $0.disclosure] },
-                "installed": localMatches, "runtimeAvailable": runtimeAvailable,
+                "installed": localMatches, "runtimeAvailable": runtimeAvailable, "runtimePath": runtimePath as Any? ?? NSNull(),
                 "indexedNotes": matchingIndex ? indexedCount : 0, "progress": progress, "indexError": indexError as Any? ?? NSNull(),
                 "actionableState": state]
     }
@@ -223,12 +247,10 @@ public actor SemanticSearchService {
         return state
     }
 
-    private func buildIndex(_ payload: [String: Any]) async throws -> [String: Any] {
+    private func buildIndex(notes: [SemanticIndexNote], force: Bool) async throws -> [String: Any] {
         guard enabled else { throw SemanticSearchError(message: "Enable semantic search before building its local index.") }
-        guard let notes = payload["notes"] as? [[String: Any]], notes.count <= Self.maximumNotes else {
-            throw SemanticSearchError(message: "Index input must contain no more than 20,000 notes.")
-        }
-        guard let inputData = try? JSONSerialization.data(withJSONObject: ["notes": notes]), inputData.count <= Self.maximumSnapshotBytes else {
+        guard notes.count <= Self.maximumNotes else { throw SemanticSearchError(message: "Index input must contain no more than 20,000 notes.") }
+        guard let inputData = try? JSONEncoder().encode(notes), inputData.count <= Self.maximumSnapshotBytes else {
             throw SemanticSearchError(message: "Index snapshot exceeds the 20 MB safety limit.")
         }
         guard !indexing else { throw SemanticSearchError(message: "An index build is already in progress.") }
@@ -238,19 +260,19 @@ public actor SemanticSearchService {
             throw SemanticSearchError(message: "Apple’s English language model is unavailable on this Mac. Text search is still available.")
         }
         let model = provider == "ollama" ? try resolveModel(nil) : currentModel
-        let prior = payload["force"] as? Bool == true ? nil : try loadIndex()
+        let prior = force ? nil : try loadIndex()
         var next = SemanticIndex(model: model, dimension: 0, notes: [:])
         if prior?.model == model { next = prior! }
         let generationAtStart = generation
         var seen = Set<String>()
         let validNotes = try notes.map { item -> (String, String, String) in
-            guard let id = item["id"] as? String, !id.isEmpty, id.utf8.count <= 512,
-                  let markdown = item["markdown"] as? String, markdown.utf8.count <= Self.maximumMarkdownBytes,
-                  let updated = item["updatedAt"] as? String, updated.count <= 128, Self.isISO8601(updated) else {
+            guard !item.id.isEmpty, item.id.utf8.count <= 512,
+                  item.markdown.utf8.count <= Self.maximumMarkdownBytes, item.updatedAt.count <= 128,
+                  Self.isISO8601(item.updatedAt) else {
                 throw SemanticSearchError(message: "A note has an invalid identity, Markdown value, or update time; preserved note data was not modified.")
             }
-            guard seen.insert(id).inserted else { throw SemanticSearchError(message: "Duplicate note identity in index snapshot.") }
-            return (id, markdown, updated)
+            guard seen.insert(item.id).inserted else { throw SemanticSearchError(message: "Duplicate note identity in index snapshot.") }
+            return (item.id, item.markdown, item.updatedAt)
         }
         // Reconcile deletions before generating vectors; trashed notes must already be excluded by caller.
         next.notes = next.notes.filter { seen.contains($0.key) }
@@ -278,23 +300,24 @@ public actor SemanticSearchService {
                 chunks: zip(pieces, vectors).map { VectorChunk(id: note.0, hash: hash, snippet: $0.0.snippet, vector: $0.1) })
         }
         guard generation == generationAtStart, enabled, currentModel == model else { throw SemanticSearchError(message: "Indexing cancelled because settings changed.") }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try JSONEncoder().encode(next).write(to: indexURL, options: .atomic)
+        try DurableFileWriter.prepareDirectory(directory)
+        try DurableFileWriter.write(try JSONEncoder().encode(next), replacing: indexURL)
         progress = "Index up to date"
         return ["ok": true, "indexedNotes": next.notes.count, "model": model, "dimension": next.dimension]
     }
 
-    private func search(_ payload: [String: Any]) async throws -> [String: Any] {
+    private func search(query: String, candidateIDs candidateArray: [String]) async throws -> [String: Any] {
         guard enabled else { throw SemanticSearchError(message: "Semantic search is disabled. Enable it in settings first.") }
-        guard let query = payload["query"] as? String, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              query.utf8.count <= 16_000 else { throw SemanticSearchError(message: "Enter a query under 16 KB.") }
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, query.utf8.count <= 16_000 else {
+            throw SemanticSearchError(message: "Enter a query under 16 KB.")
+        }
         guard let index = try loadIndex(), index.model == currentModel else {
             throw SemanticSearchError(message: "The local semantic index is not ready. Build or rebuild it in settings.")
         }
         guard index.dimension > 0, index.notes.values.contains(where: { !$0.chunks.isEmpty }) else {
             throw SemanticSearchError(message: "There is no searchable content in the local index. Add non-empty notes and rebuild it.")
         }
-        guard let candidateArray = payload["candidateIDs"] as? [String], candidateArray.count <= Self.maximumNotes else {
+        guard candidateArray.count <= Self.maximumNotes else {
             throw SemanticSearchError(message: "Search requires a valid candidate note ID list.")
         }
         guard candidateArray.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }) else {
@@ -337,14 +360,12 @@ public actor SemanticSearchService {
         guard !inputs.isEmpty else { return [] }
         if provider == "apple" { return try await apple.embed(inputs, model: model) }
         let data = try json(["model": model, "input": inputs, "truncate": true])
+        _ = try verifiedOllamaPath()
         let responseData = try await http.post("api/embed", body: data)
         try Task.checkCancellation()
-        let response = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        guard let vectors = response?["embeddings"] as? [[NSNumber]], vectors.count == inputs.count else {
-            throw SemanticSearchError(message: "Local model response did not contain the expected embeddings.")
-        }
-        let result = vectors.map { $0.map(\.doubleValue) }
-        guard result.allSatisfy({ !$0.isEmpty && $0.count <= Self.maximumVectorDimension && $0.allSatisfy(\.isFinite) }) else {
+        let result = try OllamaResponsePolicy.embeddings(from: responseData, expectedCount: inputs.count,
+                                                         maximumDimension: Self.maximumVectorDimension)
+        guard result.allSatisfy({ $0.contains(where: { $0 != 0 }) && $0.allSatisfy(\.isFinite) }) else {
             throw SemanticSearchError(message: "The local model returned an invalid or oversized embedding vector.")
         }
         return result

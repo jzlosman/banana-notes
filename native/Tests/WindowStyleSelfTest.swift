@@ -10,23 +10,20 @@ struct WindowStyleSelfTest {
         defer { defaults.removePersistentDomain(forName: suite) }
         let prefs = WindowStylePreferences(defaults: defaults)
         precondition(prefs.style == .solid)
-        try prefs.save(["focusedOpacity": 0.8, "unfocusedOpacity": 0.15, "glass": 0.7])
+        try prefs.save(WindowStyle(focusedOpacity: 0.8, unfocusedOpacity: 0.15, glass: 0.7))
         let reloaded = WindowStylePreferences(defaults: defaults)
         precondition(reloaded.style == prefs.style)
         precondition(reloaded.style.opacity(isFocused: true) == 0.8)
         precondition(reloaded.style.opacity(isFocused: false) == 0.15)
-        for invalid: [String: Any] in [
-            ["focusedOpacity": 0, "unfocusedOpacity": 1, "glass": 0],
-            ["focusedOpacity": true, "unfocusedOpacity": 1, "glass": 0],
-            ["focusedOpacity": 1, "unfocusedOpacity": 1, "glass": Double.nan],
-            ["focusedOpacity": 1, "unfocusedOpacity": 1, "glass": 1.1]
+        for invalid in [
+            WindowStyle(focusedOpacity: 0, unfocusedOpacity: 1, glass: 0),
+            WindowStyle(focusedOpacity: 1, unfocusedOpacity: 1, glass: .nan),
+            WindowStyle(focusedOpacity: 1, unfocusedOpacity: 1, glass: 1.1)
         ] {
             do { try prefs.save(invalid); preconditionFailure("invalid effects accepted") }
             catch is StoreError {}
         }
         precondition(prefs.style == reloaded.style, "rejected values must not replace saved choices")
-        let resolved = WindowStyle.resolve(["focusedOpacity": -10, "unfocusedOpacity": false, "glass": 3])
-        precondition(resolved == WindowStyle(focusedOpacity: 0.05, unfocusedOpacity: 1, glass: 1))
         try prefs.reset()
         precondition(prefs.style == .solid)
         defaults.set(Data("bad json".utf8), forKey: "windowStyle")

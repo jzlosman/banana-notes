@@ -1,4 +1,14 @@
 import Foundation
+import Darwin
+
+private struct FakeOllamaProcessInspector: OllamaProcessInspecting {
+    func listener() -> OllamaListener? {
+        OllamaListener(pid: getpid(), uid: UInt32(getuid()), executablePath: "/Applications/Ollama.app/Contents/MacOS/Ollama")
+    }
+}
+private struct RogueOllamaProcessInspector: OllamaProcessInspecting {
+    func listener() -> OllamaListener? { OllamaListener(pid: getpid(), uid: UInt32(getuid()), executablePath: "/tmp/unrelated-service") }
+}
 
 private actor FakeSemanticHTTP: SemanticHTTPClient {
     var vectors: [[Double]] = []
@@ -52,9 +62,10 @@ struct SemanticSearchSelfTest {
         defaults.set(true, forKey: "semanticSearch.enabled")
         defaults.set("ollama", forKey: "semanticSearch.provider")
         let fake = FakeSemanticHTTP()
-        let service = SemanticSearchService(directory: root, defaults: defaults, httpClient: fake)
+        let service = SemanticSearchService(directory: root, defaults: defaults, httpClient: fake, processInspector: FakeOllamaProcessInspector())
         let status = try await service.handle(action: "semanticStatus", payload: [:])
         precondition(status["enabled"] as? Bool == true && status["provider"] as? String == "ollama", "explicit Ollama configuration is preserved")
+        precondition((status["runtimePath"] as? String)?.contains("Ollama.app") == true, "status exposes the verified runtime executable")
         _ = try await service.handle(action: "semanticEnable", payload: ["enabled": true, "provider": "ollama"])
         let notes: [[String: Any]] = [
             ["id": "apple", "markdown": "# Apple\n\nFruit", "updatedAt": "2026-01-01T00:00:00Z"],
@@ -71,6 +82,15 @@ struct SemanticSearchSelfTest {
         let pullCountAfterSearch = await fake.pullCount()
         precondition(pullCountAfterSearch == 0, "search does not download models")
         precondition(defaults.string(forKey: "semanticSearch.model") == nil, "read actions do not mutate selected model preference")
+        let rogueHTTP = FakeSemanticHTTP()
+        let rogueService = SemanticSearchService(directory: root.appendingPathComponent("rogue"), defaults: defaults, httpClient: rogueHTTP,
+                                                 processInspector: RogueOllamaProcessInspector())
+        do {
+            _ = try await rogueService.handle(action: "semanticIndex", payload: ["notes": [notes[0]]])
+            preconditionFailure("unrelated process on Ollama port must be rejected before indexing")
+        } catch let error as SemanticSearchError { precondition(error.message.contains("Another process is using Ollama's port")) }
+        let rogueCalls = await rogueHTTP.callCount()
+        precondition(rogueCalls == 0, "unverified process receives no note text")
         precondition(SemanticSearchService.isAllowedLoopbackRedirect(from: URL(string: "http://127.0.0.1:11434/api/tags")!, to: URL(string: "http://127.0.0.1:11434/api/version")!), "same-port loopback redirect allowed")
         precondition(!SemanticSearchService.isAllowedLoopbackRedirect(from: URL(string: "http://127.0.0.1:11434/api/tags")!, to: URL(string: "http://example.com:11434/api/tags")!), "external redirect rejected")
         precondition(!SemanticSearchService.isAllowedLoopbackRedirect(from: URL(string: "http://127.0.0.1:11434/api/tags")!, to: URL(string: "http://127.0.0.1:1234/api/tags")!), "different-port redirect rejected")
@@ -86,20 +106,20 @@ struct SemanticSearchSelfTest {
         do {
             _ = try await service.handle(action: "semanticIndex", payload: ["notes": [["id": "x", "markdown": 4, "updatedAt": "now"]]])
             preconditionFailure("malformed note snapshot should reject")
-        } catch is SemanticSearchError {}
+        } catch is BridgeDecodeError {}
         do {
             _ = try await service.handle(action: "semanticEnable", payload: ["enabled": true, "model": "remote-model"])
             preconditionFailure("nonallowlisted model should reject")
         } catch is SemanticSearchError {}
         try Data("broken index".utf8).write(to: root.appendingPathComponent("semantic-index.json"))
         do {
-            _ = try await service.handle(action: "semanticSearch", payload: ["query": "apple"])
+            _ = try await service.handle(action: "semanticSearch", payload: ["query": "apple", "candidateIDs": ["apple"]])
             preconditionFailure("malformed index should be surfaced")
         } catch is SemanticSearchError {}
         let emptyRoot = root.appendingPathComponent("empty", isDirectory: true)
         try FileManager.default.createDirectory(at: emptyRoot, withIntermediateDirectories: true)
         let emptyHTTP = FakeSemanticHTTP()
-        let emptyService = SemanticSearchService(directory: emptyRoot, defaults: defaults, httpClient: emptyHTTP)
+        let emptyService = SemanticSearchService(directory: emptyRoot, defaults: defaults, httpClient: emptyHTTP, processInspector: FakeOllamaProcessInspector())
         let emptyNotes: [[String: Any]] = [["id": "blank", "markdown": " \n\t", "updatedAt": "2026-01-01T00:00:00Z"]]
         let emptyIndex = try await emptyService.handle(action: "semanticIndex", payload: ["notes": emptyNotes])
         precondition(emptyIndex["indexedNotes"] as? Int == 1 && emptyIndex["dimension"] as? Int == 0, "empty notes are retained without embeddings")
@@ -113,7 +133,7 @@ struct SemanticSearchSelfTest {
         let dimensionRoot = root.appendingPathComponent("dimension", isDirectory: true)
         try FileManager.default.createDirectory(at: dimensionRoot, withIntermediateDirectories: true)
         let dimensionHTTP = FakeSemanticHTTP()
-        let dimensionService = SemanticSearchService(directory: dimensionRoot, defaults: defaults, httpClient: dimensionHTTP)
+        let dimensionService = SemanticSearchService(directory: dimensionRoot, defaults: defaults, httpClient: dimensionHTTP, processInspector: FakeOllamaProcessInspector())
         _ = try await dimensionService.handle(action: "semanticIndex", payload: ["notes": [notes[0]]])
         await dimensionHTTP.setDimension(3)
         do {
@@ -125,7 +145,7 @@ struct SemanticSearchSelfTest {
         await boundedHTTP.setDimension(4_097)
         let boundedRoot = root.appendingPathComponent("bounded", isDirectory: true)
         try FileManager.default.createDirectory(at: boundedRoot, withIntermediateDirectories: true)
-        let boundedService = SemanticSearchService(directory: boundedRoot, defaults: defaults, httpClient: boundedHTTP)
+        let boundedService = SemanticSearchService(directory: boundedRoot, defaults: defaults, httpClient: boundedHTTP, processInspector: FakeOllamaProcessInspector())
         do {
             _ = try await boundedService.handle(action: "semanticIndex", payload: ["notes": [notes[0]]])
             preconditionFailure("oversized vector dimension should reject")
@@ -135,7 +155,7 @@ struct SemanticSearchSelfTest {
         await zeroHTTP.setZeroVectors(true)
         let zeroRoot = root.appendingPathComponent("zero", isDirectory: true)
         try FileManager.default.createDirectory(at: zeroRoot, withIntermediateDirectories: true)
-        let zeroService = SemanticSearchService(directory: zeroRoot, defaults: defaults, httpClient: zeroHTTP)
+        let zeroService = SemanticSearchService(directory: zeroRoot, defaults: defaults, httpClient: zeroHTTP, processInspector: FakeOllamaProcessInspector())
         do {
             _ = try await zeroService.handle(action: "semanticIndex", payload: ["notes": [notes[0]]])
             preconditionFailure("zero index vectors should reject")
@@ -149,7 +169,7 @@ struct SemanticSearchSelfTest {
             let delayedDefaults = UserDefaults(suiteName: "\(suite)-\(invalidator)")!
             defer { delayedDefaults.removePersistentDomain(forName: "\(suite)-\(invalidator)") }
             delayedDefaults.set("ollama", forKey: "semanticSearch.provider")
-            let delayedService = SemanticSearchService(directory: delayedRoot, defaults: delayedDefaults, httpClient: delayedHTTP)
+            let delayedService = SemanticSearchService(directory: delayedRoot, defaults: delayedDefaults, httpClient: delayedHTTP, processInspector: FakeOllamaProcessInspector())
             _ = try await delayedService.handle(action: "semanticEnable", payload: ["enabled": true])
             let delayedBuild = Task { try await delayedService.handle(action: "semanticIndex", payload: ["notes": [notes[0]]]) }
             for _ in 0..<100 {
@@ -173,5 +193,16 @@ struct SemanticSearchSelfTest {
             precondition(!FileManager.default.fileExists(atPath: delayedRoot.appendingPathComponent("semantic-index.json").path), "invalidated build did not write an index")
         }
         print("Native semantic search checks passed")
+    }
+}
+
+private extension SemanticSearchService {
+    func handle(action: String, payload: [String: Any]) async throws -> [String: Any] {
+        var envelope = payload
+        envelope["action"] = action
+        guard case .semantic(let command) = try BridgeCommandDecoder.decode(envelope) else {
+            throw StoreError(message: "Test request did not decode as a semantic capability.")
+        }
+        return try await handle(command)
     }
 }

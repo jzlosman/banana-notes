@@ -2,11 +2,11 @@ import Foundation
 import WebKit
 
 final class MediaSchemeHandler: NSObject, WKURLSchemeHandler {
-    private let store: AttachmentStore
+    private let store: any AttachmentRepository
     private let lock = NSRecursiveLock()
     private var cancelled = Set<ObjectIdentifier>()
 
-    init(store: AttachmentStore) { self.store = store; super.init() }
+    init(store: any AttachmentRepository) { self.store = store; super.init() }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         let key = ObjectIdentifier(urlSchemeTask as AnyObject)

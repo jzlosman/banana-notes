@@ -15,6 +15,31 @@ enum BananaMark {
         }
     }
 
+    /// SVG paths are derived from the same native geometry for export surfaces that cannot share an AppKit bitmap.
+    static func svgPathData() -> [String] {
+        sourcePaths().map { path in
+            var result = ""
+            for index in 0..<path.elementCount {
+                var points = [NSPoint](repeating: .zero, count: 3)
+                let element = points.withUnsafeMutableBufferPointer {
+                    path.element(at: index, associatedPoints: $0.baseAddress!)
+                }
+                func point(_ value: NSPoint) -> String {
+                    "\(Int(value.x.rounded())) \(1024 - Int(value.y.rounded()))"
+                }
+                switch element {
+                case .moveTo: result += "M \(point(points[0])) "
+                case .lineTo: result += "L \(point(points[0])) "
+                case .curveTo, .cubicCurveTo: result += "C \(point(points[0])) \(point(points[1])) \(point(points[2])) "
+                case .quadraticCurveTo: result += "Q \(point(points[0])) \(point(points[1])) "
+                case .closePath: result += "Z "
+                @unknown default: break
+                }
+            }
+            return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
     private static func sourcePaths() -> [NSBezierPath] {
         func path(_ build: (NSBezierPath) -> Void) -> NSBezierPath {
             let result = NSBezierPath()

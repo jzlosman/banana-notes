@@ -3,12 +3,12 @@ import Foundation
 /// Local code-token palette preference, independent of app chrome and note storage.
 final class SyntaxPreferences {
     static let appID = "app"
-    private let defaults: UserDefaults
+    private let defaults: any PreferencesStore
     private let catalog: Set<String>
     private let key = "syntaxThemeID"
     let catalogError: String?
 
-    init(defaults: UserDefaults = .standard, catalogURL: URL) {
+    init(defaults: any PreferencesStore = UserDefaults.standard, catalogURL: URL) {
         self.defaults = defaults
         do {
             let data = try Data(contentsOf: catalogURL)

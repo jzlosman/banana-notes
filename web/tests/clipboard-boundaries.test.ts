@@ -39,7 +39,8 @@ test('copy clears stale rich flavors and rendering cannot create executable HTML
   const event = new dom.window.Event('copy', { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'clipboardData', { value: { clearData() { for (const key of Object.keys(data)) delete data[key]; }, setData(type: string, value: string) { data[type] = value; } } });
   editor.view.dom.dispatchEvent(event);
-  assert.ok(event.defaultPrevented); assert.equal(data['text/html'], undefined); assert.match(data['text/plain'], /\*\*Only Markdown\*\*/);
+  assert.ok(event.defaultPrevented); assert.equal(data['text/html'], undefined);
+  assert.equal(data['text/plain'], 'Only Markdown'); assert.equal(data['text/markdown'], '**Only Markdown**');
   editor.destroy();
   const rendered = documentClipboardPayload('<script>window.bad=true</script>\n\n[bad](javascript:alert(1))\n\n**Safe**', 'formatted');
   assert.doesNotMatch(rendered.html!, /<script|href="javascript:/i); assert.match(rendered.html!, /<strong>Safe<\/strong>/);

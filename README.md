@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="#install"><strong>Install</strong></a> ·
+  <a href="#download"><strong>Download</strong></a> ·
   <a href="#feature-tour"><strong>Feature tour</strong></a> ·
   <a href="#keyboard-shortcuts"><strong>Shortcuts</strong></a> ·
   <a href="#faq"><strong>FAQ</strong></a> ·
@@ -40,7 +40,11 @@
   </tr>
 </table>
 
-## Install
+## Download
+
+Download the latest signed, notarized macOS disk image from [GitHub Releases](https://github.com/jzlosman/banana-notes/releases). Open the DMG and drag **Banana Notes.app** to **Applications**. On first launch, macOS verifies the Developer ID signature and notarization; if it asks you to confirm, choose **Open**. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> anywhere to bring it up.
+
+## Build from source
 
 You'll need macOS 14 or later, the Xcode command-line tools and Node 22+.
 
@@ -50,8 +54,6 @@ npm ci --ignore-scripts
 npm run build
 open "build/Banana Notes.app"
 ```
-
-Drag `build/Banana Notes.app` into `~/Applications`. From then on, press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> anywhere to bring it up.
 
 ## Feature tour
 
@@ -169,7 +171,7 @@ Dracula, Nord, Catppuccin, Rosé Pine, Tokyo Night, Gruvbox, Solarized, GitHub a
 ## FAQ
 
 **Is it free?**
-Yes. Banana Notes is free and open source under the MIT license. For now you build it from source; the build is signed for local use, not notarized for distribution.
+Yes. Banana Notes is free and open source under the MIT license. Download a signed, notarized build from GitHub Releases, or build it from source.
 
 **Where do my notes live?**
 On your Mac, as Markdown inside a versioned JSON file at `~/Library/Application Support/Foldnote/library.json` (the folder keeps the app's original name), with an automatic last-good backup. **Help → Export Markdown** writes plain `.md` copies any time.
@@ -333,7 +335,7 @@ The logo lives in `assets/banana-notes-logo.svg`. Regenerate the app icon from t
 
 Banana Notes' original code and artwork are [MIT licensed](LICENSE). Third-party code and palettes retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). Themes come from [Agent Paint](https://github.com/jzlosman/agent-paint).
 
-This is a source release. The build is ad-hoc signed for local use, not notarized for public binary distribution. Launch-at-login is off unless you enable it. Sync, configurable hotkeys, general note import, and edit-version history are not included.
+The source remains available here; signed and notarized binary releases will be published through GitHub Releases when a tagged release is approved. Launch-at-login is off unless you enable it. Sync, configurable hotkeys, general note import, and edit-version history are not included.
 
 ---
 

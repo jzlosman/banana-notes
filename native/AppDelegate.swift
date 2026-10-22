@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var panel: FoldnotePanel!
     private var webView: WKWebView!
     private var statusItem: NSStatusItem!
+    #if canImport(Sparkle)
+    private var updateController: UpdateController?
+    #endif
     private var store: LibraryStore!
     private var appearancePreferences: AppearancePreferences!
     private var windowStylePreferences: WindowStylePreferences!
@@ -44,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         windowStylePreferences = WindowStylePreferences()
         fontSizePreferences = FontSizePreferences()
         featurePreferences = FeaturePreferences()
+        #if canImport(Sparkle)
+        updateController = UpdateController()
+        #endif
         do { features = try NativeFeatures(directory: store.directory, catalogURL: webDirectory.appendingPathComponent("theme-catalog.json")) }
         catch { featureSetupError = error.localizedDescription }
         pinned = UserDefaults.standard.bool(forKey: "pinned")
@@ -127,6 +133,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         menu.addItem(item("New Note", #selector(newNote), key: "n"))
         menu.addItem(item("Notes", #selector(openExplorer), key: ""))
         menu.addItem(item("Settings…", #selector(openThemes), key: ""))
+        #if canImport(Sparkle)
+        menu.addItem(item("Check for Updates…", #selector(checkForUpdates), key: ""))
+        #endif
         menu.addItem(item("Reset Window Effects", #selector(resetWindowEffects), key: ""))
         menu.addItem(item("Shortcuts", #selector(showHelp), key: ""))
         menu.addItem(.separator())
@@ -142,6 +151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let mainMenu = NSMenu()
         let appRoot = NSMenuItem(title: "Banana Notes", action: nil, keyEquivalent: "")
         let appMenu = NSMenu(title: "Banana Notes")
+        #if canImport(Sparkle)
+        appMenu.addItem(item("Check for Updates…", #selector(checkForUpdates), key: ""))
+        appMenu.addItem(.separator())
+        #endif
         appMenu.addItem(item("Settings…", #selector(openThemes), key: ","))
         appMenu.addItem(item("Reset Window Effects", #selector(resetWindowEffects), key: ""))
         appMenu.addItem(.separator())
@@ -214,6 +227,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc private func copyPlainText() { sendCommand(["action": "copy", "format": "text"]) }
     @objc private func copyWholeNote() { sendCommand(["action": "copy", "format": "markdown", "whole": true]) }
     @objc private func openDataFolder() { NSWorkspace.shared.open(store.directory) }
+    #if canImport(Sparkle)
+    @objc private func checkForUpdates() { updateController?.checkForUpdates() }
+    #endif
     @objc private func quit() { quitAfterFlush() }
     @objc private func hideAfterFlushMenu() { hideAfterFlush() }
 

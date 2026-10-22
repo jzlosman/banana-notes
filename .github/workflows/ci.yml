@@ -46,5 +46,8 @@ jobs:
         run: npm run build:web
       - name: Test native adapters
         run: bash scripts/native-tests.sh
-      - name: Build and verify local app
-        run: bash scripts/build-app.sh
+      - name: Build and verify universal local app
+        run: |
+          bash scripts/build-app.sh
+          lipo -verify_arch arm64 "build/Banana Notes.app/Contents/MacOS/Banana Notes"
+          lipo -verify_arch x86_64 "build/Banana Notes.app/Contents/MacOS/Banana Notes"

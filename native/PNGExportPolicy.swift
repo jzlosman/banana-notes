@@ -1,23 +1,36 @@
 import Foundation
 
-struct PNGMarkFrame: Equatable {
-    let x: Double
-    let y: Double
-    let side: Double
+/// The optional export signature: the full-color logo, with the wordmark when the gutter has room.
+enum PNGSignature: Equatable {
+    case lockup(logoSide: Double)
+    case logo(side: Double)
 
-    var maxX: Double { x + side }
-    var maxY: Double { y + side }
+    var logoSide: Double {
+        switch self { case .lockup(let side), .logo(let side): side }
+    }
+    var showsWordmark: Bool { if case .lockup = self { true } else { false } }
 }
 
-struct PNGMarkColor: Equatable {
+/// Bitmap coordinates with a bottom-left origin. `x`/`maxX` bound the signature's height box, not its text width.
+struct PNGSignatureFrame: Equatable {
+    let maxX: Double
+    let y: Double
+    let height: Double
+
+    var maxY: Double { y + height }
+}
+
+struct PNGInkColor: Equatable {
     let hex: String
     let alpha: Double
 }
 
 /// Content and geometry rules that can be verified without WebKit or AppKit rendering.
 enum PNGExportPolicy {
-    static let markSide = 14.0
-    static let markAlpha = 0.55
+    static let lockupMinimumPadding = 40.0
+    static let lockupLogoSide = 18.0
+    static let compactLogoSide = 16.0
+    static let wordmarkAlpha = 0.72
 
     static func removingDuplicateLeadingTitle(from html: String, title: String) -> String {
         guard let match = html.firstMatch(pattern: #"(?is)^\s*<h1\b[^>]*>(.*?)</h1\s*>\s*"#),
@@ -30,19 +43,24 @@ enum PNGExportPolicy {
         return String(html[range.upperBound...])
     }
 
-    /// Coordinates use the bitmap's AppKit bottom-left origin. The frame sits solely in the bottom-right gradient gutter.
-    static func markFrame(width: Double, height: Double, padding: Double, side: Double = markSide) -> PNGMarkFrame? {
-        guard width.isFinite, height.isFinite, padding.isFinite, side.isFinite,
-              width > padding * 2, height > padding, side > 0, side < padding else { return nil }
-        let gutter = (padding - side) / 2
-        return PNGMarkFrame(x: width - padding + gutter, y: gutter, side: side)
+    static func signature(padding: Double) -> PNGSignature? {
+        guard padding.isFinite, padding > compactLogoSide else { return nil }
+        return padding >= lockupMinimumPadding ? .lockup(logoSide: lockupLogoSide) : .logo(side: compactLogoSide)
     }
 
-    static func markColor(backgroundStart: String, backgroundEnd: String) -> PNGMarkColor? {
+    /// Right-aligned with the card's right edge and vertically centred in the bottom gradient gutter, so it never
+    /// overlaps the card.
+    static func signatureFrame(width: Double, padding: Double, signature: PNGSignature) -> PNGSignatureFrame? {
+        guard width.isFinite, padding.isFinite, width > padding * 2, signature.logoSide < padding else { return nil }
+        return PNGSignatureFrame(maxX: width - padding, y: (padding - signature.logoSide) / 2, height: signature.logoSide)
+    }
+
+    /// Wordmark ink chosen for contrast against both gradient stops.
+    static func wordmarkColor(backgroundStart: String, backgroundEnd: String) -> PNGInkColor? {
         guard let first = rgb(backgroundStart), let second = rgb(backgroundEnd) else { return nil }
         let dark = min(contrast(0.035, first), contrast(0.035, second))
         let light = min(contrast(1, first), contrast(1, second))
-        return PNGMarkColor(hex: light > dark ? "#FFFFFF" : "#09080D", alpha: markAlpha)
+        return PNGInkColor(hex: light > dark ? "#FFFFFF" : "#09080D", alpha: wordmarkAlpha)
     }
 
     private static func stripTags(_ source: Substring) -> String {

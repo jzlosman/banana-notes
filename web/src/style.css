@@ -203,6 +203,10 @@ html[data-focused='false'] .view-note .notice { bottom: 12px; }
 .appearance-tab { padding: 6px 0 8px; border-bottom: 2px solid transparent; font-size: 12px; color: var(--muted); }
 .appearance-tab[aria-selected='true'] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 550; }
 .appearance-tab:hover { color: var(--ink); }
+/* The tab strip scrolls horizontally, so draw the focus ring inside the tab instead of letting it clip. */
+.appearance-tab:focus-visible { outline-offset: -2px; border-radius: 4px; }
+/* Headings receive focus only programmatically after a view change; announce them without a ring. */
+h1[tabindex='-1']:focus, h2[tabindex='-1']:focus { outline: none; }
 .window-settings { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 2px 8px 24px 3px; margin: 0 -3px; }
 .window-settings h2 { font-size: 15px; font-weight: 600; line-height: 1.4; margin: 0 0 16px; }
 .window-settings > .settings-group + .settings-group { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }

@@ -7,12 +7,12 @@ import AppKit
         let document = service.htmlDocument(request)
         precondition(!document.contains("<h1>Synthetic note</h1>") && document.contains("Visible synthetic note text."),
                      "a leading H1 equal to the card title should render once")
-        precondition(document.contains("<svg class=\"brand-mark\"") && document.contains("width:14px;height:14px"),
-                     "marked export reuses the BananaMark SVG geometry in a 14 pt gutter")
+        precondition(document.contains("class=\"signature\"") && document.contains("#F4D447") && document.contains("<span>Banana Notes</span>"),
+                     "marked export uses the full-color logo and wordmark")
         let unmarked = service.htmlDocument(NoteImageRequest(html: request.html, title: request.title,
             backgroundStart: request.backgroundStart, backgroundEnd: request.backgroundEnd, paper: request.paper,
             text: request.text, accent: request.accent, width: request.width, padding: request.padding, showMark: false))
-        precondition(!unmarked.contains("brand-mark"), "mark remains optional")
+        precondition(!unmarked.contains("class=\"signature\""), "signature remains optional")
         let png = try await service.render(request: request)
         precondition(Array(png.prefix(8)) == [137, 80, 78, 71, 13, 10, 26, 10], "output must have a PNG signature")
         guard let bitmap = NSBitmapImageRep(data: png) else { preconditionFailure("PNG could not be decoded") }
@@ -24,18 +24,23 @@ import AppKit
               unmarkedBitmap.pixelsWide == bitmap.pixelsWide, unmarkedBitmap.pixelsHigh == bitmap.pixelsHigh else {
             preconditionFailure("mark does not alter exported image dimensions")
         }
-        let gutterStart = max(0, Int(Double(request.width - request.padding) * Double(bitmap.pixelsWide) / Double(request.width)))
-        var markedGutterPixels = 0
-        for x in gutterStart..<bitmap.pixelsWide {
+        // The signature is painted only in the bottom gradient gutter, never on the card.
+        let scale = Double(bitmap.pixelsWide) / Double(request.width)
+        let gutterRows = Int(Double(request.padding) * scale)
+        var markedGutterPixels = 0, markedCardPixels = 0
+        for x in 0..<bitmap.pixelsWide {
             for y in 0..<bitmap.pixelsHigh {
                 guard let markedColor = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
                       let plainColor = unmarkedBitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                if abs(markedColor.redComponent - plainColor.redComponent) > 0.2
+                let differs = abs(markedColor.redComponent - plainColor.redComponent) > 0.2
                     || abs(markedColor.greenComponent - plainColor.greenComponent) > 0.2
-                    || abs(markedColor.blueComponent - plainColor.blueComponent) > 0.2 { markedGutterPixels += 1 }
+                    || abs(markedColor.blueComponent - plainColor.blueComponent) > 0.2
+                guard differs else { continue }
+                if y >= bitmap.pixelsHigh - gutterRows { markedGutterPixels += 1 } else { markedCardPixels += 1 }
             }
         }
-        precondition(markedGutterPixels > 0, "the Banana Notes SVG mark is painted in the gradient gutter")
+        precondition(markedCardPixels == 0, "the signature must not touch the card or upper gutter")
+        precondition(markedGutterPixels > 0, "the Banana Notes signature is painted in the bottom gutter")
         let short = try await service.render(request: NoteImageRequest(html: "<p>Short</p>", title: "Short", backgroundStart: "#000000", backgroundEnd: "#ffffff", paper: "#ffffff", text: "#000000", accent: "#ffffff", width: 760, padding: 48))
         let shortBitmap = NSBitmapImageRep(data: short)!
         precondition(shortBitmap.pixelsHigh < 500, "short notes must be cropped to content (got \(shortBitmap.pixelsHigh)px)")

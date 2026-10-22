@@ -15,17 +15,20 @@ struct PNGExportPolicySelfTest {
         precondition(PNGExportPolicy.removingDuplicateLeadingTitle(from: notLeading, title: "Current title") == notLeading)
         precondition(PNGExportPolicy.removingDuplicateLeadingTitle(from: "<h1>Title</h1><p>Body</p>", title: " title ") == "<p>Body</p>")
 
-        guard let mark = PNGExportPolicy.markFrame(width: 760, height: 420, padding: 48) else { preconditionFailure("valid mark frame missing") }
-        let cardRight = 760.0 - 48.0
-        precondition(mark.x >= cardRight && mark.maxX <= 760 && mark.y >= 0 && mark.maxY <= 48,
-                     "brand mark must stay within the bottom-right gradient gutter, outside the card")
-        precondition(mark.side == 14 && PNGExportPolicy.markSide == 14)
-        precondition(PNGExportPolicy.markFrame(width: 500, height: 400, padding: 24, side: 24) == nil)
-        let light = PNGExportPolicy.markColor(backgroundStart: "#F6D6B8", backgroundEnd: "#F3C6D8")
-        let dark = PNGExportPolicy.markColor(backgroundStart: "#101018", backgroundEnd: "#24202A")
+        let lockup = PNGExportPolicy.signature(padding: 48)
+        precondition(lockup == .lockup(logoSide: 18) && lockup?.showsWordmark == true)
+        precondition(PNGExportPolicy.signature(padding: 32) == .logo(side: 16), "narrow gutters keep only the logo")
+        precondition(PNGExportPolicy.signature(padding: 16) == nil)
+        guard let frame = PNGExportPolicy.signatureFrame(width: 760, padding: 48, signature: lockup!) else { preconditionFailure("valid signature frame missing") }
+        precondition(frame.maxX == 760 - 48, "signature aligns with the card's right edge")
+        precondition(frame.y >= 0 && frame.maxY <= 48, "signature stays inside the bottom gradient gutter, below the card")
+        precondition(abs(frame.y - (48 - frame.maxY)) < 0.001, "signature is vertically centred in the gutter")
+        precondition(PNGExportPolicy.signatureFrame(width: 90, padding: 48, signature: lockup!) == nil)
+        let light = PNGExportPolicy.wordmarkColor(backgroundStart: "#F6D6B8", backgroundEnd: "#F3C6D8")
+        let dark = PNGExportPolicy.wordmarkColor(backgroundStart: "#101018", backgroundEnd: "#24202A")
         precondition(light?.hex == "#09080D" && dark?.hex == "#FFFFFF")
-        precondition(light?.alpha == 0.55 && dark?.alpha == 0.55)
-        precondition(PNGExportPolicy.markColor(backgroundStart: "invalid", backgroundEnd: "#FFFFFF") == nil)
-        print("PNG export policy checks passed (duplicate title removal, gradient mark contrast, 14 pt gutter geometry)")
+        precondition(light?.alpha == PNGExportPolicy.wordmarkAlpha)
+        precondition(PNGExportPolicy.wordmarkColor(backgroundStart: "invalid", backgroundEnd: "#FFFFFF") == nil)
+        print("PNG export policy checks passed (duplicate title removal, signature sizing, gutter geometry and wordmark contrast)")
     }
 }

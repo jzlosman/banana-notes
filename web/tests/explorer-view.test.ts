@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { createExplorerState, renderExplorerView, type ExplorerViewOptions } from '../src/explorer-view';
-import { closePopover } from '../src/action-menu';
-import type { NoteSearchResult } from '../src/note-search';
+import { createExplorerState, renderExplorerView, type ExplorerViewOptions } from '../src/ui/explorer-view';
+import { closePopover } from '../src/ui/action-menu';
+import type { NoteSearchResult } from '../src/application/note-search';
 import { createNote, updateNote, trashNote, type Library } from '../src/domain';
 
 const at = (day: number) => `2026-10-${String(day).padStart(2, '0')}T12:00:00.000Z`;

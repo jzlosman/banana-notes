@@ -5,7 +5,7 @@ final class NativeMenuBarController {
     private weak var target: NSObject?
     let statusItem: NSStatusItem
 
-    init(target: NSObject, hotkeyDisplay: String, hotkeyAvailable: Bool) {
+    init(target: NSObject, hotkeyDisplay: String, hotkeyAvailable: Bool, updatesAvailable: Bool = false) {
         self.target = target
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = StatusItemIcon.make()
@@ -32,6 +32,7 @@ final class NativeMenuBarController {
         menu.addItem(item("New Note", "newNote", key: "n"))
         menu.addItem(item("Notes", "openExplorer"))
         menu.addItem(item("Settings…", "openThemes"))
+        if updatesAvailable { menu.addItem(item("Check for Updates…", "checkForUpdates")) }
         menu.addItem(item("Reset Window Effects", "resetWindowEffects"))
         menu.addItem(item("Shortcuts", "showHelp"))
         menu.addItem(.separator())
@@ -45,6 +46,7 @@ final class NativeMenuBarController {
         let appRoot = NSMenuItem(title: "Banana Notes", action: nil, keyEquivalent: "")
         let appMenu = NSMenu(title: "Banana Notes")
         appMenu.addItem(item("About Banana Notes", "showAbout"))
+        if updatesAvailable { appMenu.addItem(item("Check for Updates…", "checkForUpdates")) }
         appMenu.addItem(.separator())
         appMenu.addItem(item("Settings…", "openThemes", key: ","))
         appMenu.addItem(item("Reset Window Effects", "resetWindowEffects"))

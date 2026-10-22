@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { applyAppearance } from '../src/appearance';
-import { themes } from '../src/themes';
+import { applyAppearance } from '../src/ui/appearance';
+import { themes } from '../src/domain/themes';
 
 test('theme adapter maps every bundled palette to the entire editor surface', () => {
   const root = new JSDOM('<!doctype html><html></html>').window.document.documentElement;

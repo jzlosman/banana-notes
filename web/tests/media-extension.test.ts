@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url:'http://localhost' });
 for (const key of ['window','document','navigator','Node','HTMLElement','Element','MutationObserver','DOMParser','getComputedStyle'] as const) if (key in dom.window) Object.defineProperty(globalThis,key,{value:(dom.window as any)[key],configurable:true,writable:true});
-const [{ Editor }, { StarterKit }, { Markdown }, { mediaExtensions }] = await Promise.all([import('@tiptap/core'), import('@tiptap/starter-kit'), import('@tiptap/markdown'), import('../src/media-extension')]);
+const [{ Editor }, { StarterKit }, { Markdown }, { mediaExtensions }] = await Promise.all([import('@tiptap/core'), import('@tiptap/starter-kit'), import('@tiptap/markdown'), import('../src/ui/media-extension')]);
 const asset = (ext:string) => `foldnote-asset://media/12345678-1234-1234-1234-123456789abc.${ext}`;
 function parse(markdown:string) { return new Editor({ extensions:[StarterKit, Markdown.configure(), ...mediaExtensions()], content:markdown, contentType:'markdown' }); }
 test('image, audio and video Markdown survive editor save and reparse with safe rendering', () => {

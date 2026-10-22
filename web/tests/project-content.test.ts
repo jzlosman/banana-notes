@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createNote, updateNote, type Library, type Note } from '../src/domain';
-import { projectContent, toggleProjectedTask } from '../src/project-content';
-import { createProjectViewState, renderProjectView } from '../src/project-view';
+import { projectContent, toggleProjectedTask } from '../src/domain/project-content';
+import { createProjectViewState, renderProjectView } from '../src/ui/project-view';
 import { JSDOM } from 'jsdom';
 const time = '2026-10-01T12:00:00.000Z';
 const note = (id: string, markdown: string): Note => ({ id, markdown, createdAt: time, updatedAt: time });

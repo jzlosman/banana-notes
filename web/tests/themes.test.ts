@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveThemeID, SYSTEM_THEME, themeByID, themes } from '../src/themes';
+import { resolveThemeID, SYSTEM_THEME, themeByID, themes } from '../src/domain/themes';
 
 const hex = /^#[\da-f]{6}$/i;
 const luminance = (color: string) => color.match(/[\da-f]{2}/gi)!

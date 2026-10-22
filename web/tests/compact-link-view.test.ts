@@ -8,7 +8,7 @@ for (const key of ['window','document','navigator','Node','HTMLElement','Element
 globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as any;
 globalThis.cancelAnimationFrame = id => clearTimeout(id);
 const [{ Editor }, { markdownExtensions }, { CompactLinkView }] = await Promise.all([
-  import('@tiptap/core'), import('../src/editor-schema'), import('../src/compact-link-view'),
+  import('@tiptap/core'), import('../src/ui/editor-schema'), import('../src/ui/compact-link-view'),
 ]);
 function mount() {
   const host = document.createElement('div'); document.body.append(host);
@@ -52,7 +52,7 @@ test('blur restores compact label and descriptive labels are not compacted', () 
 });
 
 test('clipboard reads the complete model while a compact label is visible; focus/blur never saves', async () => {
-  const { selectionClipboardPayload } = await import('../src/clipboard');
+  const { selectionClipboardPayload } = await import('../src/ui/clipboard');
   const editor = mount(), full = editor.state.doc.textContent;
   let changes = 0; editor.on('update', ({ transaction }) => { if (transaction.docChanged) changes++; });
   editor.commands.setTextSelection({ from: 1, to: editor.state.doc.content.size - 1 });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE, resolveFontSize, stepFontSize } from '../src/font-size';
-import { PreferenceSaveQueue } from '../src/preference-save';
+import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE, resolveFontSize, stepFontSize } from '../src/domain/font-size';
+import { PreferenceSaveQueue } from '../src/application/preference-save';
 
 test('font sizes are whole bounded values with solid defaults for invalid preferences', () => {
   for (const value of [undefined, null, '19', true, NaN, Infinity]) assert.equal(resolveFontSize(value), DEFAULT_FONT_SIZE);

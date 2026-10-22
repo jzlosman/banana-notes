@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_WINDOW_STYLE, resolveWindowStyle, WindowStyleSaveQueue, type WindowStyle } from '../src/window-style';
+import { DEFAULT_WINDOW_STYLE, resolveWindowStyle, type WindowStyle } from '../src/domain/window-style';
+import { WindowStyleSaveQueue } from '../src/application/window-style-save';
 
 const style = (focusedOpacity: number): WindowStyle => ({ focusedOpacity, unfocusedOpacity: 0.7, glass: 0.3 });
 

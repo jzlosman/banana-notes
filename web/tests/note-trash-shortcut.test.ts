@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { handleNoteTrashShortcut } from '../src/note-trash-shortcut';
+import { handleNoteTrashShortcut } from '../src/ui/note-trash-shortcut';
 
 function harness(run: (dom: JSDOM, calls: string[], press: (selector: string, options?: KeyboardEventInit) => KeyboardEvent) => void) {
   const dom = new JSDOM(`<!doctype html><body>

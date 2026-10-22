@@ -9,6 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var panel: NotePanel!
     private var webView: WKWebView!
     private var menuController: NativeMenuBarController!
+    #if canImport(Sparkle)
+    private var updateController: UpdateController?
+    #endif
+    private var updateAvailable = false
     private var store: (any LibraryRepository)!
     private var appearancePreferences: AppearancePreferences!
     private var windowStylePreferences: WindowStylePreferences!
@@ -48,6 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         windowStylePreferences = WindowStylePreferences()
         fontSizePreferences = FontSizePreferences()
         featurePreferences = FeaturePreferences()
+        #if canImport(Sparkle)
+        updateController = UpdateController()
+        updateAvailable = updateController != nil
+        #endif
         do { features = try NativeFeatures(directory: store.directory, catalogURL: webDirectory.appendingPathComponent("theme-catalog.json")) }
         catch { featureSetupError = error.localizedDescription }
         pinned = preferences.bool(forKey: "pinned")
@@ -122,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     private func buildMenuBar() {
         menuController = NativeMenuBarController(target: self, hotkeyDisplay: hotkeyPreferences.chord.display,
-                                                 hotkeyAvailable: hotkeyAvailable)
+                                                 hotkeyAvailable: hotkeyAvailable, updatesAvailable: updateAvailable)
     }
 
     @objc private func togglePanel() { panel.isVisible ? hideAfterFlush() : showPanel() }
@@ -147,6 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc private func copyPlainText() { sendCommand(["action": "copy", "format": "text"]) }
     @objc private func copyWholeNote() { sendCommand(["action": "copy", "format": "markdown", "whole": true]) }
     @objc private func openDataFolder() { NSWorkspace.shared.open(store.directory) }
+    #if canImport(Sparkle)
+    @objc private func checkForUpdates() { updateController?.checkForUpdates() }
+    #endif
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func showAbout() {
         let info = Bundle.main.infoDictionary ?? [:]

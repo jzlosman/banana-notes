@@ -1,3 +1,6 @@
+import { isManagedMediaURL } from './domain/managed-media';
+export { isManagedMediaURL } from './domain/managed-media';
+
 export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 export interface AttachmentRecord {
@@ -10,9 +13,6 @@ const allowed = new Map<string, string>([
   ['audio/mpeg','audio'],['audio/mp4','audio'],['audio/wav','audio'],
   ['video/mp4','video'],['video/quicktime','video'],['video/webm','video'],
 ]);
-const urlPattern = /^foldnote-asset:\/\/media\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:png|jpg|jpeg|gif|webp|heic|heif|mp3|m4a|wav|mp4|mov|webm)$/;
-
-export function isManagedMediaURL(value: string): boolean { return urlPattern.test(value); }
 
 function readBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {

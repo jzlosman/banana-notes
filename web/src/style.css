@@ -49,6 +49,21 @@ main { min-height: 0; flex: 1; }
 .tag-form { display: inline-flex; align-items: center; gap: 3px; height: 25px; color: var(--accent); }
 .tag-input { width: 120px; min-width: 0; color: var(--ink); padding: 1px 3px; background: var(--paper); border: 0; border-bottom: 1px solid var(--accent); outline: none; font-size: 12px; }
 .editor-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; scroll-behavior: smooth; }
+/* Scope quiet scrollbars to note content; keep navigation and Settings unchanged. */
+:is(.editor-scroll, .source-editor) { --note-scrollbar-thumb: color-mix(in srgb, var(--ink) 18%, transparent); scrollbar-width: thin; scrollbar-color: var(--note-scrollbar-thumb) transparent; }
+:is(.editor-scroll, .source-editor):hover { --note-scrollbar-thumb: color-mix(in srgb, var(--ink) 28%, transparent); }
+:is(.editor-scroll, .source-editor)::-webkit-scrollbar { width: 8px; height: 8px; }
+:is(.editor-scroll, .source-editor)::-webkit-scrollbar-track,
+:is(.editor-scroll, .source-editor)::-webkit-scrollbar-corner { background: transparent; }
+:is(.editor-scroll, .source-editor)::-webkit-scrollbar-thumb { background-color: var(--note-scrollbar-thumb); border: 2px solid transparent; background-clip: padding-box; border-radius: 8px; }
+:is(.editor-scroll, .source-editor)::-webkit-scrollbar-button { display: none; }
+html[data-focused='false'] :is(.editor-scroll, .source-editor) { --note-scrollbar-thumb: transparent; }
+@media (prefers-contrast: more) {
+  :is(.editor-scroll, .source-editor), :is(.editor-scroll, .source-editor):hover { --note-scrollbar-thumb: color-mix(in srgb, var(--ink) 50%, transparent); }
+}
+@media (forced-colors: active) {
+  :is(.editor-scroll, .source-editor), :is(.editor-scroll, .source-editor):hover { scrollbar-color: auto; --note-scrollbar-thumb: CanvasText; }
+}
 .editor-mount { min-height: 100%; padding: 10px 30px 42px; }
 .markdown-editor { min-height: 280px; outline: 0; overflow-wrap: break-word; font-family: var(--note-font-family, ui-monospace, SFMono-Regular, Menlo, monospace); font-weight: var(--note-font-weight, 500); font-synthesis: weight style; font-size: var(--note-font-size, 15px); line-height: 1.72; caret-color: var(--accent); }
 .markdown-editor > :first-child { margin-top: 0; }

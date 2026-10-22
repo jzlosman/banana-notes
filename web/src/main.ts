@@ -11,6 +11,7 @@ import './link-editor.css';
 import './compact-link-view.css';
 import { openLinkEditor } from './link-editor';
 import { closePopover, openActionMenu } from './action-menu';
+import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { createElement, ChevronLeft, ChevronRight, Plus, Pin, Search, ArrowLeft, BookOpen, PanelTop, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
 import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor } from './editor';
@@ -508,7 +509,7 @@ function noteActionsButton(className: string): HTMLButtonElement {
       { separator: true },
       { label: 'Export PNG…', icon: Camera, run: () => openThemes('export') },
       { label: 'Archive note', icon: Archive, run: () => { library = bulkArchiveNotes(library, [id], new Date().toISOString()); persist(); render(); notify('Note archived'); } },
-      { label: 'Move to Trash', icon: Trash2, danger: true, run: () => discardNote(id) },
+      { label: 'Move to Trash', icon: Trash2, danger: true, shortcut: '⌘⌫', run: () => discardNote(id) },
     ], { label: 'Note actions', onError: showError });
   }, className);
   more.setAttribute('aria-haspopup', 'menu'); return more;
@@ -692,7 +693,7 @@ function renderHelp(): void {
   const main = element('main', 'help-side');
   main.append(element('h1', '', 'Keyboard shortcuts'));
   const shortcuts = element('dl', 'shortcuts');
-  for (const [label, key] of [['Show / hide Banana Notes', '⌃⌥Space'], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy Markdown selection', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Trash focused note in list', '⌘⌫']]) {
+  for (const [label, key] of [['Show / hide Banana Notes', '⌃⌥Space'], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy Markdown selection', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Move open note / focused list note to Trash', '⌘Backspace (⌘⌫)']]) {
     shortcuts.append(element('dt', '', label), element('dd', '', key));
   }
   main.append(shortcuts);
@@ -769,6 +770,7 @@ window.foldnoteCommand = async command => {
 };
 document.addEventListener('keydown', event => {
   if (!sessionLoaded || event.isComposing) return;
+  if (view === 'note' && handleNoteTrashShortcut(event, selected()?.id ?? null, discardNote)) return;
   const mod = event.metaKey || event.ctrlKey;
   const key = event.key.toLowerCase();
   const field = event.target instanceof Element ? event.target.closest('input,textarea,select') : null;

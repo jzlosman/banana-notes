@@ -55,8 +55,8 @@ for ARCH in arm64 x86_64; do
 done
 lipo -create "$MACOS/Banana Notes.arm64" "$MACOS/Banana Notes.x86_64" -output "$MACOS/Banana Notes"
 rm "$MACOS/Banana Notes.arm64" "$MACOS/Banana Notes.x86_64"
-lipo -verify_arch arm64 "$MACOS/Banana Notes"
-lipo -verify_arch x86_64 "$MACOS/Banana Notes"
+lipo "$MACOS/Banana Notes" -verify_arch arm64
+lipo "$MACOS/Banana Notes" -verify_arch x86_64
 
 plutil -create xml1 "$CONTENTS/Info.plist"
 # Keep the bundle identity so preferences, login-item identity, and single-instance behavior survive the rename.

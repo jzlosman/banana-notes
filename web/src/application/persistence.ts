@@ -5,7 +5,7 @@ export type { LibraryRepository } from './ports';
 export class SaveQueue {
   private pending: Library | undefined;
   private running: Promise<void> | undefined;
-  constructor(private repository: LibraryRepository, private status: (state: 'saving' | 'saved' | 'error', error?: unknown) => void) {}
+  constructor(private repository: Pick<LibraryRepository, 'save'>, private status: (state: 'saving' | 'saved' | 'error', error?: unknown) => void) {}
   enqueue(library: Library): void { this.pending = structuredClone(library); this.start(); }
   private start(): void {
     if (this.running) return;

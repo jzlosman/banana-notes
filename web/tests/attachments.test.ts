@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { attachmentMarkdown, importAttachments, isManagedMediaURL, MAX_ATTACHMENT_BYTES } from '../src/attachments';
+import { attachmentMarkdown, importAttachments, isManagedMediaURL, MAX_ATTACHMENT_BYTES } from '../src/adapters/attachments';
 
 const record = { id:'12345678-1234-1234-1234-123456789abc', name:'photo.png', kind:'image' as const, url:'foldnote-asset://media/12345678-1234-1234-1234-123456789abc.png', size:4, mimeType:'image/png' };
 test('attachment insertion emits Markdown only for validated managed URLs', () => {

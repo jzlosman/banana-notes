@@ -1,4 +1,4 @@
-import type { SemanticNoteSnapshot } from './semantic-search';
+import type { SemanticNoteSnapshot } from './semantic-contract';
 
 export interface SemanticIndexStatus {
   enabled: boolean;

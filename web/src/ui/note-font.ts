@@ -1,7 +1,7 @@
 import { ChevronDown, createElement } from 'lucide';
-import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection, type NoteFontDefinition, type NoteFontSelection, type NoteFontState } from './domain/note-font';
-export { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection } from './domain/note-font';
-export type { NoteFontDefinition, NoteFontSelection, NoteFontState } from './domain/note-font';
+import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection, type NoteFontDefinition, type NoteFontSelection, type NoteFontState } from '../domain/note-font';
+export { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection } from '../domain/note-font';
+export type { NoteFontDefinition, NoteFontSelection, NoteFontState } from '../domain/note-font';
 
 const registeredFonts = new WeakMap<Document, Map<string, { signature: string; faces: FontFace[] }>>();
 const fontStack = (font: NoteFontDefinition) => font.kind === 'google' ? `"${font.family}", ui-monospace, Menlo, monospace` : font.family;
@@ -41,7 +41,7 @@ export async function applyNoteFont(root: HTMLElement, rawState: NoteFontState):
 type SettingsOptions = {
   state: NoteFontState;
   onSelect: (selection: NoteFontSelection) => Promise<NoteFontState>;
-  onDownload: (family: string) => Promise<{ fontState: NoteFontState; downloadedFontID: string }>;
+  onDownload?: (family: string) => Promise<{ fontState: NoteFontState; downloadedFontID: string }>;
   onCancelDownload?: () => Promise<void>;
   textSizeControl?: { input: HTMLSelectElement; status: HTMLElement };
 };
@@ -117,7 +117,7 @@ export function renderNoteFontSettings(options: SettingsOptions): HTMLElement {
   const error = document.createElement('p'); error.className = 'note-font-error'; error.setAttribute('role', 'alert'); error.hidden = true;
   let cancelButton: HTMLButtonElement | undefined;
   if (options.onCancelDownload) { cancelButton = document.createElement('button'); cancelButton.type = 'button'; cancelButton.className = 'note-font-cancel'; cancelButton.textContent = 'Cancel'; cancelButton.hidden = true; downloadActions.append(cancelButton); }
-  const privacy = document.createElement('p'); privacy.className = 'note-font-status'; privacy.textContent = 'Fonts are downloaded from Google and cached locally.';
+  const privacy = document.createElement('p'); privacy.className = 'note-font-status'; privacy.textContent = options.onDownload ? 'Fonts are downloaded from Google and cached locally.' : 'Font downloads are available in the Mac app.';
   downloadForm.append(downloadActions, privacy, progress, error); disclosure.append(downloadForm);
   section.append(disclosure);
 
@@ -139,7 +139,7 @@ export function renderNoteFontSettings(options: SettingsOptions): HTMLElement {
     }
     fontSelect.disabled = selecting;
     weightSelect.disabled = selecting || weightSelect.options.length < 2;
-    downloadButton.disabled = selecting || downloading;
+    downloadButton.disabled = !options.onDownload || selecting || downloading;
     weightSelect.value = String(state.selection.weight);
     sample.style.fontFamily = fontStack(selected);
     sample.style.fontWeight = String(state.selection.weight);
@@ -166,6 +166,7 @@ export function renderNoteFontSettings(options: SettingsOptions): HTMLElement {
     const request = ++downloadRevision;
     const revisionAtStart = choiceRevision;
     downloading = true; downloadButton.disabled = true; progress.textContent = `Downloading ${family}…`; progress.hidden = false; error.hidden = true;
+    if (!options.onDownload) return;
     if (cancelButton) cancelButton.hidden = false;
     try {
       const result = await options.onDownload(family);

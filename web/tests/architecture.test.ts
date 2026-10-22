@@ -48,15 +48,27 @@ test('application depends only on its own contracts and the domain', () => {
   assert.deepEqual(failures, []);
 });
 
-test('UI never imports adapters; only the composition root wires adapter implementations', () => {
+test('UI never imports adapters; adapter internals stay inward of the UI boundary', () => {
   const files = sourceFiles(sourceRoot);
   const failures: string[] = [];
   for (const file of files) {
     for (const specifier of importsOf(readFileSync(file, 'utf8'))) {
       const target = resolvedImport(file, specifier);
       if (!target?.includes('/adapters/')) continue;
-      if (file !== join(sourceRoot, 'main.ts')) failures.push(`${file}: imports ${specifier}`);
+      if (file !== join(sourceRoot, 'main.ts') && !file.includes('/adapters/')) failures.push(`${file}: imports ${specifier}`);
+    }
+    if (file.includes('/adapters/') && importsOf(readFileSync(file, 'utf8')).some(specifier => resolvedImport(file, specifier)?.includes('/ui/'))) {
+      failures.push(`${file}: adapter imports UI`);
     }
   }
   assert.deepEqual(failures, []);
+});
+
+test('main is the only TypeScript module at the source root and the platform action bus is removed', () => {
+  const rootModules = readdirSync(sourceRoot, { withFileTypes: true }).filter(entry => entry.isFile() && entry.name.endsWith('.ts')).map(entry => entry.name);
+  assert.deepEqual(rootModules, ['main.ts']);
+  const contracts = readFileSync(join(sourceRoot, 'application/ports.ts'), 'utf8');
+  assert.doesNotMatch(contracts, /PlatformAction|PlatformPort|request\s*\(/);
+  const ui = sourceFiles(join(sourceRoot, 'ui')).map(file => readFileSync(file, 'utf8')).join('\n');
+  assert.doesNotMatch(ui, /\bisNative\b|foldnoteCommand/);
 });

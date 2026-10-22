@@ -1,6 +1,6 @@
 import Image from '@tiptap/extension-image';
 import { Node } from '@tiptap/core';
-import { isManagedMediaURL } from './attachments';
+import { isManagedMediaURL } from '../domain/managed-media';
 
 // Preserve existing remote image source when editing; the app CSP intentionally blocks
 // remote image loads. Imported assets are the supported, offline rendering path.

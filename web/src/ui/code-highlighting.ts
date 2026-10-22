@@ -1,7 +1,7 @@
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { createElement, Check, Search } from 'lucide';
 import { common, createLowlight } from 'lowlight';
-import { themes, themeByID, type ThemeDefinition } from './themes.js';
+import { themes, themeByID, type ThemeDefinition } from '../domain/themes.js';
 
 export const syntaxThemeIDs = ['app', ...themes.map(({ id }) => id)] as const;
 export type SyntaxThemeID = typeof syntaxThemeIDs[number];

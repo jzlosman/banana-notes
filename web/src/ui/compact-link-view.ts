@@ -1,7 +1,7 @@
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
-import { compactRawLinkLabel } from './link-domain';
+import { compactRawLinkLabel } from '../domain/links';
 
 const key = new PluginKey('compactRawLinkView');
 const LINK_MARK = 'link';

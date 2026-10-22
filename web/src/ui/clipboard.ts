@@ -1,9 +1,9 @@
 import { Editor, type JSONContent } from '@tiptap/core';
 import { DOMSerializer, type Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { splitDocument } from './domain';
+import { splitDocument } from '../domain/library';
 import { markdownExtensions } from './editor-schema';
-
-export type ClipboardFormat = 'markdown' | 'formatted' | 'html' | 'text';
+import type { ClipboardFormat } from '../application/ports';
+export type { ClipboardFormat } from '../application/ports';
 export interface ClipboardPayload { text: string; html?: string; markdown?: string }
 
 function markdownFor(editor: Editor, content: JSONContent[]): string {

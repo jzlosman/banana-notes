@@ -7,7 +7,7 @@ for (const key of ['window','document','navigator','Node','HTMLElement','Element
 }
 globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as any;
 globalThis.cancelAnimationFrame = id => clearTimeout(id);
-const { buildNoteImageRequest, renderNoteImageExportControls } = await import('../src/note-image');
+const { buildNoteImageRequest, renderNoteImageExportControls } = await import('../src/ui/note-image');
 
 test('image request serializes formatted markdown without changing source and validates style values', () => {
   const source = '---\ntitle: Hidden\n---\n\n# Hello\n\n```ts\nconst n = 42\n```';
@@ -27,4 +27,7 @@ test('export controls show a visual preview and return selected preset and width
   panel.querySelector<HTMLInputElement>('[data-width]')!.value = '920';
   panel.querySelector('[data-export]')!.dispatchEvent(new dom.window.MouseEvent('click'));
   assert.equal(exported.width, 920); assert.equal(exported.backgroundStart, '#f6d6b8');
+  const previewOnly = renderNoteImageExportControls({ request, canExport: false, onExport: () => assert.fail('preview cannot export PNG') });
+  assert.equal((previewOnly.querySelector('[data-export]') as HTMLButtonElement).disabled, true);
+  assert.match(previewOnly.textContent!, /available in the Mac app/);
 });

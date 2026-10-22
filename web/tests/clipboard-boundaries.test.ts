@@ -7,8 +7,8 @@ for (const key of ['window', 'document', 'navigator', 'Node', 'HTMLElement', 'El
 }
 globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as any;
 globalThis.cancelAnimationFrame = id => clearTimeout(id);
-const { createMarkdownEditor } = await import('../src/editor');
-const { selectionClipboardPayload, documentClipboardPayload } = await import('../src/clipboard');
+const { createMarkdownEditor } = await import('../src/ui/editor');
+const { selectionClipboardPayload, documentClipboardPayload } = await import('../src/ui/clipboard');
 function mount(markdown: string) { const el = document.createElement('div'); document.body.append(el); return createMarkdownEditor(el, markdown, () => {}); }
 
 test('partial marked selections and full structured documents retain Markdown semantics', () => {

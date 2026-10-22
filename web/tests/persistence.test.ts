@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SaveQueue } from '../src/persistence';
+import { SaveQueue } from '../src/application/persistence';
 import type { Library } from '../src/domain';
 const lib=(id:string):Library=>({version:1,notes:[],selectedID:id,activeTag:null});
 test('writes serialize and coalesce newest pending state, never write an older state last',async()=>{

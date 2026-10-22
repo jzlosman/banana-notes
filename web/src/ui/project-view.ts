@@ -1,6 +1,6 @@
 import { type Note } from '../domain/library';
 import { createElement, Ellipsis, ExternalLink, ScanText } from 'lucide';
-import { openActionMenu, type MenuItem } from '../action-menu';
+import { openActionMenu, type MenuItem } from './action-menu';
 import { renderNoteSummary } from './note-summary';
 import { projectContent, type ProjectLink, type ProjectMedia, type ProjectTask } from '../domain/project-content';
 

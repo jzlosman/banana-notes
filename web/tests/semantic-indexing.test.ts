@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SemanticIndexCoordinator, type SemanticIndexPort, type SemanticIndexStatus, type SemanticIndexTimer } from '../src/semantic-indexing';
-import type { SemanticNoteSnapshot } from '../src/semantic-search';
+import { SemanticIndexCoordinator, type SemanticIndexPort, type SemanticIndexStatus, type SemanticIndexTimer } from '../src/application/semantic-indexing';
+import type { SemanticNoteSnapshot } from '../src/application/semantic-contract';
 
 const ready: SemanticIndexStatus = { enabled: true, runtimeAvailable: true, installed: true, model: 'embed-v1' };
 const note = (id: string, markdown = id): SemanticNoteSnapshot => ({ id, markdown, updatedAt: `${id}-time` });

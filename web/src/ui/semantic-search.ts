@@ -1,47 +1,14 @@
-export interface SemanticNoteSnapshot { id: string; markdown: string; updatedAt: string; trashedAt?: string }
-export interface SemanticHit { id: string; score: number; snippet: string }
-export interface SemanticModel { name: string; disclosure: string }
-export type SemanticProviderId = 'apple' | 'ollama';
-export interface SemanticProvider { id: SemanticProviderId; name: string; disclosure: string; available: boolean }
-export interface SemanticStatus {
-  enabled: boolean; model: string; models: SemanticModel[]; installed: boolean; runtimeAvailable: boolean;
-  indexedNotes: number; progress: string; indexError?: string | null; actionableState: 'disabled' | 'modelMissing' | 'ready' | 'indexMalformed' | string;
-  provider: SemanticProviderId; providers: SemanticProvider[]; unavailableReason: string | null;
-}
-export type SemanticInvoke = (action: string, payload?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+import type { SemanticHit, SemanticModel, SemanticNoteSnapshot, SemanticProvider, SemanticProviderId, SemanticStatus } from '../application/semantic-contract';
+import { parseSemanticStatus } from '../application/semantic-contract';
+import type { SemanticSearchPort } from '../application/ports';
+export type { SemanticHit, SemanticModel, SemanticNoteSnapshot, SemanticProvider, SemanticProviderId, SemanticStatus } from '../application/semantic-contract';
 export type SemanticSearchHit = SemanticHit;
 
 const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Semantic search request failed.';
-function isStatus(value: Record<string, unknown>): value is Record<string, unknown> & SemanticStatus {
-  if (typeof value.enabled !== 'boolean' || typeof value.model !== 'string' || typeof value.installed !== 'boolean' || typeof value.runtimeAvailable !== 'boolean' || typeof value.indexedNotes !== 'number' || !Number.isFinite(value.indexedNotes) || typeof value.progress !== 'string' || typeof value.actionableState !== 'string') return false;
-  if ((value.provider !== 'apple' && value.provider !== 'ollama') || !Array.isArray(value.providers) || !Array.isArray(value.models) || !(value.unavailableReason === null || typeof value.unavailableReason === 'string')) return false;
-  if (value.indexError !== undefined && value.indexError !== null && typeof value.indexError !== 'string') return false;
-  return value.providers.every((provider: unknown) => {
-    if (!provider || typeof provider !== 'object') return false;
-    const item = provider as Record<string, unknown>;
-    return (item.id === 'apple' || item.id === 'ollama') && typeof item.name === 'string' && typeof item.disclosure === 'string' && typeof item.available === 'boolean';
-  }) && value.models.every((model: unknown) => {
-    if (!model || typeof model !== 'object') return false;
-    const item = model as Record<string, unknown>;
-    return typeof item.name === 'string' && typeof item.disclosure === 'string';
-  }) && value.providers.some((provider: SemanticProvider) => provider.id === value.provider);
-}
-
-/** Semantic query adapter. The native process owns on-device embeddings and loopback-only Ollama I/O. */
-export async function semanticSearch(invoke: SemanticInvoke, query: string, candidateIDs: readonly string[]): Promise<SemanticHit[]> {
-  const result = await invoke('semanticSearch', { query, candidateIDs: [...candidateIDs] });
-  if (!Array.isArray(result.hits)) throw new Error('Native semantic search returned an invalid result.');
-  return result.hits.map((value): SemanticHit => {
-    if (!value || typeof value !== 'object') throw new Error('Native semantic search returned an invalid hit.');
-    const hit = value as Record<string, unknown>;
-    if (typeof hit.id !== 'string' || typeof hit.score !== 'number' || !Number.isFinite(hit.score) || typeof hit.snippet !== 'string') throw new Error('Native semantic search returned an invalid hit.');
-    return { id: hit.id, score: hit.score, snippet: hit.snippet };
-  });
-}
 
 /** Creates a self-contained settings panel; native service owns all runtime, network, and disk effects. */
 export function renderSemanticSettings(options: {
-  invoke: SemanticInvoke;
+  search: SemanticSearchPort;
   getNotes: () => readonly SemanticNoteSnapshot[];
   onChanged?: (status: SemanticStatus) => void;
   automaticIndex?: () => { running: boolean; error: string };
@@ -158,13 +125,13 @@ export function renderSemanticSettings(options: {
   const refresh = async () => {
     if (busy) { refreshPending = true; return; }
     const sequence = ++requestSequence;
-    try { const result = await options.invoke('semanticStatus'); if (sequence !== requestSequence) return; if (!isStatus(result)) throw new Error('Native semantic status is malformed.'); update(result); }
+    try { const result = parseSemanticStatus(await options.search.status()); if (sequence !== requestSequence) return; update(result); }
     catch (error) { if (sequence === requestSequence) { statusText.hidden = false; statusText.textContent = `${errorMessage(error)} Try reopening Search settings.`; } }
   };
-  const run = async (action: string, payload: Record<string, unknown> = {}, configChange = false) => {
-    if (busy && !configChange && action !== 'semanticCancel') return;
+  const run = async (label: string, execute: () => Promise<unknown>, configChange = false, cancel = false) => {
+    if (busy && !configChange && !cancel) return;
     if (configChange) { requestSequence++; busy = false; }
-    else busy = action !== 'semanticCancel';
+    else busy = !cancel;
     const sequence = ++requestSequence;
     const allButtons = [...root.querySelectorAll<HTMLButtonElement>('button')];
     allButtons.forEach(item => { item.disabled = busy && item.dataset.action !== 'cancel'; });
@@ -173,38 +140,34 @@ export function renderSemanticSettings(options: {
     for (const id of ['apple', 'ollama', 'disabled'] as const) radio(id).disabled = !current?.providers.find(provider => provider.id === id)?.available && id !== 'disabled';
     const busyLabel = root.querySelector<HTMLElement>('[data-role="busy"]')!;
     busyLabel.hidden = !busy;
-    busyLabel.textContent = action === 'semanticStartRuntime' ? 'Starting Ollama…' : action === 'semanticDownload' ? 'Downloading model…' : action === 'semanticIndex' ? 'Building local index…' : action === 'semanticClear' ? 'Clearing local index…' : '';
+    busyLabel.textContent = label;
     button('cancel').hidden = !busy;
     errorText.hidden = true;
     try {
-      const result = await options.invoke(action, payload);
+      const result = await execute();
+      const returnedStatus = result && typeof result === 'object' && 'provider' in result;
+      const refreshed = returnedStatus ? result : await options.search.status();
       if (sequence !== requestSequence) return;
-      if (isStatus(result)) update(result);
-      else {
-        const refreshed = await options.invoke('semanticStatus');
-        if (sequence !== requestSequence) return;
-        if (!isStatus(refreshed)) throw new Error('Native semantic status is malformed.');
-        update(refreshed);
-      }
+      update(parseSemanticStatus(refreshed));
     } catch (error) { if (sequence === requestSequence) { if (current) { radio(current.enabled ? current.provider : 'disabled').checked = true; modelSelect.value = current.model; readyModel.value = current.model; } errorText.textContent = errorMessage(error); errorText.hidden = false; } }
     finally { if (sequence === requestSequence) { busy = false; busyLabel.hidden = true; button('cancel').hidden = !options.automaticIndex?.().running; allButtons.forEach(item => { item.disabled = false; }); button('rebuild').disabled = options.automaticIndex?.().running ?? false; modelSelect.disabled = false; readyModel.disabled = false; if (refreshPending) { refreshPending = false; void refresh(); } } }
   };
   for (const id of ['apple', 'ollama', 'disabled'] as const) radio(id).addEventListener('change', () => {
     if (!radio(id).checked || !current) return;
     const provider: SemanticProviderId = id === 'disabled' ? current.provider : id;
-    void run('semanticEnable', { enabled: id !== 'disabled', provider }, true);
+    void run('Saving search preferences…', () => options.search.configuration.set({ enabled: id !== 'disabled', provider }), true);
   });
-  modelSelect.addEventListener('change', () => { if (current) void run('semanticEnable', { enabled: true, provider: 'ollama', model: modelSelect.value }, true); });
-  readyModel.addEventListener('change', () => { if (current) void run('semanticEnable', { enabled: true, provider: 'ollama', model: readyModel.value }, true); });
-  button('start').addEventListener('click', () => { void run('semanticStartRuntime'); });
+  modelSelect.addEventListener('change', () => { if (current) void run('Saving search preferences…', () => options.search.configuration.set({ enabled: true, provider: 'ollama', model: modelSelect.value }), true); });
+  readyModel.addEventListener('change', () => { if (current) void run('Saving search preferences…', () => options.search.configuration.set({ enabled: true, provider: 'ollama', model: readyModel.value }), true); });
+  button('start').addEventListener('click', () => { void run('Starting Ollama…', () => options.search.configuration.startRuntime()); });
   button('refresh').addEventListener('click', () => { void refresh(); });
-  button('download').addEventListener('click', () => { if (current) void run('semanticDownload', { model: modelSelect.value }); });
-  const build = (force: boolean) => { const notes = options.getNotes().filter(note => !note.trashedAt).map(({ id, markdown, updatedAt }) => ({ id, markdown, updatedAt })); void run('semanticIndex', { notes, model: current?.model, force }); };
+  button('download').addEventListener('click', () => { if (current) void run('Downloading model…', () => options.search.configuration.downloadModel(modelSelect.value)); });
+  const build = (force: boolean) => { const notes = options.getNotes().filter(note => !note.trashedAt).map(({ id, markdown, updatedAt }) => ({ id, markdown, updatedAt })); void run('Building local index…', () => options.search.index(notes, force)); };
   button('index').addEventListener('click', () => build(false));
   button('rebuild').addEventListener('click', () => build(true));
-  button('clear').addEventListener('click', () => { void run('semanticClear'); });
-  button('repair').addEventListener('click', () => { void run('semanticClear'); });
-  button('cancel').addEventListener('click', () => { void run('semanticCancel'); });
+  button('clear').addEventListener('click', () => { void run('Clearing local index…', () => options.search.configuration.clearIndex()); });
+  button('repair').addEventListener('click', () => { void run('Clearing local index…', () => options.search.configuration.clearIndex()); });
+  button('cancel').addEventListener('click', () => { void run('Cancelling index…', () => options.search.configuration.cancel(), false, true); });
   options.registerRefresh?.(refresh); void refresh();
   return root;
 }

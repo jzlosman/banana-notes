@@ -1,9 +1,11 @@
-import { validateLibrary, type Library } from '../domain/library';
-import { resolveWindowStyle } from '../domain/window-style';
+import { validateLibrary, type Library, titleOf } from '../domain/library';
+import { resolveWindowStyle, DEFAULT_WINDOW_STYLE, type WindowStyle } from '../domain/window-style';
 import { DEFAULT_FONT_SIZE, resolveFontSize } from '../domain/font-size';
 import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState } from '../domain/note-font';
 import { SYSTEM_THEME } from '../domain/themes';
-import type { NativeReply, PlatformAction, PlatformPayloadMap, PlatformPort } from '../application/platform';
+import type { NoteFontSelection } from '../domain/note-font';
+import type { Capabilities, ClipboardContent, PngRenderRequest, StartupPreferencePatch } from '../application/ports';
+import type { SemanticConfiguration, SemanticStatus } from '../application/semantic-contract';
 
 const keys = {
   library: 'foldnote-preview-v1', theme: 'foldnote-preview-theme-v1', windowStyle: 'foldnote-preview-window-style-v1',
@@ -15,73 +17,92 @@ function readJSON<T>(key: string, fallback: T): T {
   const raw = localStorage.getItem(key);
   return raw === null ? fallback : JSON.parse(raw) as T;
 }
+function disabledSemanticStatus(): SemanticStatus {
+  return { enabled: false, model: '', models: [], installed: false, runtimeAvailable: false, indexedNotes: 0,
+    progress: '', actionableState: 'disabled', provider: 'apple' as const, providers: [
+      { id: 'apple' as const, name: 'On-device', disclosure: 'Available in the Mac app.', available: false },
+      { id: 'ollama' as const, name: 'Ollama', disclosure: 'Available in the Mac app.', available: false },
+    ], unavailableReason: 'Semantic search is available in the Mac app.' };
+}
 
-/** Browser-preview adapter; localStorage details stay behind this one boundary. */
-export class PreviewAdapter implements PlatformPort {
-  readonly isNative = false;
-  async request<A extends PlatformAction>(action: A, payload?: PlatformPayloadMap[A]): Promise<NativeReply> {
-    const data = (payload ?? {}) as Record<string, unknown>;
-    switch (action) {
-      case 'load': {
-        const raw = readJSON<unknown>(keys.library, null);
-        const library: Library | null = raw === null ? null : validateLibrary(raw);
-        return {
-          library, pinned: false, hotkeyAvailable: true, hotkeyDisplay: '⌃⇧Space',
-          themeID: localStorage.getItem(keys.theme) || SYSTEM_THEME,
-          windowStyle: resolveWindowStyle(readJSON(keys.windowStyle, null)), fontSize: resolveFontSize(Number(localStorage.getItem(keys.fontSize) || DEFAULT_FONT_SIZE)),
-          noteFonts: resolveNoteFontState(readJSON(keys.noteFont, DEFAULT_NOTE_FONT_STATE)), ocrEnabled: localStorage.getItem(keys.ocr) === 'true',
-          syntaxThemeID: localStorage.getItem(keys.syntax) || 'app', imageOptions: readJSON(keys.image, {}), focused: document.hasFocus(),
-        };
-      }
-      case 'save':
-        if (!data.library) throw new Error('The library save request is invalid.');
-        localStorage.setItem(keys.library, JSON.stringify(validateLibrary(data.library)));
-        return { saved: true };
-      case 'theme':
-        if (typeof data.themeID !== 'string') throw new Error('That theme is not available.');
-        localStorage.setItem(keys.theme, data.themeID); return { themeID: data.themeID };
-      case 'syntaxTheme':
-        if (typeof data.syntaxThemeID !== 'string') throw new Error('That code theme is not available.');
-        localStorage.setItem(keys.syntax, data.syntaxThemeID); return {};
-      case 'windowStyle': localStorage.setItem(keys.windowStyle, JSON.stringify(data.style)); return {};
-      case 'fontSize': localStorage.setItem(keys.fontSize, String(data.fontSize)); return {};
-      case 'noteFonts': return { noteFonts: resolveNoteFontState(readJSON(keys.noteFont, DEFAULT_NOTE_FONT_STATE)) };
-      case 'noteFont': {
-        const current = resolveNoteFontState(readJSON(keys.noteFont, DEFAULT_NOTE_FONT_STATE));
-        const next = resolveNoteFontState({ ...current, selection: data.selection });
-        localStorage.setItem(keys.noteFont, JSON.stringify(next)); return { noteFonts: next };
-      }
-      case 'imagePreferences': localStorage.setItem(keys.image, JSON.stringify(data.imageOptions || {})); return {};
-      case 'featurePreferences':
-        if (typeof data.ocrEnabled === 'boolean') localStorage.setItem(keys.ocr, String(data.ocrEnabled));
-        return { ocrEnabled: localStorage.getItem(keys.ocr) === 'true' };
-      case 'clipboard': {
-        const content = data.content as { text?: unknown; html?: unknown } | undefined;
-        if (typeof content?.text !== 'string') throw new Error('Clipboard content is invalid.');
-        if (content.html && typeof content.html === 'string' && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
-          await navigator.clipboard.write([new ClipboardItem({
-            'text/plain': new Blob([content.text], { type: 'text/plain' }),
-            'text/html': new Blob([content.html], { type: 'text/html' }),
-          })]);
-        } else await navigator.clipboard.writeText(content.text);
-        return { copied: true };
-      }
-      case 'semanticStatus': return { enabled: false, runtimeAvailable: false, installed: false };
-      case 'hotkeyPreferences': return { keyCode: 49, modifiers: 0, display: '⌃⇧Space', registered: true };
-      case 'libraryRecovery': return { startupError: null, backupAvailable: false };
-      case 'ready': case 'pin': case 'dragRegion': case 'hide': case 'focus': case 'openData': case 'openLoginSettings':
-      case 'cancelFontDownload': case 'semanticIndex': case 'semanticSearch': case 'semanticEnable': case 'semanticClear': case 'semanticCancel':
-      case 'semanticStartRuntime': case 'semanticDownload':
-        return action === 'pin' ? { pinned: data.pinned === true } : {};
-      case 'export': {
-        const notes = Array.isArray(data.notes) ? data.notes : [];
-        const note = notes.find((candidate): candidate is { id: string; title: string; markdown: string } => !!candidate && typeof candidate === 'object' && typeof (candidate as { markdown?: unknown }).markdown === 'string')
-          || { title: 'Banana Notes', markdown: '' };
-        const anchor = document.createElement('a'); anchor.href = URL.createObjectURL(new Blob([note.markdown], { type: 'text/markdown' }));
-        anchor.download = `${note.title || 'Banana Notes'}.md`; anchor.click(); URL.revokeObjectURL(anchor.href); return { exported: true };
-      }
-      case 'pickAttachments': case 'importAttachment': case 'openAttachment': case 'ocrAttachment': case 'pickOCRImage': case 'exportPNG': case 'downloadNoteFont': case 'startupPreferences': case 'restoreBackup':
-        throw new Error('This action is available in the Mac app only.');
-    }
-  }
+/** Browser-preview capabilities. Native-only operations are represented as absent. */
+export class PreviewAdapter implements Capabilities {
+  readonly presentation = { savedLabel: 'Saved in preview' };
+  readonly recovery = null;
+  readonly startup = null;
+  readonly attachments = null;
+  readonly ocr = null;
+  readonly pngExport = null;
+  readonly dataFolder = null;
+  readonly markdownExport = {
+    export: async (notes: readonly { id: string; markdown: string }[]) => {
+      const content = notes.map(note => `# ${titleOf(note.markdown)}\n\n${note.markdown}`).join('\n\n---\n\n');
+      const anchor = document.createElement('a');
+      anchor.href = URL.createObjectURL(new Blob([content], { type: 'text/markdown' }));
+      anchor.download = 'banana-notes-export.md'; anchor.click(); URL.revokeObjectURL(anchor.href);
+    },
+  };
+  readonly library = {
+    load: async (): Promise<Library | null> => {
+      const raw = readJSON<unknown>(keys.library, null);
+      return raw === null ? null : validateLibrary(raw);
+    },
+    save: async (library: Library) => { localStorage.setItem(keys.library, JSON.stringify(validateLibrary(library))); },
+  };
+  readonly window = {
+    ready: async () => {},
+    hide: async () => {},
+    pin: null,
+    dragRegion: null,
+    focused: async () => document.hasFocus(),
+    bindCommands: (handler: Parameters<Capabilities['window']['bindCommands']>[0]) => {
+      const focus = () => { void handler({ type: 'focus-change', focused: document.hasFocus() }); };
+      window.addEventListener('focus', focus); window.addEventListener('blur', focus);
+      return () => { window.removeEventListener('focus', focus); window.removeEventListener('blur', focus); };
+    },
+  };
+  readonly appearance = {
+    load: async () => ({ themeID: localStorage.getItem(keys.theme) || SYSTEM_THEME, syntaxThemeID: localStorage.getItem(keys.syntax) || 'app' }),
+    saveTheme: async (themeID: string) => { localStorage.setItem(keys.theme, themeID); return { themeID }; },
+    saveSyntaxTheme: async (syntaxThemeID: string) => { localStorage.setItem(keys.syntax, syntaxThemeID); },
+  };
+  readonly typography = {
+    load: async () => ({ noteFonts: resolveNoteFontState(readJSON(keys.noteFont, DEFAULT_NOTE_FONT_STATE)), fontSize: resolveFontSize(Number(localStorage.getItem(keys.fontSize) || DEFAULT_FONT_SIZE)) }),
+    selectNoteFont: async (selection: NoteFontSelection) => {
+      const current = resolveNoteFontState(readJSON(keys.noteFont, DEFAULT_NOTE_FONT_STATE));
+      const next = resolveNoteFontState({ ...current, selection }); localStorage.setItem(keys.noteFont, JSON.stringify(next)); return next;
+    },
+    saveFontSize: async (fontSize: number) => { localStorage.setItem(keys.fontSize, String(fontSize)); },
+    downloadFont: null,
+  };
+  readonly windowStyle = {
+    load: async () => resolveWindowStyle(readJSON<unknown>(keys.windowStyle, null)),
+    save: async (style: WindowStyle) => { localStorage.setItem(keys.windowStyle, JSON.stringify(style)); },
+    previewOpacity: (focused: boolean, style: WindowStyle) => focused ? style.focusedOpacity : style.unfocusedOpacity,
+  };
+  readonly features = {
+    load: async () => ({ ocrEnabled: localStorage.getItem(keys.ocr) === 'true' }),
+    setOCR: async (ocrEnabled: boolean) => { localStorage.setItem(keys.ocr, String(ocrEnabled)); return { ocrEnabled }; },
+  };
+  readonly hotkey = { load: async () => ({ display: '⌃⇧Space', registered: false, available: false }) };
+  readonly clipboard = { write: async ({ text, html }: ClipboardContent) => {
+    if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
+    } else await navigator.clipboard.writeText(text);
+  } };
+  readonly imagePreferences = {
+    load: async () => readJSON<Record<string, unknown>>(keys.image, {}),
+    save: async (options: Record<string, unknown>) => { localStorage.setItem(keys.image, JSON.stringify(options)); },
+  };
+  readonly semanticSearch = {
+    status: async () => disabledSemanticStatus(),
+    index: async () => { throw new Error('Semantic indexing is available in the Mac app.'); },
+    search: async () => [],
+    configuration: {
+      set: async (_configuration: SemanticConfiguration) => { throw new Error('Semantic search is available in the Mac app.'); },
+      startRuntime: async () => { throw new Error('Semantic search is available in the Mac app.'); },
+      downloadModel: async () => { throw new Error('Semantic search is available in the Mac app.'); },
+      clearIndex: async () => {}, cancel: async () => {},
+    },
+  };
 }

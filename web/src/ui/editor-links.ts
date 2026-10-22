@@ -1,7 +1,7 @@
 import { getMarkRange, type Editor } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { TextSelection } from '@tiptap/pm/state';
-import { isRawURLLabel, normalizeLinkDestination } from './link-domain';
+import { isRawURLLabel, normalizeLinkDestination } from '../domain/links';
 
 export interface LinkSelection {
   readonly document: ProseMirrorNode;

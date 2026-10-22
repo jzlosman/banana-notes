@@ -9,51 +9,50 @@ import '../note-font.css';
 import '../action-menu.css';
 import '../link-editor.css';
 import '../compact-link-view.css';
-import { openLinkEditor } from '../link-editor';
-import { closePopover, openActionMenu } from '../action-menu';
-import { handleNoteTrashShortcut } from '../note-trash-shortcut';
+import { openLinkEditor } from './link-editor';
+import { closePopover, openActionMenu } from './action-menu';
+import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { createElement, ChevronLeft, ChevronRight, Plus, Pin, Search, ArrowLeft, BookOpen, PanelTop, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
 import type { Editor } from '@tiptap/core';
-import { createMarkdownEditor } from '../editor';
+import { createMarkdownEditor } from './editor';
 import { type Library, type Note, noteNavigation, notebookTags, splitDocument, tagsOf, titleOf, excerptOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime } from '../domain/library';
 import { SaveQueue } from '../application/persistence';
 import { themes, themeByID, resolveThemeID, SYSTEM_THEME, type ThemeDefinition } from '../domain/themes';
-import { applyAppearance } from '../appearance';
-import { observeWindowDragRegion } from '../window-drag';
+import { applyAppearance } from './appearance';
+import { observeWindowDragRegion } from './window-drag';
 import { DEFAULT_WINDOW_STYLE, resolveWindowStyle, type WindowStyle } from '../domain/window-style';
 import { WindowStyleSaveQueue } from '../application/window-style-save';
-import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE, resolveFontSize, stepFontSize } from '../domain/font-size';
+import { DEFAULT_FONT_SIZE, resolveFontSize, stepFontSize } from '../domain/font-size';
 import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, type NoteFontState, type NoteFontSelection } from '../domain/note-font';
-import { applyNoteFont, renderNoteFontSettings } from '../note-font';
+import { applyNoteFont } from './note-font';
 import { PreferenceSaveQueue } from '../application/preference-save';
-import { documentClipboardPayload, selectionClipboardPayload, type ClipboardFormat, type ClipboardPayload } from '../clipboard';
+import { documentClipboardPayload, selectionClipboardPayload, type ClipboardPayload } from './clipboard';
 import { createExplorerState, renderExplorerView, type ExplorerState } from './explorer-view';
 import { renderProjectView, createProjectViewState } from './project-view';
+import { createAppCommandHandler } from './app-commands';
+import { installKeyboardShortcuts } from './app-events';
+import { renderAppearanceTabs, renderGeneralSettings, renderWindowStyleSettings, type SettingsTab } from './settings-view';
 
-import { importAttachments, attachmentMarkdown, type AttachmentRecord } from '../attachments';
-import { applyCodeAppearance, renderCodeSettings, renderCodeLanguageSelector, highlightCodeHTML, syntaxThemeIDs, type SyntaxThemeID } from '../code-highlighting';
-import { renderSemanticSettings, semanticSearch, type SemanticInvoke, type SemanticStatus, type SemanticNoteSnapshot } from '../semantic-search';
-import { SemanticIndexCoordinator } from '../semantic-indexing';
+import { attachmentMarkdown } from '../domain/managed-media';
+import { applyCodeAppearance, renderCodeSettings, renderCodeLanguageSelector, highlightCodeHTML, syntaxThemeIDs, type SyntaxThemeID } from './code-highlighting';
+import { renderSemanticSettings } from './semantic-search';
+import type { SemanticStatus, SemanticNoteSnapshot } from '../application/semantic-contract';
+import type { SemanticSearchPort } from '../application/ports';
+import { SemanticIndexCoordinator } from '../application/semantic-indexing';
 import { searchNotes } from '../application/note-search';
-import { buildNoteImageRequest, renderNoteImageExportControls, type NoteImageOptions, type NoteImageRequest } from '../note-image';
+import { semanticSearch } from '../application/semantic-query';
+import { buildNoteImageRequest, renderNoteImageExportControls, type NoteImageOptions, type NoteImageRequest } from './note-image';
 import { LibraryCommands } from '../application/library-commands';
 import { ProjectCommands } from '../application/project-commands';
 import { LibrarySession } from '../application/session';
-import type { NativeReply, PlatformAction, PlatformPayloadMap, PlatformPort } from '../application/platform';
-import type { Clock, IdGenerator } from '../application/ports';
-
- type NativeCommand = { action: string; tag?: string; focused?: boolean; style?: unknown; format?: ClipboardFormat; whole?: boolean };
-declare global { interface Window { foldnoteCommand: (command: NativeCommand) => Promise<void> } }
+import { loadWorkspace } from '../application/workspace-query';
+import type { AppCommand, Capabilities, ClipboardFormat, ClipboardContent, Clock, IdGenerator, LibraryRecoveryState, StartupState } from '../application/ports';
 const app = document.querySelector<HTMLDivElement>('#app')!;
-let platform: PlatformPort;
+let capabilities: Capabilities;
 let clock: Clock;
 let ids: IdGenerator;
 let libraryCommands: LibraryCommands;
 let projectCommands: ProjectCommands;
-let isNative = false;
-async function native<T = NativeReply, A extends PlatformAction = PlatformAction>(action: A, data?: PlatformPayloadMap[A]): Promise<T> {
-  return await platform.request(action, data) as T;
-}
 let library: Library;
 let librarySession: LibrarySession;
 let editor: Editor | undefined;
@@ -62,14 +61,12 @@ let themeID = SYSTEM_THEME;
 let themeSaving = false;
 let themeQuery = '';
 let themeFilter: 'all' | 'light' | 'dark' = 'all';
-type SettingsTab = 'themes' | 'window' | 'code' | 'general' | 'search' | 'export';
-const settingsTabs = [['themes', 'Themes'], ['code', 'Code'], ['window', 'Window'], ['general', 'General'], ['search', 'Search']] as const;
 let appearanceTab: SettingsTab = 'themes';
 let ocrEnabled = false;
 let syntaxThemeID: SyntaxThemeID = 'app';
 let explorerState: ExplorerState;
 const projectState = createProjectViewState();
-let startupState = { launchAtLogin: false, launchStatus: 'notRegistered', launchError: null as string | null, newNoteOnLaunch: false };
+let startupState: StartupState = { launchAtLogin: false, launchStatus: 'notRegistered', launchError: null, newNoteOnLaunch: false };
 let hotkeyDisplay = '⌃⇧Space';
 let imageOptions: NoteImageOptions = {};
 let semanticSequence = 0;
@@ -78,28 +75,18 @@ let explicitIndexRequests = 0;
 let automaticIndexRunning = false;
 let automaticIndexError = '';
 let refreshSemanticSettings: (() => Promise<void>) | undefined;
-const featureInvoke: SemanticInvoke = async (action, data = {}) => {
-  if (action === 'semanticIndex') {
-    explicitIndexRequests++;
-    try { return await indexCoordinator.refresh((data.notes as SemanticNoteSnapshot[]) ?? library.notes, data.force === true); }
-    finally { explicitIndexRequests--; }
-  }
-  if (['semanticEnable', 'semanticClear', 'semanticCancel'].includes(action)) { semanticSequence++; indexCoordinator.invalidate(); automaticIndexError = ''; if (explorerState) explorerState.searchResult = null; }
-  const result = await native<Record<string, unknown>, PlatformAction>(action as PlatformAction, data as never);
-  if (['semanticEnable', 'semanticStartRuntime', 'semanticDownload'].includes(action)) indexCoordinator.schedule(library.notes, true);
-  return result;
-};
+
 let windowStyle: WindowStyle = { ...DEFAULT_WINDOW_STYLE };
 let windowFocused = true;
 let windowStyleQueue: WindowStyleSaveQueue;
-let windowStyleStatus = isNative ? 'Saved on this Mac' : 'Saved in preview';
+let windowStyleStatus = '';
 let windowStyleError = false;
 let noteFonts = resolveNoteFontState(DEFAULT_NOTE_FONT_STATE);
 let noteFontSelectionTask: Promise<NoteFontState> | undefined;
 let noteFontWarning = '';
 let fontSize = DEFAULT_FONT_SIZE;
 let fontSizeQueue: PreferenceSaveQueue<number>;
-let fontStatus = isNative ? 'Saved on this Mac' : 'Saved in preview';
+let fontStatus = '';
 let fontError = false;
 let explorerMode: 'notes' | 'trash' = 'notes';
 let sourceMode = false;
@@ -116,7 +103,8 @@ let contentElement: HTMLElement | undefined;
 let counterElement: HTMLElement | undefined;
 let activeEditorID: string | null = null;
 let disposeDragRegion: (() => void) | undefined;
-const commandsWaiting: NativeCommand[] = [];
+const commandsWaiting: AppCommand[] = [];
+let disposeCommands: (() => void) | undefined;
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag); el.className = className; if (text !== undefined) el.textContent = text; return el;
@@ -202,12 +190,14 @@ function renderHeader(): void {
   }
   const spacer = element('div', 'toolbar-drag'); spacer.setAttribute('aria-hidden', 'true');
   const actions = element('div', 'header-actions');
-  const pin = button(pinned ? 'Unpin · hide when switching apps' : 'Pin · stay visible when switching apps', Pin, async () => {
-    const result = await native('pin', { pinned: !pinned }); pinned = result.pinned ?? !pinned;
+  const pinCapability = capabilities.window.pin;
+  const pin = button(pinCapability ? (pinned ? 'Unpin · hide when switching apps' : 'Pin · stay visible when switching apps') : 'Pin · available in the Mac app', Pin, async () => {
+    if (!pinCapability) return;
+    pinned = await pinCapability.set(!pinned);
     pin.classList.toggle('active', pinned); pin.setAttribute('aria-pressed', String(pinned));
     pin.title = pinned ? 'Unpin · hide when switching apps' : 'Pin · stay visible when switching apps'; pin.setAttribute('aria-label', pin.title);
   });
-  pin.classList.toggle('active', pinned); pin.setAttribute('aria-pressed', String(pinned));
+  pin.classList.toggle('active', pinned); pin.setAttribute('aria-pressed', String(pinned)); pin.disabled = !pinCapability;
   const reverseSide = view === 'explorer' || view === 'project' || view === 'themes';
   actions.append(pin, button(reverseSide ? 'Back to note · ⌘⇧E' : 'Show notes · ⌘⇧E', reverseSide ? PanelTop : BookOpen, flip), button('New note · ⌘N', Plus, newNote));
   if (view === 'note' && selected()) {
@@ -217,7 +207,7 @@ function renderHeader(): void {
   const settings = button('Settings · ⌘,', Settings, () => { if (view === 'themes' && appearanceTab !== 'export') goNote(); else openThemes(); });
   settings.classList.toggle('active', view === 'themes' && appearanceTab !== 'export'); settings.setAttribute('aria-pressed', String(view === 'themes' && appearanceTab !== 'export')); actions.append(settings);
   header.append(context, spacer, actions); app.append(header);
-  if (isNative) disposeDragRegion = observeWindowDragRegion(spacer, rect => { void native('dragRegion', { rect }).catch(showError); });
+  if (capabilities.window.dragRegion) disposeDragRegion = observeWindowDragRegion(spacer, rect => { void capabilities.window.dragRegion!.set(rect).catch(showError); });
 }
 function renderBadges(): void {
   if (!badgeElement) return;
@@ -318,14 +308,14 @@ function renderExplorer(): void {
     onArchive: ids => { try { changed(libraryCommands.archiveMany(librarySession.library, ids), 'Notes archived' ); } catch (error) { showError(error); } },
     onTag: (ids, tag) => { try { changed(libraryCommands.tagMany(librarySession.library, ids, tag), `Added #${tag.replace(/^#/, '')}`); } catch (error) { showError(error); } },
     onOverview: tags => openProject(tags),
-    onSearch: isNative ? async (text, candidates) => {
+    onSearch: async (text, candidates) => {
       const sequence = ++semanticSequence; await new Promise(resolve => setTimeout(resolve, 250));
       return searchNotes(text, candidates, {
-        status: () => native<SemanticStatus>('semanticStatus'),
-        prepareIndex: () => indexCoordinator.refresh(library.notes),
-        semanticSearch: async (query, ids) => (await semanticSearch(featureInvoke, query, ids)).map(hit => hit.id),
+        status: () => capabilities.semanticSearch.status(),
+        prepareIndex: () => indexCoordinator.refresh(librarySession.library.notes),
+        semanticSearch: async (query, ids) => (await semanticSearch(capabilities.semanticSearch, query, ids)).map(hit => hit.id),
       }, () => sequence === semanticSequence);
-    } : undefined, onConfigureSearch: () => openThemes('search'), onError: showError,
+    }, onConfigureSearch: () => openThemes('search'), onError: showError,
   }));
 }
 function renderHeaderScope(): void {
@@ -345,7 +335,7 @@ function renderProject(): void {
       if (!result.ok) { render(); throw new Error('That task changed. The overview has been refreshed; try again.'); }
       replaceLibrary(result.library); persist(); render();
     }, onOCR: ocrEnabled ? async media => { try { await recognizeImage(media.url, media.noteID); } catch (error) { showError(error); } } : undefined,
-    onOpenMedia: async media => { try { await native('openAttachment', { url: media.url }); } catch (error) { showError(error); } },
+    onOpenMedia: async media => { try { await capabilities.attachments?.open(media.url); } catch (error) { showError(error); } },
   })); app.append(main);
 }
 function dateLabel(value: string): string {
@@ -360,7 +350,7 @@ function refreshThemeSelection(): void {
     option.setAttribute('aria-disabled', String(themeSaving));
   });
   const status = app.querySelector<HTMLElement>('.theme-status');
-  if (status) status.textContent = themeSaving ? 'Saving appearance…' : `${themeByID(themeID)?.name || 'Follow macOS'} · ${isNative ? 'Saved on this Mac' : 'Saved in preview'}`;
+  if (status) status.textContent = themeSaving ? 'Saving appearance…' : `${themeByID(themeID)?.name || 'Follow macOS'} · ${capabilities.presentation.savedLabel}`;
   app.querySelector('.themes-side')?.setAttribute('aria-busy', String(themeSaving));
 }
 async function chooseTheme(id: string): Promise<void> {
@@ -368,10 +358,29 @@ async function chooseTheme(id: string): Promise<void> {
   if (resolveThemeID(id) !== id) throw new Error('That theme is not available.');
   themeSaving = true; refreshThemeSelection();
   try {
-    const saved = await native('theme', { themeID: id });
+    const saved = await capabilities.appearance.saveTheme(id);
     if (saved.themeID !== id) throw new Error('The theme could not be confirmed. Try again.');
     themeID = applyAppearance(document.documentElement, id); applySyntaxAppearance();
   } finally { themeSaving = false; refreshThemeSelection(); }
+}
+function semanticSettingsPort(): SemanticSearchPort {
+  const backend = capabilities.semanticSearch;
+  const invalidate = () => { semanticSequence++; indexCoordinator.invalidate(); automaticIndexError = ''; if (explorerState) explorerState.searchResult = null; };
+  return {
+    status: () => backend.status(), search: (query, ids) => backend.search(query, ids),
+    index: async (notes, force) => {
+      explicitIndexRequests++;
+      try { return await indexCoordinator.refresh(notes, force); }
+      finally { explicitIndexRequests--; }
+    },
+    configuration: {
+      set: async configuration => { invalidate(); const status = await backend.configuration.set(configuration); if (configuration.enabled) indexCoordinator.schedule(librarySession.library.notes, true); return status; },
+      startRuntime: async () => { await backend.configuration.startRuntime(); indexCoordinator.schedule(librarySession.library.notes, true); },
+      downloadModel: async model => { await backend.configuration.downloadModel(model); indexCoordinator.schedule(librarySession.library.notes, true); },
+      clearIndex: async () => { invalidate(); await backend.configuration.clearIndex(); },
+      cancel: async () => { invalidate(); await backend.configuration.cancel(); },
+    },
+  };
 }
 function applySyntaxAppearance(): void { applyCodeAppearance(document.documentElement, syntaxThemeID, themeID, matchMedia('(prefers-color-scheme: dark)').matches); }
 function refreshCodeTools(): void {
@@ -385,7 +394,7 @@ function refreshCodeTools(): void {
 }
 async function chooseSyntaxTheme(id: SyntaxThemeID): Promise<void> {
   try {
-    await native('syntaxTheme', { syntaxThemeID: id });
+    await capabilities.appearance.saveSyntaxTheme(id);
     syntaxThemeID = id; applySyntaxAppearance();
   } catch (error) { showError(error); throw error; }
 }
@@ -403,24 +412,23 @@ function insertIntoNote(id: string, markdown: string): void {
 }
 async function pickAttachments(): Promise<void> {
   const id = selected()?.id; if (!id) return;
-  if (!isNative) throw new Error('Managed local attachments are available in the Mac app.');
-  const result = await native<{ attachments?: AttachmentRecord[]; cancelled?: boolean }>('pickAttachments');
-  if (result.cancelled || !result.attachments?.length) return;
-  insertIntoNote(id, result.attachments.map(attachmentMarkdown).join('\n\n')); notify('Attachments saved locally');
+  if (!capabilities.attachments) throw new Error('Managed local attachments are unavailable in this preview.');
+  const records = await capabilities.attachments.pick();
+  if (!records?.length) return;
+  insertIntoNote(id, records.map(attachmentMarkdown).join('\n\n')); notify('Attachments saved locally');
 }
 async function importDroppedFiles(files: File[], id: string): Promise<void> {
-  if (!isNative) throw new Error('Managed local attachments are available in the Mac app.');
+  if (!capabilities.attachments) throw new Error('Managed local attachments are unavailable in this preview.');
   notify(`Importing ${files.length} ${files.length === 1 ? 'attachment' : 'attachments'}…`);
-  const records = await importAttachments(files, (action, data) => native(action as PlatformAction, data as never));
+  const records = await capabilities.attachments.import(files);
   insertIntoNote(id, records.map(attachmentMarkdown).join('\n\n')); notify('Attachments saved locally');
 }
 async function recognizeImage(url?: string, targetID = selected()?.id): Promise<void> {
   if (!ocrEnabled) throw new Error('Enable local image text recognition in General settings first.');
-  const result = url
-    ? await native<{ text?: string; cancelled?: boolean }>('ocrAttachment', { url })
-    : await native<{ text?: string; cancelled?: boolean }>('pickOCRImage');
+  if (!capabilities.ocr) throw new Error('Image text recognition is unavailable in this preview.');
+  const result = await capabilities.ocr.recognize(url);
   if (result.cancelled) return;
-  const text = result.text || ''; const dialog = element('section', 'ocr-result'); dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', 'Recognized image text');
+  const text = result.text; const dialog = element('section', 'ocr-result'); dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', 'Recognized image text');
   dialog.append(element('h2', '', 'Recognized text'));
   const area = element('textarea'); area.value = text; area.setAttribute('aria-label', 'Recognized text to copy or insert'); dialog.append(area);
   const actions = element('div', 'ocr-result-actions');
@@ -445,8 +453,9 @@ function currentImageRequest(): NoteImageRequest {
   return buildNoteImageRequest(note.markdown, { ...imageOptions, paper: colors?.paper, text: colors?.ink, accent: colors?.accent, html }, titleOf(note.markdown));
 }
 async function exportImageRequest(request: NoteImageRequest): Promise<void> {
-  if (!isNative) throw new Error('PNG export is rendered by the Mac app.');
-  await Promise.all([queue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]); const result = await native<{ exported?: boolean; cancelled?: boolean }>('exportPNG', { request });
+  if (!capabilities.pngExport) throw new Error('PNG export is unavailable in this preview.');
+  await Promise.all([queue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]);
+  const result = await capabilities.pngExport.export(request);
   if (result.exported) notify('PNG saved');
 }
 async function exportCurrentPNG(): Promise<void> { await exportImageRequest(currentImageRequest()); }
@@ -456,15 +465,15 @@ function chooseNoteFont(selection: NoteFontSelection): Promise<NoteFontState> {
     if (pending) await pending.catch(() => {});
     const previous = noteFonts;
     const desired = resolveNoteFontState({ ...noteFonts, selection });
-    const saved = resolveNoteFontState((await native('noteFont', { selection: desired.selection })).noteFonts);
+    const saved = await capabilities.typography.selectNoteFont(desired.selection);
     try { await applyNoteFont(document.documentElement, saved); }
     catch (error) {
-      await native('noteFont', { selection: previous.selection });
+      await capabilities.typography.selectNoteFont(previous.selection);
       await applyNoteFont(document.documentElement, previous);
       if (view !== 'themes' || appearanceTab !== 'window') showError(error);
       throw error;
     }
-    noteFonts = resolveNoteFontState((await native('noteFonts')).noteFonts);
+    noteFonts = saved;
     return noteFonts;
   })();
   noteFontSelectionTask = task;
@@ -472,10 +481,10 @@ function chooseNoteFont(selection: NoteFontSelection): Promise<NoteFontState> {
   void task.then(settled, settled); return task;
 }
 async function downloadNoteFont(family: string): Promise<{ fontState: NoteFontState; downloadedFontID: string }> {
-  if (!isNative) throw new Error('Google Fonts downloads are available in the Mac app.');
-  const result = await native<{ fontState: NoteFontState; downloadedFontID: string }>('downloadNoteFont', { family });
+  if (!capabilities.typography.downloadFont) throw new Error('Font downloads are unavailable in this preview.');
+  const result = await capabilities.typography.downloadFont.download(family);
   noteFonts = resolveNoteFontState(result.fontState);
-  return { fontState: noteFonts, downloadedFontID: result.downloadedFontID };
+  return result;
 }
 function applyFontSize(): void {
   document.documentElement.style.setProperty('--note-font-size', `${fontSize}px`);
@@ -490,10 +499,7 @@ function hasCopySelection(): boolean {
   if (editor && !editor.state.selection.empty) return true;
   const source = app.querySelector<HTMLTextAreaElement>('.source-editor'); return !!source && source.selectionStart !== source.selectionEnd;
 }
-async function writeClipboard(content: ClipboardPayload): Promise<void> {
-  const reply = await native('clipboard', { content });
-  if (!reply.copied) throw new Error('The clipboard write could not be confirmed.');
-}
+async function writeClipboard(content: ClipboardPayload): Promise<void> { await capabilities.clipboard.write(content); }
 async function copyNote(format: ClipboardFormat, whole = false): Promise<void> {
   const note = selected(); if (view !== 'note' || !note) { notify('Open a note to copy it.'); return; }
   let content: ClipboardPayload | null = !whole && editor ? selectionClipboardPayload(editor, format) : null;
@@ -520,7 +526,7 @@ function noteActionsButton(className: string): HTMLButtonElement {
       ...(!sourceMode ? [{ label: 'Formatting…', icon: Bold, run: () => openActionMenu(more, formattingActions(), { label: 'Formatting', onError: showError }) }] : []),
       { label: hasCopySelection() ? 'Copy selection as…' : 'Copy note as…', icon: Clipboard, run: () => openCopyMenu(more) },
       { label: 'Add tag…', icon: Hash, run: tagInput },
-      { label: 'Attach file…', icon: Paperclip, run: pickAttachments },
+      ...(capabilities.attachments ? [{ label: 'Attach file…', icon: Paperclip, run: pickAttachments }] : []),
       ...(ocrEnabled ? [{ label: 'Recognize image text…', icon: ScanText, run: () => recognizeImage() }] : []),
       { separator: true },
       { label: 'Export PNG…', icon: Camera, run: () => openThemes('export') },
@@ -533,7 +539,9 @@ function noteActionsButton(className: string): HTMLButtonElement {
 function applyWindowState(): void {
   document.documentElement.dataset.focused = String(windowFocused); if (!windowFocused) closePopover();
   // The real app uses NSPanel compositing; preview opacity is only an approximation.
-  if (!isNative) document.documentElement.style.opacity = String(windowFocused ? windowStyle.focusedOpacity : windowStyle.unfocusedOpacity);
+  const previewOpacity = capabilities.windowStyle.previewOpacity(windowFocused, windowStyle);
+  if (previewOpacity === null) document.documentElement.style.removeProperty('opacity');
+  else document.documentElement.style.opacity = String(previewOpacity);
 }
 function refreshWindowStyleControls(): void {
   for (const field of ['focusedOpacity', 'unfocusedOpacity', 'glass'] as const) {
@@ -550,112 +558,26 @@ function changeWindowStyle(style: WindowStyle): void {
   windowStyle = resolveWindowStyle(style);
   applyWindowState(); refreshWindowStyleControls(); windowStyleQueue.enqueue(windowStyle);
 }
-function renderAppearanceTabs(): HTMLElement {
-  const tabs = element('div', 'appearance-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Settings sections');
-  for (const [id, label] of settingsTabs) {
-    const tab = button(`${label} settings`, null, () => { appearanceTab = id; render(); }, 'appearance-tab', label);
-    tab.id = `appearance-tab-${id}`; tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(appearanceTab === id));
-    tab.setAttribute('aria-controls', 'appearance-content'); tab.tabIndex = appearanceTab === id ? 0 : -1;
-    tab.onkeydown = event => {
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-      event.preventDefault(); const index = settingsTabs.findIndex(tab => tab[0] === id);
-      appearanceTab = settingsTabs[event.key === 'Home' ? 0 : event.key === 'End' ? settingsTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + settingsTabs.length) % settingsTabs.length][0]; render();
-      app.querySelector<HTMLButtonElement>('.appearance-tab[aria-selected="true"]')?.focus();
-    };
-    tabs.append(tab);
-  }
-  return tabs;
-}
-function renderOCRPreferences(): HTMLElement {
-  const section = element('section', 'settings-group'); section.append(element('h2', '', 'Images'));
-  const label = element('label', 'setting-row'); const copy = element('span', 'setting-copy'); copy.append(element('span', 'setting-title', 'Recognize image text'), element('span', 'setting-hint', 'Runs locally. Review text before inserting.'));
-  const input = element('input'); input.type = 'checkbox'; input.checked = ocrEnabled; input.setAttribute('aria-label', 'Enable local image text recognition');
-  input.onchange = async () => {
-    const desired = input.checked; input.disabled = true;
-    try {
-      const result = await native('featurePreferences', { ocrEnabled: desired });
-      if (result.ocrEnabled !== desired) throw new Error('OCR preference could not be confirmed.');
-      ocrEnabled = desired;
-    } catch (error) { input.checked = ocrEnabled; showError(error); }
-    finally { input.disabled = false; }
-  };
-  label.append(copy, input); section.append(label);
-  return section;
-}
-function renderGeneralSettings(): HTMLElement {
-  const panel = element('section', 'settings-panel'); const startup = element('section', 'settings-group'); startup.append(element('h2', '', 'Startup'));
-  const status = element('p', 'tool-status'); status.setAttribute('role', 'status');
-  const approval = button('Open macOS Login Items settings', null, () => native('openLoginSettings'), 'text-button', 'Open Login Items…');
-  const updateStatus = () => { status.textContent = startupState.launchError || (startupState.launchStatus === 'requiresApproval' ? 'Enable Banana Notes in macOS Login Items.' : ''); status.hidden = !status.textContent; approval.hidden = !status.textContent; }; updateStatus();
-  for (const [key, label, hint] of [['launchAtLogin', 'Open at login', 'Managed by macOS Login Items.'], ['newNoteOnLaunch', 'New note on launch', 'Start with a new note, or reuse the newest blank note.']] as const) {
-    const row = element('label', 'setting-row'); const copy = element('span', 'setting-copy'); copy.append(element('span', 'setting-title', label), element('span', 'setting-hint', hint));
-    const input = element('input'); input.type = 'checkbox'; input.checked = startupState[key]; input.setAttribute('aria-label', label);
-    input.onchange = async () => {
-      input.disabled = true;
-      try {
-        if (!isNative) throw new Error('Startup preferences apply to the Mac app.');
-        const result = await native<Partial<typeof startupState>>('startupPreferences', { [key]: input.checked }); startupState = { ...startupState, ...result }; input.checked = startupState[key]; updateStatus();
-      } catch (error) { input.checked = startupState[key]; showError(error); }
-      finally { input.disabled = false; }
-    }; row.append(copy, input); startup.append(row);
-  }
-  startup.append(status, approval); panel.append(startup, renderOCRPreferences());
-  const data = element('section', 'settings-group'); data.append(element('h2', '', 'Storage'), element('p', 'settings-description', 'Notes and attachments are stored on this Mac.'), button('Open local data folder', FolderOpen, () => native('openData'), 'text-button', 'Open data folder')); panel.append(data); return panel;
-}
-function renderWindowStyleSettings(): HTMLElement {
-  const settings = element('section', 'window-settings'); settings.id = 'appearance-content'; settings.setAttribute('role', 'tabpanel'); settings.setAttribute('aria-labelledby', 'appearance-tab-window');
-  const sizeControl = element('select', 'note-font-control'); sizeControl.dataset.fontSize = ''; sizeControl.setAttribute('aria-label', 'Note text size');
-  sizeControl.title = 'Note text size · ⌘+/⌘− · Reset with ⌘0';
-  for (let size = MIN_FONT_SIZE; size <= MAX_FONT_SIZE; size++) {
-    const option = element('option', '', `${size} px`); option.value = String(size); sizeControl.append(option);
-  }
-  sizeControl.value = String(fontSize); sizeControl.onchange = () => changeFontSize(Number(sizeControl.value));
-  const fontSaveStatus = button('Retry saving note text size', null, () => fontSizeQueue.flush(), 'save-status font-save-status'); fontSaveStatus.setAttribute('aria-live', 'polite');
-  settings.append(renderNoteFontSettings({ state: noteFonts, textSizeControl: { input: sizeControl, status: fontSaveStatus }, onSelect: chooseNoteFont, onDownload: downloadNoteFont, onCancelDownload: async () => { await native('cancelFontDownload'); } }));
-  const effects = element('section', 'settings-group window-effects');
-  const effectsHeading = element('h2', '', 'Window effects'); effectsHeading.id = 'window-effects-heading'; effects.setAttribute('aria-labelledby', effectsHeading.id);
-  effects.append(effectsHeading); settings.append(effects);
-  for (const [field, label, hint] of [
-    ['focusedOpacity', 'Active window opacity', 'Applies to the entire window, including text.'],
-    ['unfocusedOpacity', 'Inactive window opacity', 'Applies when the pinned window is inactive.'],
-    ['glass', 'Background translucency', 'Blends the desktop behind the window.'],
-  ] as const) {
-    const row = element('div', 'effect-setting');
-    const labels = element('div', 'effect-labels'); const text = element('label', '', label); text.htmlFor = `effect-${field}`;
-    const output = element('output'); output.dataset.windowStyle = field; output.setAttribute('for', `effect-${field}`);
-    labels.append(text, output);
-    const input = element('input', 'effect-range'); input.type = 'range'; input.id = `effect-${field}`; input.dataset.windowStyle = field;
-    input.min = field === 'glass' ? '0' : '5'; input.max = '100'; input.step = '1';
-    input.oninput = () => changeWindowStyle({ ...windowStyle, [field]: Number(input.value) / 100 });
-    row.append(labels, input, element('p', 'effect-hint', hint)); effects.append(row);
-  }
-  const actions = element('div', 'effects-actions');
-  actions.append(button('Reset window effects', null, () => changeWindowStyle({ ...DEFAULT_WINDOW_STYLE }), 'text-button', 'Reset window effects'));
-  const status = button('Retry saving window effects', null, () => windowStyleQueue.flush(), 'save-status effects-save-status'); status.setAttribute('aria-live', 'polite'); actions.append(status);
-  effects.append(actions, element('p', 'effects-recovery', 'Use the menu bar → Reset Window Effects to restore visibility.'));
-  if (!isNative) effects.append(element('p', 'effects-recovery', 'Background translucency is available in the Mac app only.'));
-  return settings;
-}
 function renderThemes(): void {
   const main = element('main', 'themes-side');
   const heading = element('div', 'themes-heading'); const title = element('h1', '', appearanceTab === 'export' ? 'Export PNG' : 'Settings'); title.id = 'settings-title'; heading.append(title);
   if (appearanceTab === 'themes') heading.append(element('span', 'theme-total', `${themes.length} themes`));
-  main.append(heading); if (appearanceTab !== 'export') main.append(renderAppearanceTabs());
+  main.append(heading); if (appearanceTab !== 'export') main.append(renderAppearanceTabs(appearanceTab, tab => { appearanceTab = tab; }, render, app));
   if (appearanceTab === 'window') {
-    main.append(renderWindowStyleSettings()); app.append(main); refreshWindowStyleControls(); applyFontSize(); return;
+    main.append(renderWindowStyleSettings({ noteFonts, fontSize, windowStyle, windowFocused, windowStyleStatus, windowStyleError, capabilities, fontSizeQueue, windowStyleQueue, onSelectNoteFont: chooseNoteFont, onDownloadFont: capabilities.typography.downloadFont ? downloadNoteFont : undefined, onCancelDownload: capabilities.typography.downloadFont ? async () => { await capabilities.typography.downloadFont!.cancel(); } : undefined, onChangeFontSize: changeFontSize, onChangeWindowStyle: changeWindowStyle, onError: showError })); app.append(main); refreshWindowStyleControls(); applyFontSize(); return;
   }
   if (appearanceTab !== 'themes') {
     let panel: HTMLElement;
-    if (appearanceTab === 'general') panel = renderGeneralSettings();
+    if (appearanceTab === 'general') panel = renderGeneralSettings({ capabilities, startup: startupState, onStartupChanged: next => { startupState = next; }, ocrEnabled, onOCREnabled: enabled => { ocrEnabled = enabled; }, onError: showError });
     else if (appearanceTab === 'code') {
       panel = element('section', 'settings-panel code-settings-panel'); panel.append(renderCodeSettings({ selectedID: syntaxThemeID, appThemeID: themeID, onSelect: chooseSyntaxTheme }));
     } else if (appearanceTab === 'search') {
-      panel = element('section', 'settings-panel'); panel.append(renderSemanticSettings({ invoke: featureInvoke, getNotes: () => library.notes, automaticIndex: () => ({ running: automaticIndexRunning, error: automaticIndexError }), registerRefresh: refresh => { refreshSemanticSettings = refresh; } }));
+      panel = element('section', 'settings-panel'); panel.append(renderSemanticSettings({ search: semanticSettingsPort(), getNotes: () => librarySession.library.notes, automaticIndex: () => ({ running: automaticIndexRunning, error: automaticIndexError }), registerRefresh: refresh => { refreshSemanticSettings = refresh; } }));
     } else {
       panel = element('section', 'settings-panel image-settings-panel');
-      if (selected()) panel.append(renderNoteImageExportControls({ request: currentImageRequest(), onExport: request => {
+      if (selected()) panel.append(renderNoteImageExportControls({ request: currentImageRequest(), canExport: !!capabilities.pngExport, onExport: request => {
         imageOptions = { ...imageOptions, width: request.width, padding: request.padding, gradient: request.backgroundStart === '#f6d6b8' ? 'dawn' : request.backgroundStart === '#c4e7ed' ? 'ocean' : 'lavender' };
-        void (async () => { await native('imagePreferences', { imageOptions }); await exportImageRequest(request); })().catch(showError);
+        void (async () => { await capabilities.imagePreferences.save({ ...imageOptions }); await exportImageRequest(request); })().catch(showError);
       } }));
       else panel.append(element('p', 'settings-description', 'Open or create a note first to preview its image.'));
     }
@@ -717,17 +639,17 @@ function renderHelp(): void {
   main.append(element('h2', '', 'Notebooks and tags'), element('p', '', 'Add a #project tag in the note, use Add tag, or set tags: [project] in YAML frontmatter. Click a tag to open its notebook. Select All notes to clear the notebook scope.'));
   main.append(element('h2', '', 'Copy formats'), element('p', '', '⌘C copies the selected text without Markdown escapes. Pasting within Banana Notes preserves its formatting. Note actions → Copy as offers Markdown, formatted text, HTML source, and plain text. With no selection, it copies the entire note. Markdown copy includes frontmatter. Search fields and the source editor use standard text copying.'));
   const actions = element('div', 'help-actions');
-  actions.append(button('Export all notes as Markdown files', Download, exportNotes, 'text-button', 'Export Markdown'), button('Open local data folder', FolderOpen, () => native('openData'), 'text-button', 'Data folder'));
-  main.append(actions, element('p', 'local-disclaimer', isNative ? 'Notes save automatically on this Mac. Pin the window to keep it visible when switching apps.' : 'Browser preview only. Its notes are separate from the Mac app.'));
+  const markdownExport = button('Export all notes as Markdown files', Download, exportNotes, 'text-button', 'Export Markdown'); markdownExport.disabled = !capabilities.markdownExport;
+  const openData = button('Open local data folder', FolderOpen, () => capabilities.dataFolder?.open(), 'text-button', 'Data folder'); openData.disabled = !capabilities.dataFolder;
+  actions.append(markdownExport, openData);
+  main.append(actions, element('p', 'local-disclaimer', capabilities.dataFolder ? `${capabilities.presentation.savedLabel}. Pin the window to keep it visible when switching apps.` : 'Browser preview only. Its notes are separate from the Mac app.'));
   app.append(main);
 }
 async function exportNotes(): Promise<void> {
   await queue.flush();
-  const notes = library.notes.filter(note => !note.trashedAt).map(note => ({ id: note.id, title: titleOf(note.markdown), markdown: note.markdown }));
-  if (isNative) await native('export', { notes });
-  else {
-    const a = element('a'); a.href = URL.createObjectURL(new Blob([selected()?.markdown || ''], { type: 'text/markdown' })); a.download = `${titleOf(selected()?.markdown || '')}.md`; a.click(); URL.revokeObjectURL(a.href);
-  }
+  const notes = library.notes.filter(note => !note.trashedAt).map(note => ({ id: note.id, markdown: note.markdown }));
+  if (!capabilities.markdownExport) throw new Error('Markdown export is unavailable in this preview.');
+  await capabilities.markdownExport.export(notes);
 }
 function renderCounter(): void {
   if (!counterElement) return;
@@ -765,129 +687,119 @@ function render(): void {
   renderFooter(); showSaveFailure();
   if (view === 'note' && oversizedDraft?.noteID === selected()?.id) showNoteSizeLimit();
 }
-window.foldnoteCommand = async command => {
-  if (!sessionLoaded) { commandsWaiting.push(command); return; }
-  switch (command.action) {
-    case 'new': newNote(); break;
-    case 'explorer': explorerState.mode = 'notes'; view = 'explorer'; render(); break;
-    case 'tag': try { notebook(command.tag || null); } catch (error) { showError(error); } break;
-    case 'help': view = 'help'; render(); break;
-    case 'themes': openThemes(); break;
-    case 'focus': { const becameFocused = !windowFocused && command.focused === true; windowFocused = command.focused === true; applyWindowState(); if (becameFocused) indexCoordinator.schedule(library.notes, true); break; }
-    case 'windowStyle': changeWindowStyle(resolveWindowStyle(command.style)); break;
-    case 'fontIncrease': changeFontSize(stepFontSize(fontSize, 1)); break;
-    case 'fontDecrease': changeFontSize(stepFontSize(fontSize, -1)); break;
-    case 'fontReset': changeFontSize(DEFAULT_FONT_SIZE); break;
-    case 'copy': await copyNote(command.format || 'markdown', command.whole); break;
-    case 'flush':
-      if (oversizedDraft) throw new Error('This note has unsaved content over 2 MB. Reduce its size before closing Banana Notes.');
-      await Promise.all([queue.flush(), windowStyleQueue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]); break;
-    case 'show': if (view === 'note') editor?.commands.focus(); break;
-    case 'older': move(1); break;
-    case 'newer': move(-1); break;
-  }
-};
-document.addEventListener('keydown', event => {
-  if (!sessionLoaded || event.isComposing) return;
-  if (view === 'note' && handleNoteTrashShortcut(event, selected()?.id ?? null, discardNote)) return;
-  const mod = event.metaKey || event.ctrlKey;
-  const key = event.key.toLowerCase();
-  const field = event.target instanceof Element ? event.target.closest('input,textarea,select') : null;
-  let run: (() => void | Promise<unknown>) | undefined;
-  if (event.key === 'Escape' && closePopover(true)) { event.preventDefault(); event.stopImmediatePropagation(); return; }
-  if (event.key === 'Escape' && app.querySelector('.ocr-result')) { event.preventDefault(); event.stopPropagation(); app.querySelector('.ocr-result')?.remove(); return; }
-  if (mod && !event.altKey && (key === '+' || key === '=')) run = () => changeFontSize(stepFontSize(fontSize, 1));
-  else if (mod && !event.altKey && key === '-') run = () => changeFontSize(stepFontSize(fontSize, -1));
-  else if (mod && !event.altKey && key === '0') run = () => changeFontSize(DEFAULT_FONT_SIZE);
-  else if (mod && event.altKey && key === 'c') run = () => copyNote('formatted');
-  else if (mod && !event.altKey && !event.shiftKey && key === 'k' && view === 'note' && !sourceMode && editor && (!field || field.closest('.link-editor'))) run = () => editNoteLink();
-  else if (mod && key === 'n' && !event.shiftKey) run = newNote;
-  else if (mod && ((key === '[' && !event.shiftKey) || (event.shiftKey && key === 'arrowleft'))) run = () => move(1);
-  else if (mod && ((key === ']' && !event.shiftKey) || (event.shiftKey && key === 'arrowright'))) run = () => move(-1);
-  else if (mod && ((key === 'e' && event.shiftKey) || key === 'p')) run = () => { if (key === 'p') { explorerState.mode = 'notes'; view = 'explorer'; render(); } else flip(); };
-  else if (mod && key === 'm' && event.shiftKey) run = () => { sourceMode = !sourceMode; view = 'note'; render(); };
-  else if (mod && key === ',') run = openThemes;
-  else if (mod && key === 's') run = () => queue.flush();
-  else if (event.key === 'Escape') run = () => { if (view !== 'note') goNote(); else return native('hide'); };
-  if (run) { event.preventDefault(); event.stopPropagation(); try { Promise.resolve(run()).catch(showError); } catch (error) { showError(error); } }
-}, true);
+const handleAppCommand = createAppCommandHandler({
+  isReady: () => sessionLoaded,
+  defer: command => commandsWaiting.push(command),
+  newNote,
+  showExplorer: () => { explorerState.mode = 'notes'; view = 'explorer'; render(); },
+  selectNotebook: tag => { try { notebook(tag); } catch (error) { showError(error); } },
+  showHelp: () => { view = 'help'; render(); },
+  showSettings: openThemes,
+  focusChanged: focused => { const becameFocused = !windowFocused && focused; windowFocused = focused; applyWindowState(); if (becameFocused) indexCoordinator.schedule(library.notes, true); },
+  changeWindowStyle,
+  changeFontSize: adjustment => changeFontSize(adjustment === 'reset' ? DEFAULT_FONT_SIZE : stepFontSize(fontSize, adjustment === 'increase' ? 1 : -1)),
+  copy: (format, whole) => copyNote(format, whole),
+  flush: async () => {
+    if (oversizedDraft) throw new Error('This note has unsaved content over 2 MB. Reduce its size before closing Banana Notes.');
+    await Promise.all([queue.flush(), windowStyleQueue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]);
+  },
+  focusEditor: () => { if (view === 'note') editor?.commands.focus(); },
+  move,
+});
+function bindAppKeyboardShortcuts(): () => void {
+  return installKeyboardShortcuts({
+  isReady: () => sessionLoaded,
+  view: () => view,
+  handleTrash: event => handleNoteTrashShortcut(event, selected()?.id ?? null, discardNote),
+  closePopover,
+  hasOCRDialog: () => !!app.querySelector('.ocr-result'),
+  closeOCRDialog: () => { app.querySelector('.ocr-result')?.remove(); },
+  sourceMode: () => sourceMode,
+  editorAvailable: () => !!editor,
+  increaseFont: () => changeFontSize(stepFontSize(fontSize, 1)),
+  decreaseFont: () => changeFontSize(stepFontSize(fontSize, -1)),
+  resetFont: () => changeFontSize(DEFAULT_FONT_SIZE),
+  copyFormatted: () => copyNote('formatted'),
+  editLink: () => editNoteLink(),
+  newNote,
+  moveOlder: () => move(1),
+  moveNewer: () => move(-1),
+  showExplorer: () => { explorerState.mode = 'notes'; view = 'explorer'; render(); },
+  flipView: flip,
+  toggleSource: () => { sourceMode = !sourceMode; view = 'note'; render(); },
+  openSettings: openThemes,
+  save: () => queue.flush(),
+  goToNote: () => goNote(),
+  hideWindow: () => capabilities.window.hide(),
+  error: showError,
+  });
+}
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySyntaxAppearance);
 for (const type of ['drop', 'paste'] as const) document.addEventListener(type, event => {
-  if (!sessionLoaded || view !== 'note' || !selected()) return;
+  if (!sessionLoaded || !capabilities.attachments || view !== 'note' || !selected()) return;
   const target = event.target as HTMLElement;
   if (!target.closest('.note-side')) return;
   const data = type === 'drop' ? (event as DragEvent).dataTransfer : (event as ClipboardEvent).clipboardData;
   const files = [...(data?.files || [])]; if (!files.length) return;
   event.preventDefault(); event.stopPropagation(); void importDroppedFiles(files, selected()!.id).catch(showError);
 }, true);
-document.addEventListener('dragover', event => { if (view === 'note' && event.dataTransfer?.types.includes('Files')) event.preventDefault(); });
+document.addEventListener('dragover', event => { if (capabilities.attachments && view === 'note' && event.dataTransfer?.types.includes('Files')) event.preventDefault(); });
 window.addEventListener('pagehide', () => { if (sessionLoaded) void Promise.all([queue.flush(), windowStyleQueue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]).catch(() => {}); });
-if (!isNative) {
-  window.addEventListener('focus', () => { if (!isNative) { windowFocused = true; applyWindowState(); } });
-  window.addEventListener('blur', () => { if (!isNative) { windowFocused = false; applyWindowState(); } });
-}
-
 async function start(): Promise<void> {
   try {
-    const loaded = await native('load');
-    const hotkey = await native('hotkeyPreferences'); hotkeyDisplay = hotkey.display || '⌃⇧Space';
-    themeID = applyAppearance(document.documentElement, loaded.themeID);
-    ocrEnabled = loaded.ocrEnabled === true;
-    syntaxThemeID = syntaxThemeIDs.includes(loaded.syntaxThemeID || '') ? loaded.syntaxThemeID! : 'app'; applySyntaxAppearance();
-    startupState = { launchAtLogin: loaded.launchAtLogin === true, launchStatus: loaded.launchStatus || 'notRegistered', launchError: loaded.launchError || null, newNoteOnLaunch: loaded.newNoteOnLaunch === true };
-    imageOptions = (loaded.imageOptions as NoteImageOptions | undefined) || {};
-    noteFonts = loaded.noteFonts ?? DEFAULT_NOTE_FONT_STATE;
+    const { library: loaded, appearance, typography, windowStyle: style, focused, features: featureState, startup, hotkey, imageOptions: imagePreferences, pinned: pinState } = await loadWorkspace(capabilities);
+    hotkeyDisplay = hotkey.display || '⌃⇧Space'; startupState = startup; ocrEnabled = featureState.ocrEnabled;
+    themeID = applyAppearance(document.documentElement, appearance.themeID);
+    syntaxThemeID = syntaxThemeIDs.includes(appearance.syntaxThemeID) ? appearance.syntaxThemeID as SyntaxThemeID : 'app'; applySyntaxAppearance();
+    imageOptions = imagePreferences as NoteImageOptions;
+    noteFonts = typography.noteFonts;
     try { await applyNoteFont(document.documentElement, noteFonts); noteFontWarning = noteFonts.warning || ''; }
     catch {
       noteFonts = resolveNoteFontState({ ...noteFonts, selection: DEFAULT_NOTE_FONT_STATE.selection });
       await applyNoteFont(document.documentElement, noteFonts);
       noteFontWarning = 'The saved font could not be loaded. Select a font in Settings → Window.';
     }
-    fontSize = loaded.fontSize ?? DEFAULT_FONT_SIZE; applyFontSize();
-    fontSizeQueue = new PreferenceSaveQueue<number>({ save: async value => { await native('fontSize', { fontSize: value }); } }, (state, error) => {
-      fontError = state === 'error'; fontStatus = state === 'saving' ? 'Saving…' : state === 'error' ? 'Not saved · Retry' : isNative ? 'Saved on this Mac' : 'Saved in preview'; applyFontSize(); if (error) showError(error);
+    fontSize = typography.fontSize; applyFontSize();
+    fontSizeQueue = new PreferenceSaveQueue({ save: value => capabilities.typography.saveFontSize(value) }, (state, error) => {
+      fontError = state === 'error'; fontStatus = state === 'saving' ? 'Saving…' : state === 'error' ? 'Not saved · Retry' : capabilities.presentation.savedLabel; applyFontSize(); if (error) showError(error);
     });
-    windowStyle = loaded.windowStyle || { ...DEFAULT_WINDOW_STYLE }; windowFocused = loaded.focused !== false; applyWindowState();
-    windowStyleQueue = new WindowStyleSaveQueue({ save: async style => { await native('windowStyle', { style }); } }, (status, error) => {
+    windowStyle = style; windowFocused = focused; applyWindowState();
+    windowStyleQueue = new WindowStyleSaveQueue({ save: value => capabilities.windowStyle.save(value) }, (status, error) => {
       windowStyleError = status === 'error';
-      windowStyleStatus = status === 'saving' ? 'Saving…' : status === 'error' ? 'Not saved · Retry' : isNative ? 'Saved on this Mac' : 'Saved in preview';
-      refreshWindowStyleControls();
-      if (error) showError(error);
+      windowStyleStatus = status === 'saving' ? 'Saving…' : status === 'error' ? 'Not saved · Retry' : capabilities.presentation.savedLabel;
+      refreshWindowStyleControls(); if (error) showError(error);
     });
-    libraryCommands = new LibraryCommands(clock, ids);
-    library = loaded.library || welcomeLibrary(ids.next(), clock.now(), hotkeyDisplay);
-    const unpurged = library; library = libraryCommands.purgeExpiredTrash(library);
-    librarySession = new LibrarySession(library);
-    explorerState = createExplorerState(library);
-    pinned = loaded.pinned || false;
-    queue = new SaveQueue({ save: async value => { await native('save', { library: value }); } }, (status, error) => {
+    library = loaded || welcomeLibrary(ids.next(), clock.now(), hotkeyDisplay);
+    const unpurgedLibrary = library; library = libraryCommands.purgeExpiredTrash(library);
+    librarySession = new LibrarySession(library); explorerState = createExplorerState(library); pinned = pinState;
+    queue = new SaveQueue(capabilities.library, (status, error) => {
       if (status === 'error') { saveError = error instanceof Error ? error.message : 'Could not save changes'; showSaveFailure(); }
-      else if (status === 'saved') { saveError = ''; saveFailureNotice?.remove(); saveFailureNotice = undefined; indexCoordinator?.schedule(library.notes); }
+      else if (status === 'saved') { saveError = ''; saveFailureNotice?.remove(); saveFailureNotice = undefined; indexCoordinator?.schedule(librarySession.library.notes); }
     });
     indexCoordinator = new SemanticIndexCoordinator({
-      status: () => native<SemanticStatus>('semanticStatus'),
+      status: () => capabilities.semanticSearch.status(),
       index: async (notes, force) => {
         automaticIndexRunning = true;
         if (!explicitIndexRequests) void refreshSemanticSettings?.();
-        try { return await native<Record<string, unknown>>('semanticIndex', { notes, force }); }
+        try { return await capabilities.semanticSearch.index(notes, force); }
         finally { automaticIndexRunning = false; if (!explicitIndexRequests) void refreshSemanticSettings?.(); }
       },
     }, {
       onIndexed: () => { automaticIndexError = ''; if (!explicitIndexRequests) void refreshSemanticSettings?.(); },
       onError: error => { automaticIndexError = error instanceof Error ? error.message : 'Unable to update the search index.'; if (!explicitIndexRequests) void refreshSemanticSettings?.(); },
     });
-    sessionLoaded = true; render(); indexCoordinator.schedule(library.notes, true);
-    if (!loaded.library || unpurged !== library) persist();
+    sessionLoaded = true; render(); indexCoordinator.schedule(librarySession.library.notes, true);
+    if (!loaded || unpurgedLibrary !== library) persist();
     window.setInterval(() => { const next = libraryCommands.purgeExpiredTrash(librarySession.library); if (next !== librarySession.library) { replaceLibrary(next); persist(); if (view !== 'note') render(); else renderCounter(); } }, 3_600_000);
-    await native('ready');
-    for (const command of commandsWaiting.splice(0)) await window.foldnoteCommand(command);
+    await capabilities.window.ready();
+    for (const command of commandsWaiting.splice(0)) await handleAppCommand(command);
     if (noteFontWarning) notify(noteFontWarning, true);
-    if (loaded.themeWarning) notify(loaded.themeWarning, true);
-    if (loaded.featureWarning) notify(loaded.featureWarning, true);
-    if (loaded.hotkeyAvailable === false || !hotkey.registered) notify(`The shortcut ${hotkeyDisplay} is unavailable. Open Banana Notes from the menu bar.`, true);
+    if (appearance.warning) notify(appearance.warning, true);
+    if (featureState.warning) notify(featureState.warning, true);
+    if (hotkey.available && !hotkey.registered) notify(`The shortcut ${hotkeyDisplay} is unavailable. Open Banana Notes from the menu bar.`, true);
   } catch (error) {
-    let recoveryState: NativeReply | undefined;
-    try { recoveryState = await native('libraryRecovery'); } catch { /* Older native builds may not expose recovery yet. */ }
+    let recoveryState: LibraryRecoveryState | undefined;
+    try { recoveryState = await capabilities.recovery?.state(); } catch { /* Recovery is optional for this adapter. */ }
     app.replaceChildren(); const recovery = element('main', 'recovery');
     recovery.append(element('h1', '', 'Unable to open notes'), element('p', '', recoveryState?.startupError || (error instanceof Error ? error.message : String(error))),
       element('p', '', 'The original files have not been changed. You can retry or open the data folder.'),
@@ -898,19 +810,21 @@ async function start(): Promise<void> {
         ? new Date(recoveryState.backupUpdatedAt).toLocaleString() : 'date unavailable';
       recovery.append(element('p', '', `Last backup · ${count.toLocaleString()} ${count === 1 ? 'note' : 'notes'} · ${date}`),
         button('Restore last backup', RotateCcw, async () => {
-          await native('restoreBackup');
+          await capabilities.recovery!.restoreLastBackup();
           app.replaceChildren(); await start();
         }, 'primary-button', 'Restore last backup'));
     }
-    recovery.append(button('Open local data folder', FolderOpen, () => native('openData'), recoveryState?.backupAvailable ? 'text-button' : 'primary-button', 'Open data folder'));
+    if (capabilities.dataFolder) recovery.append(button('Open local data folder', FolderOpen, () => capabilities.dataFolder!.open(), recoveryState?.backupAvailable ? 'text-button' : 'primary-button', 'Open data folder'));
     app.append(recovery);
   }
 }
-export function mountApp(selectedPlatform: PlatformPort, selectedClock: Clock, selectedIDs: IdGenerator): void {
-  platform = selectedPlatform; clock = selectedClock; ids = selectedIDs;
-  libraryCommands = new LibraryCommands(clock, ids);
-  projectCommands = new ProjectCommands(clock);
-  isNative = platform.isNative;
-  document.documentElement.dataset.native = String(isNative);
+export function mountApp(selectedCapabilities: Capabilities, selectedClock: Clock, selectedIDs: IdGenerator): () => void {
+  capabilities = selectedCapabilities; clock = selectedClock; ids = selectedIDs;
+  libraryCommands = new LibraryCommands(clock, ids); projectCommands = new ProjectCommands(clock);
+  windowStyleStatus = capabilities.presentation.savedLabel; fontStatus = capabilities.presentation.savedLabel;
+  disposeCommands?.();
+  const unbind = capabilities.window.bindCommands(handleAppCommand); disposeCommands = unbind;
+  const disposeKeyboard = bindAppKeyboardShortcuts();
   void start();
+  return () => { unbind(); disposeKeyboard(); if (disposeCommands === unbind) disposeCommands = undefined; };
 }

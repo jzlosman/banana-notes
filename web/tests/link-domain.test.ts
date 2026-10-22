@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compactRawLinkLabel, isRawURLLabel, normalizeLinkDestination } from '../src/link-domain';
+import { compactRawLinkLabel, isRawURLLabel, normalizeLinkDestination } from '../src/domain/links';
 
 test('normalizes safe bare web addresses and preserves valid destinations', () => {
   assert.deepEqual(normalizeLinkDestination(' example.com/path?q=1 '), { ok: true, href: 'https://example.com/path?q=1' });

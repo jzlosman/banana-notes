@@ -1,8 +1,8 @@
 import { createElement, Search, ArrowLeft, Trash2, Ellipsis, SlidersHorizontal, CheckSquare, X, Archive, Hash, RotateCcw, LayoutList, type IconNode } from 'lucide';
 import { notebookTags, queryNotes, selectedTags, titleOf, trashExpiresAt, type Library, type Note } from '../domain/library';
-import { openActionMenu, openPopover, type MenuItem } from '../action-menu';
+import { openActionMenu, openPopover, type MenuItem } from './action-menu';
 import { renderNoteSummary } from './note-summary';
-import { handleNoteTrashShortcut } from '../note-trash-shortcut';
+import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { mergeSearchMatches, type NoteSearchResult } from '../application/note-search';
 
 export type ExplorerMode = 'notes' | 'trash';

@@ -1,4 +1,4 @@
-import { resolveThemeID, themeByID, type ThemeDefinition } from './themes';
+import { resolveThemeID, themeByID, type ThemeDefinition } from '../domain/themes';
 
 const variables: Record<keyof ThemeDefinition['colors'], string> = {
   paper: '--paper', chrome: '--chrome', ink: '--ink', muted: '--muted',

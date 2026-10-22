@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { observeWindowDragRegion, type WindowDragRegion } from '../src/window-drag';
+import { observeWindowDragRegion, type WindowDragRegion } from '../src/ui/window-drag';
 
 test('drag geometry follows the actual empty toolbar gap and stops after disposal', () => {
   const original = { ResizeObserver: globalThis.ResizeObserver, requestAnimationFrame: globalThis.requestAnimationFrame, cancelAnimationFrame: globalThis.cancelAnimationFrame };

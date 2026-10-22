@@ -17,7 +17,7 @@ test('preview adapter retains the established localStorage keys and models nativ
     assert.equal(await adapter.library.load(), null);
     assert.equal(adapter.recovery, null); assert.equal(adapter.startup, null); assert.equal(adapter.attachments, null);
     assert.equal(adapter.ocr, null); assert.equal(adapter.pngExport, null); assert.equal(adapter.dataFolder, null);
-    assert.equal((await adapter.hotkey.load()).display, '⌃⇧Space');
+    assert.equal(adapter.hotkey, null);
     const library: Library = { version: 1, notes: [{ id: 'n', markdown: 'Preview note', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }], selectedID: 'n', activeTag: null };
     await adapter.library.save(library);
     assert.equal(dom.window.localStorage.getItem('foldnote-preview-v1') !== null, true);

@@ -1,9 +1,10 @@
+import { createElement, Check } from 'lucide';
 import { documentClipboardPayload } from './clipboard';
 
 export type NoteImageGradient = 'dawn' | 'lavender' | 'ocean';
 export interface NoteImageOptions { gradient?: NoteImageGradient; width?: number; padding?: number; paper?: string; text?: string; accent?: string; html?: string; codeCSS?: string }
 export interface NoteImageRequest { html: string; title: string; backgroundStart: string; backgroundEnd: string; paper: string; text: string; accent: string; width: number; padding: number }
-export interface NoteImageControlsOptions { onExport: (request: NoteImageRequest) => void; request: NoteImageRequest; canExport?: boolean }
+export interface NoteImageControlsOptions { onExport: (request: NoteImageRequest) => Promise<boolean | void> | boolean | void; request: NoteImageRequest; canExport?: boolean }
 
 const gradients: Record<NoteImageGradient, readonly [string, string]> = {
   dawn: ['#f6d6b8', '#f3c6d8'], lavender: ['#dce2ff', '#f2d9f2'], ocean: ['#c4e7ed', '#d6ddfa'],
@@ -31,7 +32,7 @@ function escapeHTML(value: string): string { return value.replace(/[&<>"']/g, ch
 export function renderNoteImageExportControls({ onExport, request, canExport = true }: NoteImageControlsOptions): HTMLElement {
   const root = document.createElement('section');
   root.className = 'note-image-export';
-  root.innerHTML = `<label>Background <select data-gradient><option value="lavender">Lavender</option><option value="dawn">Dawn</option><option value="ocean">Ocean</option></select></label><label>Image width <input data-width type="range" min="600" max="1000" step="40" value="760"></label><div class="note-image-preview" aria-label="Note image preview"><div class="note-image-dots"><i></i><i></i><i></i></div><strong></strong><div class="note-image-preview-content"></div></div><button type="button" class="primary-button" data-export>Save PNG…</button>`;
+  root.innerHTML = `<label>Background <select data-gradient><option value="lavender">Lavender</option><option value="dawn">Dawn</option><option value="ocean">Ocean</option></select></label><label>Image width <input data-width type="range" min="600" max="1000" step="40" value="760"></label><div class="note-image-preview" aria-label="Note image preview"><div class="note-image-dots"><i></i><i></i><i></i></div><strong></strong><div class="note-image-preview-content"></div></div><div class="note-image-export-actions"><span class="note-image-export-status" role="status" aria-live="polite" aria-atomic="true"></span><button type="button" class="primary-button" data-export>Save PNG…</button></div>`;
   const exportButton = root.querySelector<HTMLButtonElement>('[data-export]')!;
   exportButton.disabled = !canExport;
   if (!canExport) {
@@ -54,7 +55,19 @@ export function renderNoteImageExportControls({ onExport, request, canExport = t
     content.innerHTML = request.html;
   };
   select.addEventListener('change', update); width.addEventListener('input', update); update();
-  root.querySelector('[data-export]')!.addEventListener('click', () => onExport({ ...request, ...gradientsFor(select.value as NoteImageGradient), width: Number(width.value) }));
+  let savedTimer: number | undefined;
+  exportButton.addEventListener('click', async () => {
+    exportButton.disabled = true; exportButton.textContent = 'Saving…';
+    try {
+      const saved = await onExport({ ...request, ...gradientsFor(select.value as NoteImageGradient), width: Number(width.value) });
+      if (saved === false) { exportButton.textContent = 'Save PNG…'; return; }
+      const status = root.querySelector<HTMLElement>('.note-image-export-status')!;
+      status.textContent = 'Saved'; exportButton.replaceChildren(createElement([Check[0], { ...Check[1], width: 16, height: 16, 'stroke-width': 1.7, 'aria-hidden': 'true' }, Check[2]]), document.createTextNode('Saved'));
+      if (savedTimer !== undefined) window.clearTimeout(savedTimer);
+      savedTimer = window.setTimeout(() => { exportButton.textContent = 'Save PNG…'; status.textContent = ''; savedTimer = undefined; }, 1500);
+    } catch { /* The host reports export errors through its standard notice surface. */ }
+    finally { exportButton.disabled = !canExport; if (exportButton.textContent === 'Saving…') exportButton.textContent = 'Save PNG…'; }
+  });
   return root;
 }
 function gradientsFor(gradient: NoteImageGradient) { const [backgroundStart, backgroundEnd] = gradients[gradient]; return { backgroundStart, backgroundEnd }; }

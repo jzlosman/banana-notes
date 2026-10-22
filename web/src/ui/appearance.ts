@@ -1,4 +1,5 @@
 import { resolveThemeID, themeByID, type ThemeDefinition } from '../domain/themes';
+import { accessibleFocusRing } from '../domain/theme-accessibility';
 
 const variables: Record<keyof ThemeDefinition['colors'], string> = {
   paper: '--paper', chrome: '--chrome', ink: '--ink', muted: '--muted',
@@ -12,7 +13,7 @@ export function applyAppearance(root: HTMLElement, selection: unknown): string {
   const id = resolveThemeID(selection);
   const theme = themeByID(id);
   for (const [role, variable] of Object.entries(variables)) {
-    if (theme) root.style.setProperty(variable, theme.colors[role as keyof ThemeDefinition['colors']]);
+    if (theme) root.style.setProperty(variable, role === 'ring' ? accessibleFocusRing(theme) : theme.colors[role as keyof ThemeDefinition['colors']]);
     else root.style.removeProperty(variable);
   }
   if (theme) root.style.colorScheme = theme.appearance;

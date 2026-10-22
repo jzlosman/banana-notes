@@ -2,6 +2,7 @@ import { Editor } from '@tiptap/core';
 import Placeholder from '@tiptap/extension-placeholder';
 import { markdownExtensions } from './editor-schema';
 import { CompactLinkView } from './compact-link-view';
+import { NoteFindExtension } from './note-find';
 import { handleEditorClipboardCopy, handleEditorClipboardCut, handleEditorClipboardPaste } from './clipboard';
 import { installMarkdownSource } from './editor/markdown-source';
 
@@ -10,7 +11,7 @@ export function createMarkdownEditor(element: HTMLElement, markdown: string, onC
   editor = new Editor({
     element,
     extensions: [
-      ...markdownExtensions(), CompactLinkView,
+      ...markdownExtensions(), CompactLinkView, NoteFindExtension,
       Placeholder.configure({ placeholder: 'Start typing…' }),
     ],
     content: '',

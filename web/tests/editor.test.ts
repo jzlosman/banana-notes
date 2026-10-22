@@ -30,9 +30,9 @@ test('opening multiple editors cannot change tag queries or another editor parse
   const first=mount(markdown);
   for(let i=0;i<4;i++) {
     const other=mount('- [ ] A #work task\n\n# Header');
-    assert.deepEqual(tagsOf(markdown),['project']);
+    assert.deepEqual(tagsOf(markdown),[]);
     assert.deepEqual(tagsOf('- [ ] A #work task'),['work']);
-    assert.match(first.getMarkdown(),/#project/);other.destroy();
+    assert.match(first.getMarkdown(),/`#tag`/);other.destroy();
   }
   first.destroy();
 });

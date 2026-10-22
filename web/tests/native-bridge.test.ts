@@ -34,9 +34,12 @@ test('native capabilities preserve recovery, hotkey, and preference wire actions
   const recovery = await bridge.recovery!.state();
   assert.equal(recovery.backupAvailable, true); assert.equal(recovery.backupNoteCount, 12);
   await bridge.recovery!.restoreLastBackup();
-  const hotkey = await bridge.hotkey.load();
+  const hotkey = await bridge.hotkey!.load();
   assert.equal(hotkey.display, '⌃⇧Space'); assert.equal(hotkey.registered, false); assert.equal(hotkey.error, 'Shortcut unavailable');
-  assert.deepEqual(messages.map(message => message.action), ['libraryRecovery', 'restoreBackup', 'load', 'hotkeyPreferences']);
+  const attempted = await bridge.hotkey!.set({ keyCode: 40, modifiers: 1 << 8 });
+  assert.equal(attempted.registered, false);
+  assert.deepEqual(messages.at(-1), { action: 'hotkeyPreferences', shortcut: { keyCode: 40, modifiers: 1 << 8 } });
+  assert.deepEqual(messages.map(message => message.action), ['libraryRecovery', 'restoreBackup', 'load', 'hotkeyPreferences', 'hotkeyPreferences']);
 });
 
 test('native library boundary validates untrusted data and requires durable save confirmation', async () => {

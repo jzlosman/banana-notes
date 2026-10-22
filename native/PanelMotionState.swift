@@ -4,17 +4,17 @@ import Foundation
 enum PanelMotionPhase: Equatable { case hidden, summoning, visible, dismissing }
 enum PanelMotionPlan: Equatable {
     case none
-    case summon(token: UInt64, duration: Double)
-    case dismiss(token: UInt64, duration: Double)
-    case showImmediately(token: UInt64)
-    case hideImmediately(token: UInt64)
+    case summon(token: UInt64, duration: Double, moves: Bool)
+    case dismiss(token: UInt64, duration: Double, moves: Bool)
 }
 
 struct PanelMotionStateMachine {
-    static let summonDuration = 0.18
-    static let dismissDuration = 0.14
-    static let verticalOffset = 8.0
-    static let scale = 0.985
+    static let summonDuration = 0.16
+    static let dismissDuration = 0.11
+    static let reduceMotionSummonDuration = 0.10
+    static let reduceMotionDismissDuration = 0.08
+    static let summonOffset = 5.0
+    static let dismissOffset = 3.0
 
     private(set) var phase: PanelMotionPhase = .hidden
     private(set) var token: UInt64 = 0
@@ -22,23 +22,19 @@ struct PanelMotionStateMachine {
     mutating func summon(reduceMotion: Bool) -> PanelMotionPlan {
         guard phase != .visible && phase != .summoning else { return .none }
         token &+= 1
-        if reduceMotion {
-            phase = .visible
-            return .showImmediately(token: token)
-        }
         phase = .summoning
-        return .summon(token: token, duration: Self.summonDuration)
+        return .summon(token: token,
+                       duration: reduceMotion ? Self.reduceMotionSummonDuration : Self.summonDuration,
+                       moves: !reduceMotion)
     }
 
     mutating func dismiss(reduceMotion: Bool) -> PanelMotionPlan {
         guard phase != .hidden && phase != .dismissing else { return .none }
         token &+= 1
-        if reduceMotion {
-            phase = .hidden
-            return .hideImmediately(token: token)
-        }
         phase = .dismissing
-        return .dismiss(token: token, duration: Self.dismissDuration)
+        return .dismiss(token: token,
+                        duration: reduceMotion ? Self.reduceMotionDismissDuration : Self.dismissDuration,
+                        moves: !reduceMotion)
     }
 
     mutating func complete(token completedToken: UInt64) -> Bool {
@@ -60,18 +56,14 @@ struct PanelMotionFrame: Equatable {
 
 enum PanelMotionGeometry {
     static func summonStart(for target: PanelMotionFrame) -> PanelMotionFrame {
-        scaled(target, verticalOffset: -PanelMotionStateMachine.verticalOffset)
+        offset(target, verticalOffset: -PanelMotionStateMachine.summonOffset)
     }
 
     static func dismissEnd(from target: PanelMotionFrame) -> PanelMotionFrame {
-        scaled(target, verticalOffset: -PanelMotionStateMachine.verticalOffset)
+        offset(target, verticalOffset: -PanelMotionStateMachine.dismissOffset)
     }
 
-    private static func scaled(_ frame: PanelMotionFrame, verticalOffset: Double) -> PanelMotionFrame {
-        let width = frame.width * PanelMotionStateMachine.scale
-        let height = frame.height * PanelMotionStateMachine.scale
-        return PanelMotionFrame(x: frame.x + (frame.width - width) / 2,
-                                y: frame.y + verticalOffset + (frame.height - height) / 2,
-                                width: width, height: height)
+    private static func offset(_ frame: PanelMotionFrame, verticalOffset: Double) -> PanelMotionFrame {
+        PanelMotionFrame(x: frame.x, y: frame.y + verticalOffset, width: frame.width, height: frame.height)
     }
 }

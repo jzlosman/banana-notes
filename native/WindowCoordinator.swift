@@ -13,13 +13,18 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private var focusLossTimer: Timer?
     private var motion = PanelMotionStateMachine()
     private var visibleFrame: NSRect?
+    private let reduceMotionSource: () -> Bool
+    private let focusSource: (() -> Bool)?
     private var pinned: Bool
     private var presentingNativeUI = false
     var onError: ((String) -> Void)?
 
-    init(stylePreferences: WindowStylePreferences, preferences: any PreferencesStore = UserDefaults.standard) {
+    init(stylePreferences: WindowStylePreferences, preferences: any PreferencesStore = UserDefaults.standard,
+         reduceMotionSource: (() -> Bool)? = nil, focusSource: (() -> Bool)? = nil) {
         self.stylePreferences = stylePreferences
         self.preferences = preferences
+        self.reduceMotionSource = reduceMotionSource ?? { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+        self.focusSource = focusSource
         pinned = preferences.bool(forKey: "pinned")
         super.init()
     }
@@ -29,6 +34,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     var isPinned: Bool { pinned }
     var isPresentingNativeUI: Bool { presentingNativeUI }
     var style: WindowStyle { stylePreferences.style }
+    private var presentedFocus: Bool { focusSource?() ?? focusState.isFocused }
+    private var motionOwnsAlpha: Bool { motion.phase == .summoning || motion.phase == .dismissing }
 
     func attach(panel: NotePanel, webView: WKWebView) {
         self.panel = panel
@@ -41,10 +48,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     func show() {
         guard let panel, let webView else { return }
-        if !panel.isVisible || motion.phase == .dismissing { summon(panel) }
-        else { panel.orderFrontRegardless() }
         NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
+        if !panel.isVisible || motion.phase == .dismissing { summon() }
+        else { panel.orderFrontRegardless(); panel.makeKeyAndOrderFront(nil) }
         webView.window?.makeFirstResponder(webView)
         updateFocus()
     }
@@ -55,7 +61,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func hideAfterFlush(onlyIfUnfocused: Bool = false) {
-        guard let channel else { panel?.orderOut(nil); return }
+        guard let channel else { dismiss(); return }
         channel.flush { [weak self] result in
             guard let self else { return }
             switch result {
@@ -94,11 +100,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     func applyWindowStyle(animated: Bool = false) {
         guard let panel else { return }
-        let opacity = stylePreferences.style.opacity(isFocused: focusState.isFocused)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = animated && panel.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.2 : 0
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = opacity
+        if !motionOwnsAlpha {
+            let opacity = stylePreferences.style.opacity(isFocused: presentedFocus)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = animated && panel.isVisible && !reduceMotionSource() ? 0.2 : 0
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = opacity
+            }
         }
         (panel.contentView as? WindowContentView)?.setGlassAmount(stylePreferences.style.glass)
     }
@@ -135,65 +143,62 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     func shutdown() { focusLossTimer?.invalidate(); focusLossTimer = nil }
 
-    private func summon(_ panel: NotePanel) {
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    func summon() {
+        guard let panel else { return }
         let target = visibleFrame ?? panel.frame
         visibleFrame = target
-        switch motion.summon(reduceMotion: reduceMotion) {
-        case .none: panel.orderFrontRegardless()
-        case .showImmediately(let token):
-            _ = motion.complete(token: token)
-            panel.setFrame(target, display: false)
-            panel.alphaValue = 1
+        switch motion.summon(reduceMotion: reduceMotionSource()) {
+        case .none:
             panel.orderFrontRegardless()
-        case .summon(let token, let duration):
-            let start = Self.nsRect(PanelMotionGeometry.summonStart(for: Self.motionFrame(target)))
+        case .summon(let token, let duration, let moves):
+            let start = moves ? Self.nsRect(PanelMotionGeometry.summonStart(for: Self.motionFrame(target))) : target
             panel.setFrame(start, display: false)
             panel.alphaValue = 0
-            panel.orderFrontRegardless()
+            panel.makeKeyAndOrderFront(nil)
+            updateFocus()
+            let opacity = stylePreferences.style.opacity(isFocused: presentedFocus)
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrame(target, display: true)
-                panel.animator().alphaValue = 1
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+                if moves { panel.animator().setFrame(target, display: true) }
+                panel.animator().alphaValue = opacity
             } completionHandler: { [weak self, weak panel] in
                 Task { @MainActor in
                     guard let self, let panel, self.motion.complete(token: token) else { return }
                     panel.setFrame(target, display: true)
+                    self.applyWindowStyle()
                 }
             }
-        case .dismiss, .hideImmediately: break
+        case .dismiss: break
         }
     }
 
-    private func dismiss() {
+    func dismiss() {
         guard let panel else { return }
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let target = visibleFrame ?? panel.frame
         visibleFrame = target
-        switch motion.dismiss(reduceMotion: reduceMotion) {
+        switch motion.dismiss(reduceMotion: reduceMotionSource()) {
         case .none: return
-        case .hideImmediately(let token):
-            _ = motion.complete(token: token)
-            panel.alphaValue = 1
+        case .dismiss(let token, let duration, let moves):
+            // Reset an interrupted summon to the saved visible frame before the
+            // new transition so an obsolete animator cannot leave a stale frame.
             panel.setFrame(target, display: false)
-            panel.orderOut(nil)
-        case .dismiss(let token, let duration):
-            let end = Self.nsRect(PanelMotionGeometry.dismissEnd(from: Self.motionFrame(target)))
+            let end = moves ? Self.nsRect(PanelMotionGeometry.dismissEnd(from: Self.motionFrame(target))) : target
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
-                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                panel.animator().setFrame(end, display: true)
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
+                if moves { panel.animator().setFrame(end, display: true) }
                 panel.animator().alphaValue = 0
             } completionHandler: { [weak self, weak panel] in
                 Task { @MainActor in
                     guard let self, let panel, self.motion.complete(token: token) else { return }
                     panel.orderOut(nil)
                     panel.setFrame(target, display: false)
-                    panel.alphaValue = 1
+                    panel.alphaValue = self.stylePreferences.style.opacity(isFocused: self.presentedFocus)
+                    self.applyWindowStyle()
                 }
             }
-        case .summon, .showImmediately: break
+        case .summon: break
         }
     }
 

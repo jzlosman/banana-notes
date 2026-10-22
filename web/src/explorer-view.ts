@@ -2,6 +2,7 @@ import { createElement, Search, ArrowLeft, Trash2, Ellipsis, SlidersHorizontal, 
 import { notebookTags, queryNotes, selectedTags, titleOf, trashExpiresAt, type Library, type Note } from './domain';
 import { openActionMenu, openPopover, type MenuItem } from './action-menu';
 import { renderNoteSummary } from './note-summary';
+import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { mergeSearchMatches, type NoteSearchResult } from './note-search';
 
 export type ExplorerMode = 'notes' | 'trash';
@@ -229,7 +230,8 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   }
   list.addEventListener('keydown', event => {
     const target = event.target as HTMLElement, row = target.closest<HTMLElement>('.library-entry'); if (!row) return;
-    if (event.metaKey && event.key === 'Backspace' && state.mode !== 'trash' && target.closest('.library-row-title')) { event.preventDefault(); options.onTrash([row.dataset.noteId!], options.now); return; }
+    if (state.mode !== 'trash' && target.closest('.library-row-title')
+      && handleNoteTrashShortcut(event, row.dataset.noteId ?? null, id => options.onTrash([id], options.now))) return;
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     const rows = [...list.querySelectorAll<HTMLElement>('.library-row-title')], next = rows[rows.indexOf(target.closest('.library-row-title') as HTMLElement) + (event.key === 'ArrowDown' ? 1 : -1)];
     if (next) { event.preventDefault(); next.focus(); }

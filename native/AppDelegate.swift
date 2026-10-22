@@ -1,16 +1,15 @@
 import AppKit
-import Carbon
 import QuartzCore
 import WebKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply, ApplicationBridgeCapability {
     private let appURL: URL
     private let webDirectory: URL
-    private var panel: FoldnotePanel!
+    private var panel: NotePanel!
     private var webView: WKWebView!
-    private var statusItem: NSStatusItem!
-    private var store: LibraryStore!
+    private var menuController: NativeMenuBarController!
+    private var store: (any LibraryRepository)!
     private var appearancePreferences: AppearancePreferences!
     private var windowStylePreferences: WindowStylePreferences!
     private var fontSizePreferences: FontSizePreferences!
@@ -18,7 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var features: NativeFeatures?
     private var featureSetupError: String?
     private var pinned = false
+    private let preferences: any PreferencesStore = UserDefaults.standard
     private var hotkeyAvailable = false
+    private var hotkeyPreferences: HotkeyPreferences!
+    private let hotkeyService = GlobalHotkeyService()
+    private var hotkeyRegistrationError: String?
     private var commandsReady = false
     private var queuedCommands: [[String: Any]] = []
     private var launchURLs: [URL] = []
@@ -28,8 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var presentingNativeUI = false
     private var windowFocus = WindowFocusState()
     private var focusLossTimer: Timer?
-    private var hotKeyRef: EventHotKeyRef?
-    private var eventHandler: EventHandlerRef?
+    private var terminationRequested = false
+    private var terminationReplySent = false
 
     init(appURL: URL, webDirectory: URL) {
         self.appURL = appURL
@@ -40,14 +43,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         store = LibraryStore()
+        hotkeyPreferences = HotkeyPreferences(existingLibrary: FileManager.default.fileExists(atPath: store.libraryURL.path))
         appearancePreferences = AppearancePreferences(catalogURL: webDirectory.appendingPathComponent("theme-catalog.json"))
         windowStylePreferences = WindowStylePreferences()
         fontSizePreferences = FontSizePreferences()
         featurePreferences = FeaturePreferences()
         do { features = try NativeFeatures(directory: store.directory, catalogURL: webDirectory.appendingPathComponent("theme-catalog.json")) }
         catch { featureSetupError = error.localizedDescription }
-        pinned = UserDefaults.standard.bool(forKey: "pinned")
+        pinned = preferences.bool(forKey: "pinned")
         buildWindow()
+        features?.windowProvider = { [weak self] in self?.panel }
+        features?.ocrEnabledProvider = { [weak self] in self?.featurePreferences.ocrEnabled == true }
+        hotkeyService.onHotkey = { [weak self] in self?.togglePanel() }
         registerHotkey()
         buildMenuBar()
         if let startupError = store.startupError { showError(startupError) }
@@ -71,125 +78,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         urls.forEach(handleDeepLink)
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationRequested else { return .terminateLater }
+        terminationRequested = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, !self.terminationReplySent else { return }
+            NSLog("Banana Notes termination flush timed out after 3 seconds; terminating anyway.")
+            self.replyToTermination()
+        }
+        flushThen { [weak self] result in
+            guard let self, !self.terminationReplySent else { return }
+            if case .failure(let error) = result {
+                NSLog("Banana Notes termination flush failed; waiting for queued writes before terminating: %@", error.localizedDescription)
+            }
+            self.store.afterPendingWrites { [weak self] in
+                DispatchQueue.main.async { self?.replyToTermination() }
+            }
+        }
+        return .terminateLater
+    }
+
+    private func replyToTermination() {
+        guard !terminationReplySent else { return }
+        terminationReplySent = true
+        NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         focusLossTimer?.invalidate()
         features?.cancelFontDownload()
-        if let hotkey = hotKeyRef { UnregisterEventHotKey(hotkey) }
-        if let handler = eventHandler { RemoveEventHandler(handler) }
+        hotkeyService.unregister()
     }
 
     private func buildWindow() {
-        let configuration = WKWebViewConfiguration()
-        features?.configureMedia(configuration)
-        configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "native")
-        webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = self
-        webView.uiDelegate = self
-        #if DEBUG
-        let environment = ProcessInfo.processInfo.environment
-        webView.isInspectable = (environment["BANANA_NOTES_DEBUG"] ?? environment["FOLDNOTE_DEBUG"]) == "1"
-        #else
-        webView.isInspectable = false
-        #endif
-        webView.setValue(false, forKey: "drawsBackground")
-
-        panel = FoldnotePanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 650),
-                              styleMask: [.borderless, .resizable],
-                              backing: .buffered, defer: false)
-        panel.title = "Banana Notes" // Accessibility/window identity, not visible chrome.
-        panel.isOpaque = false
-        panel.hasShadow = true
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.minSize = NSSize(width: 380, height: 400)
-        panel.isReleasedWhenClosed = false
-        panel.isMovableByWindowBackground = false
-        panel.delegate = self
-        panel.setFrameAutosaveName("FoldnotePanel")
-        if !panel.setFrameUsingName("FoldnotePanel") { panel.center() }
-        panel.backgroundColor = .clear
-        panel.contentView = WindowContentView(frame: panel.contentView!.bounds, editor: webView)
+        let controller = NotePanelController(features: features, windowDelegate: self,
+                                             navigationDelegate: self, uiDelegate: self,
+                                             messageHandler: self, hideAction: { [weak self] in self?.hideAfterFlush() })
+        panel = controller.panel
+        webView = controller.webView
         applyNativeAppearance(appearancePreferences.selectedTheme)
         applyWindowStyle()
-        panel.hideAction = { [weak self] in self?.hideAfterFlush() }
     }
 
     private func buildMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = StatusItemIcon.make()
-        statusItem.button?.imageScaling = .scaleNone
-        statusItem.button?.imagePosition = .imageOnly
-        statusItem.button?.toolTip = "Banana Notes · ⌃⌥Space to show or hide"
-        let menu = NSMenu()
-        menu.addItem(item("Show / Hide Banana Notes", #selector(togglePanel), key: ""))
-        menu.addItem(item("New Note", #selector(newNote), key: "n"))
-        menu.addItem(item("Notes", #selector(openExplorer), key: ""))
-        menu.addItem(item("Settings…", #selector(openThemes), key: ""))
-        menu.addItem(item("Reset Window Effects", #selector(resetWindowEffects), key: ""))
-        menu.addItem(item("Shortcuts", #selector(showHelp), key: ""))
-        menu.addItem(.separator())
-        menu.addItem(item("Open Data Folder", #selector(openDataFolder), key: ""))
-        menu.addItem(.separator())
-        menu.addItem(item("Quit Banana Notes", #selector(quit), key: "q"))
-        if !hotkeyAvailable {
-            menu.addItem(.separator())
-            menu.addItem(item("⌃⌥Space unavailable — use this menu to open Banana Notes", #selector(togglePanel), key: ""))
-        }
-        statusItem.menu = menu
-
-        let mainMenu = NSMenu()
-        let appRoot = NSMenuItem(title: "Banana Notes", action: nil, keyEquivalent: "")
-        let appMenu = NSMenu(title: "Banana Notes")
-        appMenu.addItem(item("Settings…", #selector(openThemes), key: ","))
-        appMenu.addItem(item("Reset Window Effects", #selector(resetWindowEffects), key: ""))
-        appMenu.addItem(.separator())
-        appMenu.addItem(item("Quit Banana Notes", #selector(quit), key: "q"))
-        appRoot.submenu = appMenu
-        mainMenu.addItem(appRoot)
-
-        let editRoot = NSMenuItem()
-        editRoot.submenu = NSMenu(title: "Edit")
-        for (title, action, key) in [("Undo", #selector(UndoManager.undo), "z"), ("Redo", #selector(UndoManager.redo), "Z"), ("Cut", #selector(NSText.cut(_:)), "x"), ("Copy", #selector(NSText.copy(_:)), "c"), ("Paste", #selector(NSText.paste(_:)), "v"), ("Select All", #selector(NSText.selectAll(_:)), "a")] {
-            let menuItem = NSMenuItem(title: title, action: action, keyEquivalent: key)
-            menuItem.keyEquivalentModifierMask = title == "Redo" ? [.command, .shift] : .command
-            editRoot.submenu?.addItem(menuItem)
-        }
-        editRoot.submenu?.addItem(.separator())
-        let copyAs = NSMenuItem(title: "Copy As", action: nil, keyEquivalent: "")
-        let copyMenu = NSMenu(title: "Copy As")
-        copyMenu.addItem(item("Markdown", #selector(copyMarkdown), key: ""))
-        let formatted = item("Formatted Text", #selector(copyFormatted), key: "c")
-        formatted.keyEquivalentModifierMask = [.command, .option]
-        copyMenu.addItem(formatted)
-        copyMenu.addItem(item("HTML Source", #selector(copyHTML), key: ""))
-        copyMenu.addItem(item("Plain Text", #selector(copyPlainText), key: ""))
-        copyAs.submenu = copyMenu
-        editRoot.submenu?.addItem(copyAs)
-        editRoot.submenu?.addItem(item("Copy Entire Note as Markdown", #selector(copyWholeNote), key: ""))
-        mainMenu.addItem(editRoot)
-        let viewRoot = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
-        let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(item("Bigger Text", #selector(biggerText), key: "+"))
-        let biggerAlias = item("Bigger Text", #selector(biggerText), key: "=")
-        biggerAlias.isHidden = true; biggerAlias.allowsKeyEquivalentWhenHidden = true
-        viewMenu.addItem(biggerAlias)
-        viewMenu.addItem(item("Smaller Text", #selector(smallerText), key: "-"))
-        viewMenu.addItem(item("Actual Text Size", #selector(actualTextSize), key: "0"))
-        viewRoot.submenu = viewMenu; mainMenu.addItem(viewRoot)
-        let windowRoot = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
-        let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(item("Close Window", #selector(hideAfterFlushMenu), key: "w"))
-        windowRoot.submenu = windowMenu
-        mainMenu.addItem(windowRoot)
-        NSApp.mainMenu = mainMenu
-    }
-
-    private func item(_ title: String, _ action: Selector, key: String) -> NSMenuItem {
-        let result = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        result.target = self
-        return result
+        menuController = NativeMenuBarController(target: self, hotkeyDisplay: hotkeyPreferences.chord.display,
+                                                 hotkeyAvailable: hotkeyAvailable)
     }
 
     @objc private func togglePanel() { panel.isVisible ? hideAfterFlush() : showPanel() }
@@ -214,7 +147,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc private func copyPlainText() { sendCommand(["action": "copy", "format": "text"]) }
     @objc private func copyWholeNote() { sendCommand(["action": "copy", "format": "markdown", "whole": true]) }
     @objc private func openDataFolder() { NSWorkspace.shared.open(store.directory) }
-    @objc private func quit() { quitAfterFlush() }
+    @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func showAbout() {
+        let info = Bundle.main.infoDictionary ?? [:]
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [.applicationName: "Banana Notes"]
+        if let version = info["CFBundleShortVersionString"] as? String { options[.applicationVersion] = version }
+        if let build = info["CFBundleVersion"] as? String { options[.version] = build }
+        NSApp.orderFrontStandardAboutPanel(options: options)
+    }
     @objc private func hideAfterFlushMenu() { hideAfterFlush() }
 
     private func showPanel() {
@@ -288,15 +228,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    private func quitAfterFlush() {
-        flushThen { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success: NSApp.terminate(nil)
-            case .failure(let error): self.showPanel(); self.showError("Banana Notes stayed open because the latest changes could not be saved. " + error.localizedDescription)
-            }
-        }
-    }
 
     private func flushThen(_ completion: @escaping (Result<Void, Error>) -> Void) {
         // Before ready the editor cannot accept edits. Recovery/startup must still
@@ -371,90 +302,121 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
                                replyHandler: @escaping (Any?, String?) -> Void) {
-        guard let body = message.body as? [String: Any], let action = body["action"] as? String else {
-            replyHandler(nil, "Invalid native request."); return
+        guard BridgeSecurityPolicy.allows(isMainFrame: message.frameInfo.isMainFrame,
+                                          frameURL: message.frameInfo.request.url,
+                                          bundledIndexURL: appURL) else {
+            replyHandler(nil, "Native requests are allowed only from the bundled Banana Notes editor.")
+            return
         }
         do {
-            switch action {
-            case "load":
-                let library = try store.load()
-                let state: [String: Any] = ["library": library as Any? ?? NSNull(), "pinned": pinned,
-                              "hotkey": "⌃⌥Space", "hotkeyAvailable": hotkeyAvailable,
-                              "hotkeyStatus": hotkeyAvailable ? "⌃⌥Space toggles Banana Notes." : "⌃⌥Space could not be registered. Use the Banana Notes menu bar icon to open the app.",
-                              "dataDirectory": store.directory.path, "themeID": appearancePreferences.selectedID,
-                              "themeWarning": appearancePreferences.catalogError as Any? ?? NSNull(),
-                              "focused": windowFocus.isFocused, "windowStyle": windowStylePreferences.style.bridgeValue,
-                              "fontSize": fontSizePreferences.size, "ocrEnabled": featurePreferences.ocrEnabled,
-                              "featureWarning": featureSetupError as Any? ?? NSNull()]
-                replyHandler(state.merging(features?.preferences ?? [:]) { _, new in new }, nil)
-            case "save":
-                guard let library = body["library"] else { throw StoreError(message: "Missing library payload.") }
-                try store.save(library)
-                replyHandler(["saved": true], nil)
-            case "hide":
-                hideAfterFlush(); replyHandler(["ok": true], nil)
-            case "dragRegion":
-                guard let rect = body["rect"] as? [String: Double],
-                      let x = rect["x"], let y = rect["y"], let width = rect["width"], let height = rect["height"],
-                      let content = panel?.contentView as? WindowContentView,
-                      content.updateDragRegion(NSRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))) else {
-                    throw StoreError(message: "The toolbar drag area is invalid.")
-                }
-                replyHandler(["ok": true], nil)
-            case "pin":
-                guard let value = body["pinned"] as? Bool else { throw StoreError(message: "Pinned must be a boolean.") }
-                pinned = value
-                UserDefaults.standard.set(pinned, forKey: "pinned")
-                panel.hidesOnDeactivate = false
-                replyHandler(["pinned": pinned], nil)
-            case "featurePreferences":
-                try featurePreferences.setOCR(body["ocrEnabled"])
-                replyHandler(["ocrEnabled": featurePreferences.ocrEnabled], nil)
-            case "clipboard":
-                guard let content = body["content"] as? [String: Any] else { throw StoreError(message: "Clipboard content is required.") }
-                try ClipboardContent(content).write()
-                replyHandler(["copied": true], nil)
-            case "fontSize":
-                try fontSizePreferences.save(body["fontSize"])
-                replyHandler(["fontSize": fontSizePreferences.size], nil)
-            case "windowStyle":
-                guard let fields = body["style"] as? [String: Any] else { throw StoreError(message: "Window effect values are required.") }
-                try windowStylePreferences.save(fields)
-                applyWindowStyle()
-                replyHandler(["windowStyle": windowStylePreferences.style.bridgeValue], nil)
-            case "theme":
-                guard let id = body["themeID"] as? String else { throw StoreError(message: "A theme ID is required.") }
-                let theme = try appearancePreferences.select(id)
-                applyNativeAppearance(theme)
-                replyHandler(["themeID": appearancePreferences.selectedID], nil)
-            case "export":
-                guard let notes = body["notes"] as? [[String: Any]] else { throw StoreError(message: "Export notes must be an array.") }
-                try export(notes: notes) { result in
+            let request = try BridgeCommandDecoder.decode(message.body)
+            try BridgeRouter().route(request, application: self, features: features,
+                                     presenting: { [weak self] value in self?.presentingNativeUI = value },
+                                     reply: replyHandler)
+        } catch { replyHandler(nil, error.localizedDescription) }
+    }
+
+    func handleApplicationBridge(_ request: DecodedBridgeRequest, reply: @escaping (Any?, String?) -> Void) throws {
+        switch request.command {
+        case .load:
+            let library = try store.load()
+            features?.scheduleAttachmentCollection(library: library)
+            let display = hotkeyPreferences.chord.display
+            let state: [String: Any] = ["library": library as Any? ?? NSNull(), "pinned": pinned,
+                          "hotkey": display, "hotkeyAvailable": hotkeyAvailable,
+                          "hotkeyStatus": hotkeyAvailable ? "\(display) toggles Banana Notes." : "\(display) could not be registered. Use the Banana Notes menu bar icon to open the app.",
+                          "dataDirectory": store.directory.path, "themeID": appearancePreferences.selectedID,
+                          "themeWarning": appearancePreferences.catalogError as Any? ?? NSNull(),
+                          "focused": windowFocus.isFocused, "windowStyle": windowStylePreferences.style.bridgeValue,
+                          "fontSize": fontSizePreferences.size, "ocrEnabled": featurePreferences.ocrEnabled,
+                          "featureWarning": featureSetupError as Any? ?? NSNull()]
+            reply(state.merging(features?.preferences ?? [:]) { _, new in new }, nil)
+        case .save(let decodedLibrary):
+            guard !terminationRequested else { throw StoreError(message: "Banana Notes is closing and cannot accept more saves.") }
+            guard let library = decodedLibrary else { throw StoreError(message: "Missing library payload.") }
+            store.saveAsync(library) { [weak self] result in
+                DispatchQueue.main.async {
                     switch result {
-                    case .success(let exported): replyHandler(["exported": exported], nil)
-                    case .failure(let error): replyHandler(nil, error.localizedDescription)
+                    case .success:
+                        self?.features?.scheduleAttachmentCollection(library: library)
+                        reply(["saved": true], nil)
+                    case .failure(let error): reply(nil, error.localizedDescription)
                     }
                 }
-            case "openData":
-                NSWorkspace.shared.open(store.directory); replyHandler(["ok": true], nil)
-            case "ready":
-                commandsReady = true
-                let pending = queuedCommands
-                queuedCommands.removeAll()
-                pending.forEach(evaluateCommand)
-                updateWindowFocus()
-                publishFocus()
-                replyHandler(["ok": true], nil)
-            case "quit":
-                replyHandler(["ok": true], nil)
-                DispatchQueue.main.async { self.quitAfterFlush() }
-            default:
-                guard let features, try features.handle(action: action, body: body, window: panel, ocrEnabled: featurePreferences.ocrEnabled,
-                    presenting: { [weak self] value in self?.presentingNativeUI = value }, reply: replyHandler) else {
-                    throw StoreError(message: featureSetupError ?? "Unknown native action: \(action)")
+            }
+        case .hide:
+            hideAfterFlush(); reply(["ok": true], nil)
+        case .dragRegion(let decodedRect):
+            guard let rect = decodedRect?.foundationValue as? [String: Double],
+                  let x = rect["x"], let y = rect["y"], let width = rect["width"], let height = rect["height"],
+                  let content = panel?.contentView as? WindowContentView,
+                  content.updateDragRegion(NSRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))) else {
+                throw StoreError(message: "The toolbar drag area is invalid.")
+            }
+            reply(["ok": true], nil)
+        case .pin(let decodedValue):
+            guard let value = decodedValue?.foundationValue as? Bool else { throw StoreError(message: "Pinned must be a boolean.") }
+            pinned = value
+            preferences.set(pinned, forKey: "pinned")
+            panel.hidesOnDeactivate = false
+            reply(["pinned": pinned], nil)
+        case .featurePreferences(let decodedValue):
+            try featurePreferences.setOCR(decodedValue?.foundationValue)
+            reply(["ocrEnabled": featurePreferences.ocrEnabled], nil)
+        case .clipboard(let decodedValue):
+            guard let content = decodedValue?.foundationValue as? [String: Any] else { throw StoreError(message: "Clipboard content is required.") }
+            try ClipboardContent(content).write()
+            reply(["copied": true], nil)
+        case .fontSize(let decodedValue):
+            try fontSizePreferences.save(decodedValue?.foundationValue)
+            reply(["fontSize": fontSizePreferences.size], nil)
+        case .windowStyle(let decodedValue):
+            guard let fields = decodedValue?.foundationValue as? [String: Any] else { throw StoreError(message: "Window effect values are required.") }
+            try windowStylePreferences.save(fields)
+            applyWindowStyle()
+            reply(["windowStyle": windowStylePreferences.style.bridgeValue], nil)
+        case .theme(let decodedValue):
+            guard let id = decodedValue?.foundationValue as? String else { throw StoreError(message: "A theme ID is required.") }
+            let theme = try appearancePreferences.select(id)
+            applyNativeAppearance(theme)
+            reply(["themeID": appearancePreferences.selectedID], nil)
+        case .export(let decodedValue):
+            guard let notes = decodedValue?.foundationValue as? [[String: Any]] else { throw StoreError(message: "Export notes must be an array.") }
+            try export(notes: notes) { result in
+                switch result {
+                case .success(let exported): reply(["exported": exported], nil)
+                case .failure(let error): reply(nil, error.localizedDescription)
                 }
             }
-        } catch { replyHandler(nil, error.localizedDescription) }
+        case .openData:
+            NSWorkspace.shared.open(store.directory); reply(["ok": true], nil)
+        case .ready:
+            commandsReady = true
+            let pending = queuedCommands
+            queuedCommands.removeAll()
+            pending.forEach(evaluateCommand)
+            updateWindowFocus()
+            publishFocus()
+            reply(["ok": true], nil)
+        case .quit:
+            reply(["ok": true], nil)
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        case .libraryRecovery:
+            let status = store.recoveryStatus()
+            var value: [String: Any] = ["startupError": status.startupError as Any? ?? NSNull(), "backupAvailable": status.backupAvailable]
+            if let updatedAt = status.backupUpdatedAt { value["backupUpdatedAt"] = updatedAt }
+            if let noteCount = status.backupNoteCount { value["backupNoteCount"] = noteCount }
+            reply(value, nil)
+        case .restoreBackup:
+            try store.restoreBackup()
+            features?.scheduleAttachmentCollection(library: try store.load())
+            reply(["restored": true], nil)
+        case .hotkeyPreferences(let decodedShortcut):
+            if let shortcut = decodedShortcut { reply(try setHotkey(shortcut.foundationValue), nil) }
+            else { reply(hotkeyReply(), nil) }
+        case .feature(_, _):
+            throw BridgeDecodeError.invalidJSON
+        }
     }
 
     private func export(notes: [[String: Any]], completion: @escaping (Result<Bool, Error>) -> Void) throws {
@@ -513,25 +475,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func registerHotkey() {
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: OSType(kEventHotKeyPressed))
-        let callback: EventHandlerProcPtr = { _, event, userData in
-            guard let event, let userData else { return OSStatus(eventNotHandledErr) }
-            var identifier = EventHotKeyID()
-            let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
-                                           MemoryLayout<EventHotKeyID>.size, nil, &identifier)
-            guard status == noErr, identifier.id == 1 else { return OSStatus(eventNotHandledErr) }
-            let delegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
-            Task { @MainActor in delegate.togglePanel() }
-            return noErr
-        }
-        let handlerStatus = InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventType,
-                                                Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
-        guard handlerStatus == noErr else { hotkeyAvailable = false; return }
-        let identifier = EventHotKeyID(signature: OSType(0x464E4F54), id: 1)
-        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(controlKey | optionKey), identifier,
-                                         GetApplicationEventTarget(), 0, &hotKeyRef)
-        hotkeyAvailable = status == noErr
-        if !hotkeyAvailable, let eventHandler { RemoveEventHandler(eventHandler); self.eventHandler = nil }
+        let result = hotkeyService.register(hotkeyPreferences.chord)
+        hotkeyAvailable = result.registered
+        hotkeyRegistrationError = result.error
+        refreshHotkeyHint()
+    }
+
+    private func refreshHotkeyHint() {
+        let display = hotkeyPreferences.chord.display
+        menuController?.updateHotkey(display: display, registered: hotkeyAvailable)
+    }
+
+    private func hotkeyReply(chord: HotkeyChord? = nil, error: String? = nil) -> [String: Any] {
+        let selected = chord ?? hotkeyPreferences.chord
+        var value: [String: Any] = ["keyCode": selected.keyCode, "modifiers": selected.modifiers,
+                                    "display": selected.display, "registered": hotkeyAvailable]
+        if let error = error ?? hotkeyRegistrationError { value["error"] = error }
+        return value
+    }
+
+    private func setHotkey(_ value: Any?) throws -> [String: Any] {
+        let requested = try HotkeyChord.decode(value)
+        let registration = hotkeyService.register(requested)
+        hotkeyAvailable = registration.registered
+        hotkeyRegistrationError = registration.error
+        if registration.registered { hotkeyPreferences.select(requested) }
+        refreshHotkeyHint()
+        return hotkeyReply(error: registration.error)
     }
 
     private func showError(_ message: String) {

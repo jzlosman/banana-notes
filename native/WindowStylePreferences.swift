@@ -36,11 +36,11 @@ struct WindowStyle: Codable, Equatable {
 
 /// Window effects are user preferences, never part of a note or its frontmatter.
 final class WindowStylePreferences {
-    private let defaults: UserDefaults
+    private let defaults: any PreferencesStore
     private let key = "windowStyle"
     private(set) var style: WindowStyle
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: any PreferencesStore = UserDefaults.standard) {
         self.defaults = defaults
         let value = defaults.data(forKey: key).flatMap { try? JSONSerialization.jsonObject(with: $0) }
         self.style = WindowStyle.resolve(value)

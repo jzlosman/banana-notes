@@ -14,7 +14,7 @@ struct WindowDragSelfTest {
         _ = NSApplication.shared
         let window = RecordingWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 650),
                                      styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
-        let borderless = FoldnotePanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 650),
+        let borderless = NotePanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 650),
                                      styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
         precondition(borderless.canBecomeKey && borderless.canBecomeMain, "borderless notes must accept typing and shortcuts")
         precondition(!borderless.styleMask.contains(.titled) && borderless.styleMask.contains(.resizable))

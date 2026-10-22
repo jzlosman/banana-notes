@@ -22,13 +22,13 @@ final class StartupPreferences {
         let newNoteOnLaunch: Bool
     }
 
-    private let defaults: UserDefaults
+    private let defaults: any PreferencesStore
     private let loginItem: LoginItemManaging
     private let launchKey = "launchAtLogin"
     private let newNoteKey = "newNoteOnLaunch"
     private var consumedColdLaunch = false
 
-    init(defaults: UserDefaults = .standard, loginItem: LoginItemManaging? = nil) {
+    init(defaults: any PreferencesStore = UserDefaults.standard, loginItem: LoginItemManaging? = nil) {
         self.defaults = defaults
         self.loginItem = loginItem ?? MainAppLoginItem()
     }

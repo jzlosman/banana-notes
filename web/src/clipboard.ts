@@ -17,22 +17,36 @@ function safeHTML(editor: Editor, doc: ProseMirrorNode): string {
   return container.innerHTML;
 }
 
+function visibleText(doc: ProseMirrorNode): string {
+  return doc.textBetween(0, doc.content.size, '\n\n', (node: ProseMirrorNode) => node.type.name === 'hardBreak' ? '\n' : '');
+}
+
 function renderedPayload(editor: Editor, doc: ProseMirrorNode, markdown: string, format: ClipboardFormat): ClipboardPayload {
   if (format === 'markdown') return { text: markdown, markdown };
   const html = safeHTML(editor, doc);
-  const text = doc.textBetween(0, doc.content.size, '\n\n', (node: ProseMirrorNode) => node.type.name === 'hardBreak' ? '\n' : '');
+  const text = visibleText(doc);
   if (format === 'formatted') return { text, html };
   if (format === 'html') return { text: html };
   return { text };
 }
 
+function selectedDocument(editor: Editor): ProseMirrorNode | null {
+  if (editor.state.selection.empty) return null;
+  return editor.state.schema.topNodeType.create(null, editor.state.selection.content().content);
+}
+
 export function selectionClipboardPayload(editor: Editor, format: ClipboardFormat): ClipboardPayload | null {
-  const { from, to } = editor.state.selection;
-  if (from === to) return null;
-  const slice = editor.state.selection.content();
-  const markdown = markdownFor(editor, slice.content.toJSON());
-  const doc = editor.state.schema.topNodeType.create(null, slice.content);
-  return renderedPayload(editor, doc, markdown, format);
+  const doc = selectedDocument(editor);
+  if (!doc) return null;
+  return renderedPayload(editor, doc, markdownFor(editor, doc.content.toJSON()), format);
+}
+
+function editorClipboardPayload(editor: Editor): ClipboardPayload | null {
+  const doc = selectedDocument(editor);
+  if (!doc) return null;
+  // Plain-text destinations receive what was selected, not Markdown syntax.
+  // Keep Markdown in its own flavor for lossless in-app paste.
+  return { text: visibleText(doc), markdown: markdownFor(editor, doc.content.toJSON()) };
 }
 
 export function documentClipboardPayload(markdown: string, format: ClipboardFormat): ClipboardPayload {
@@ -64,13 +78,13 @@ function writePayload(event: ClipboardEvent, payload: ClipboardPayload): boolean
 }
 
 export function handleEditorClipboardCopy(editor: Editor, event: ClipboardEvent): boolean {
-  const payload = selectionClipboardPayload(editor, 'markdown');
+  const payload = editorClipboardPayload(editor);
   if (!payload) return false;
   event.preventDefault(); writePayload(event, payload); return true;
 }
 
 export function handleEditorClipboardCut(editor: Editor, event: ClipboardEvent): boolean {
-  const payload = selectionClipboardPayload(editor, 'markdown');
+  const payload = editorClipboardPayload(editor);
   if (!payload) return false;
   event.preventDefault();
   if (writePayload(event, payload)) editor.commands.deleteSelection();

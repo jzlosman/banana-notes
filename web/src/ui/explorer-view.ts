@@ -4,6 +4,7 @@ import { openActionMenu, openPopover, type MenuItem } from './action-menu';
 import { renderNoteSummary } from './note-summary';
 import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { mergeSearchMatches, type NoteSearchResult } from '../application/note-search';
+import { plainInput } from './plain-input';
 
 export type ExplorerMode = 'notes' | 'trash';
 export interface ExplorerState {
@@ -71,7 +72,7 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   const controls = el('div', 'library-controls');
   const searchRow = el('div', 'library-search-row');
   const searchLabel = el('label', 'search-field library-search'); searchLabel.append(icon(Search));
-  const search = el('input'); search.type = 'search'; search.placeholder = 'Search notes…'; search.setAttribute('aria-label', 'Search notes'); search.value = state.query;
+  const search = plainInput(el('input')); search.type = 'search'; search.placeholder = 'Search notes…'; search.setAttribute('aria-label', 'Search notes'); search.value = state.query;
   search.oninput = () => { state.query = search.value; invalidate(); redraw(); void runSearch(); };
   search.onkeydown = event => { if (event.key === 'ArrowDown') { event.preventDefault(); focusRow(0); } };
   searchLabel.append(search); searchRow.append(searchLabel);

@@ -3,6 +3,7 @@ import { createElement, Check, Search } from 'lucide';
 import { common, createLowlight } from 'lowlight';
 import { themes, themeByID } from '../domain/themes.js';
 import { syntaxColorsForTheme } from '../domain/theme-accessibility.js';
+import { plainInput } from './plain-input';
 
 export const syntaxThemeIDs = ['app', ...themes.map(({ id }) => id)] as const;
 export type SyntaxThemeID = typeof syntaxThemeIDs[number];
@@ -62,7 +63,7 @@ export function renderCodeSettings({ selectedID, appThemeID, onSelect }: { selec
   const root = document.createElement('section'); root.className = 'code-settings';
   const intro = document.createElement('p'); intro.className = 'code-settings-intro'; intro.textContent = 'Code colors are set separately from the app theme.';
   const searchField = document.createElement('label'); searchField.className = 'search-field code-theme-search'; searchField.append(createElement([Search[0], { ...Search[1], width: 17, height: 17, 'stroke-width': 1.7, 'aria-hidden': 'true' }, Search[2]]));
-  const search = document.createElement('input'); search.type = 'search'; search.placeholder = 'Search code themes…'; search.setAttribute('aria-label', 'Search code themes'); searchField.append(search);
+  const search = plainInput(document.createElement('input')); search.type = 'search'; search.placeholder = 'Search code themes…'; search.setAttribute('aria-label', 'Search code themes'); searchField.append(search);
   const filters = document.createElement('div'); filters.className = 'code-theme-filters'; filters.setAttribute('role', 'group'); filters.setAttribute('aria-label', 'Filter code themes');
   let filter = 'all', currentID = selectedID, saving = false;
   const buttons: HTMLButtonElement[] = [];

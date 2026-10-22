@@ -50,6 +50,7 @@ import type { AppCommand, Capabilities, ClipboardFormat, ClipboardContent, Clock
 import { findMatchesInText, noteFindMatches, selectNoteFindMatch, setNoteFind } from './note-find';
 import { focusPrimaryView, trapFocusWithin } from './focus-management';
 import { installThemeGridKeyboard, updateThemeGridTabStop } from './theme-grid';
+import { plainInput } from './plain-input';
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let capabilities: Capabilities;
 let clock: Clock;
@@ -235,7 +236,7 @@ function renderBadges(): void {
 function tagInput(): void {
   const targetID = selected()?.id; if (!targetID || !badgeElement || badgeElement.querySelector('form')) return;
   const form = element('form', 'tag-form');
-  const input = element('input', 'tag-input'); input.placeholder = 'Tag name'; input.setAttribute('aria-label', 'New tag'); input.autocomplete = 'off';
+  const input = plainInput(element('input', 'tag-input')); input.placeholder = 'Tag name'; input.setAttribute('aria-label', 'New tag'); input.autocomplete = 'off';
   form.append(icon(Hash, 13), input, button('Cancel tag', X, () => { form.remove(); editor?.commands.focus(); }, 'tiny-button'));
   form.onsubmit = event => {
     event.preventDefault();
@@ -281,7 +282,7 @@ function formatBar(): HTMLElement {
 function renderNoteFindBar(): HTMLElement {
   const bar = element('div', 'note-find search-field');
   bar.append(icon(Search));
-  const input = element('input', 'note-find-input'); input.type = 'search'; input.placeholder = 'Find in note…'; input.setAttribute('aria-label', 'Find in note'); input.value = findQuery;
+  const input = plainInput(element('input', 'note-find-input')); input.type = 'search'; input.placeholder = 'Find in note…'; input.setAttribute('aria-label', 'Find in note'); input.value = findQuery;
   const count = element('span', 'note-find-count'); count.setAttribute('role', 'status'); count.setAttribute('aria-live', 'polite'); count.setAttribute('aria-atomic', 'true');
   const previous = button('Previous match · ⇧↵', ChevronUp, () => navigateNoteFind(-1), 'icon-button note-find-step');
   const next = button('Next match · ↵', ChevronDown, () => navigateNoteFind(1), 'icon-button note-find-step');
@@ -684,7 +685,7 @@ function renderThemes(): void {
     }
     panel.id = 'appearance-content'; panel.setAttribute('role', appearanceTab === 'export' ? 'group' : 'tabpanel'); panel.setAttribute('aria-labelledby', appearanceTab === 'export' ? 'settings-title' : `appearance-tab-${appearanceTab}`); main.append(panel); app.append(main); return;
   }
-  const search = element('div', 'search-field'); const input = element('input'); input.type = 'search'; input.placeholder = 'Search themes…'; input.setAttribute('aria-label', 'Search themes'); input.value = themeQuery;
+  const search = element('div', 'search-field'); const input = plainInput(element('input')); input.type = 'search'; input.placeholder = 'Search themes…'; input.setAttribute('aria-label', 'Search themes'); input.value = themeQuery;
   search.append(icon(Search), input); main.append(search);
   const filters = element('div', 'theme-filters'); filters.setAttribute('aria-label', 'Theme appearance');
   const gridPanel = element('div', 'theme-grid-panel'); gridPanel.id = 'appearance-content'; gridPanel.setAttribute('role', 'tabpanel'); gridPanel.setAttribute('aria-labelledby', 'appearance-tab-themes');

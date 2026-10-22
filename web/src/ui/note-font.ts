@@ -1,5 +1,6 @@
 import { ChevronDown, createElement } from 'lucide';
 import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection, type NoteFontDefinition, type NoteFontSelection, type NoteFontState } from '../domain/note-font';
+import { plainInput } from './plain-input';
 export { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection } from '../domain/note-font';
 export type { NoteFontDefinition, NoteFontSelection, NoteFontState } from '../domain/note-font';
 
@@ -102,7 +103,7 @@ export function renderNoteFontSettings(options: SettingsOptions): HTMLElement {
   const downloadForm = document.createElement('form'); downloadForm.className = 'note-font-download-form';
   const familyLabel = document.createElement('label');
   familyLabel.className = 'note-font-label'; familyLabel.textContent = 'Family name';
-  const familyInput = document.createElement('input');
+  const familyInput = plainInput(document.createElement('input'));
   familyInput.type = 'text'; familyInput.className = 'note-font-control'; familyInput.placeholder = 'e.g. IBM Plex Mono';
   familyInput.setAttribute('aria-label', 'Google Fonts family name'); familyInput.autocomplete = 'off';
   const datalist = document.createElement('datalist'); datalist.id = `note-font-examples-${Math.random().toString(36).slice(2)}`;

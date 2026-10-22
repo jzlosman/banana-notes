@@ -35,7 +35,10 @@ enum WebNavigationPolicy {
                   let host = components.host, !host.isEmpty else { return false }
             return components.user == nil && components.password == nil
         case "mailto":
-            return !url.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // `URL.path` of an opaque URL differs across macOS versions; read the address from the string.
+            let afterScheme = url.absoluteString.drop { $0 != ":" }.dropFirst()
+            let address = afterScheme.prefix { $0 != "?" }.removingPercentEncoding ?? ""
+            return address.contains("@") && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         default: return false
         }
     }

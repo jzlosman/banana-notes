@@ -1,17 +1,19 @@
 import AppKit
 
 @MainActor
-final class NativeMenuBarController {
-    private weak var target: NSObject?
+final class NativeMenuBarController: NSObject {
+    private let onAction: (MenuAction) -> Void
     let statusItem: NSStatusItem
 
-    init(target: NSObject, hotkeyDisplay: String, hotkeyAvailable: Bool, updatesAvailable: Bool = false) {
-        self.target = target
+    init(hotkeyDisplay: String, hotkeyAvailable: Bool, updatesAvailable: Bool = false,
+         onAction: @escaping (MenuAction) -> Void) {
+        self.onAction = onAction
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        super.init()
         statusItem.button?.image = StatusItemIcon.make()
         statusItem.button?.imageScaling = .scaleNone
         statusItem.button?.imagePosition = .imageOnly
-        installMenus(hotkeyDisplay: hotkeyDisplay, hotkeyAvailable: hotkeyAvailable)
+        installMenus(hotkeyDisplay: hotkeyDisplay, hotkeyAvailable: hotkeyAvailable, updatesAvailable: updatesAvailable)
     }
 
     func updateHotkey(display: String, registered: Bool) {
@@ -22,36 +24,36 @@ final class NativeMenuBarController {
         }
         if !registered {
             if menu.items.last?.isSeparatorItem != true { menu.addItem(.separator()) }
-            menu.addItem(item("\(display) unavailable — use this menu to open Banana Notes", "togglePanel"))
+            menu.addItem(item("\(display) unavailable — use this menu to open Banana Notes", .togglePanel))
         }
     }
 
-    private func installMenus(hotkeyDisplay: String, hotkeyAvailable: Bool) {
+    private func installMenus(hotkeyDisplay: String, hotkeyAvailable: Bool, updatesAvailable: Bool) {
         let menu = NSMenu()
-        menu.addItem(item("Show / Hide Banana Notes", "togglePanel"))
-        menu.addItem(item("New Note", "newNote", key: "n"))
-        menu.addItem(item("Notes", "openExplorer"))
-        menu.addItem(item("Settings…", "openThemes"))
-        if updatesAvailable { menu.addItem(item("Check for Updates…", "checkForUpdates")) }
-        menu.addItem(item("Reset Window Effects", "resetWindowEffects"))
-        menu.addItem(item("Shortcuts", "showHelp"))
+        menu.addItem(item("Show / Hide Banana Notes", .togglePanel))
+        menu.addItem(item("New Note", .newNote, key: "n"))
+        menu.addItem(item("Notes", .openExplorer))
+        menu.addItem(item("Settings…", .openThemes))
+        if updatesAvailable { menu.addItem(item("Check for Updates…", .checkForUpdates)) }
+        menu.addItem(item("Reset Window Effects", .resetWindowEffects))
+        menu.addItem(item("Shortcuts", .showHelp))
         menu.addItem(.separator())
-        menu.addItem(item("Open Data Folder", "openDataFolder"))
+        menu.addItem(item("Open Data Folder", .openDataFolder))
         menu.addItem(.separator())
-        menu.addItem(item("Quit Banana Notes", "quit", key: "q"))
+        menu.addItem(item("Quit Banana Notes", .quit, key: "q"))
         statusItem.menu = menu
         updateHotkey(display: hotkeyDisplay, registered: hotkeyAvailable)
 
         let mainMenu = NSMenu()
         let appRoot = NSMenuItem(title: "Banana Notes", action: nil, keyEquivalent: "")
         let appMenu = NSMenu(title: "Banana Notes")
-        appMenu.addItem(item("About Banana Notes", "showAbout"))
-        if updatesAvailable { appMenu.addItem(item("Check for Updates…", "checkForUpdates")) }
+        appMenu.addItem(item("About Banana Notes", .showAbout))
+        if updatesAvailable { appMenu.addItem(item("Check for Updates…", .checkForUpdates)) }
         appMenu.addItem(.separator())
-        appMenu.addItem(item("Settings…", "openThemes", key: ","))
-        appMenu.addItem(item("Reset Window Effects", "resetWindowEffects"))
+        appMenu.addItem(item("Settings…", .openThemes, key: ","))
+        appMenu.addItem(item("Reset Window Effects", .resetWindowEffects))
         appMenu.addItem(.separator())
-        appMenu.addItem(item("Quit Banana Notes", "quit", key: "q"))
+        appMenu.addItem(item("Quit Banana Notes", .quit, key: "q"))
         appRoot.submenu = appMenu
         mainMenu.addItem(appRoot)
 
@@ -66,40 +68,47 @@ final class NativeMenuBarController {
         editRoot.submenu?.addItem(.separator())
         let copyAs = NSMenuItem(title: "Copy As", action: nil, keyEquivalent: "")
         let copyMenu = NSMenu(title: "Copy As")
-        copyMenu.addItem(item("Markdown", "copyMarkdown"))
-        let formatted = item("Formatted Text", "copyFormatted", key: "c")
+        copyMenu.addItem(item("Markdown", .copyMarkdown))
+        let formatted = item("Formatted Text", .copyFormatted, key: "c")
         formatted.keyEquivalentModifierMask = [.command, .option]
         copyMenu.addItem(formatted)
-        copyMenu.addItem(item("HTML Source", "copyHTML"))
-        copyMenu.addItem(item("Plain Text", "copyPlainText"))
+        copyMenu.addItem(item("HTML Source", .copyHTML))
+        copyMenu.addItem(item("Plain Text", .copyPlainText))
         copyAs.submenu = copyMenu
         editRoot.submenu?.addItem(copyAs)
-        editRoot.submenu?.addItem(item("Copy Entire Note as Markdown", "copyWholeNote"))
+        editRoot.submenu?.addItem(item("Copy Entire Note as Markdown", .copyWholeNote))
         mainMenu.addItem(editRoot)
 
         let viewRoot = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(item("Bigger Text", "biggerText", key: "+"))
-        let biggerAlias = item("Bigger Text", "biggerText", key: "=")
+        viewMenu.addItem(item("Bigger Text", .biggerText, key: "+"))
+        let biggerAlias = item("Bigger Text", .biggerText, key: "=")
         biggerAlias.isHidden = true
         biggerAlias.allowsKeyEquivalentWhenHidden = true
         viewMenu.addItem(biggerAlias)
-        viewMenu.addItem(item("Smaller Text", "smallerText", key: "-"))
-        viewMenu.addItem(item("Actual Text Size", "actualTextSize", key: "0"))
+        viewMenu.addItem(item("Smaller Text", .smallerText, key: "-"))
+        viewMenu.addItem(item("Actual Text Size", .actualTextSize, key: "0"))
         viewRoot.submenu = viewMenu
         mainMenu.addItem(viewRoot)
 
         let windowRoot = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
         let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(item("Close Window", "hideAfterFlushMenu", key: "w"))
+        windowMenu.addItem(item("Close Window", .hideAfterFlush, key: "w"))
         windowRoot.submenu = windowMenu
         mainMenu.addItem(windowRoot)
         NSApp.mainMenu = mainMenu
     }
 
-    private func item(_ title: String, _ actionName: String, key: String = "") -> NSMenuItem {
-        let result = NSMenuItem(title: title, action: NSSelectorFromString(actionName), keyEquivalent: key)
-        result.target = target
+    private func item(_ title: String, _ menuAction: MenuAction, key: String = "") -> NSMenuItem {
+        let result = NSMenuItem(title: title, action: #selector(dispatchMenuAction(_:)), keyEquivalent: key)
+        result.keyEquivalentModifierMask = .command
+        result.target = self
+        result.representedObject = menuAction
         return result
+    }
+
+    @objc private func dispatchMenuAction(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? MenuAction else { return }
+        onAction(action)
     }
 }

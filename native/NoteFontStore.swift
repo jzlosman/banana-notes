@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import CoreFoundation
 
 struct NoteFontError: Error, LocalizedError {
     let message: String
@@ -105,13 +104,11 @@ struct NoteFontStore {
         return result
     }
 
-    func select(_ value: Any?) throws -> [String: Any] {
-        guard let object = value as? [String: Any], let id = object["fontID"] as? String,
-              let number = object["weight"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue.isFinite, number.doubleValue == Double(number.intValue),
-              let weight = Int(exactly: number.intValue), [400, 500, 600].contains(weight),
-              let font = knownFont(id: id), Self.supportedWeights(font).contains(weight) else { throw NoteFontError(message: "Choose an available font and weight 400, 500, or 600.") }
-        defaults.set(["fontID": id, "weight": weight], forKey: Self.selectionKey)
+    func select(_ selection: NoteFontSelection) throws -> [String: Any] {
+        guard let font = knownFont(id: selection.fontID), Self.supportedWeights(font).contains(selection.weight) else {
+            throw NoteFontError(message: "Choose an available font and weight 400, 500, or 600.")
+        }
+        defaults.set(["fontID": selection.fontID, "weight": selection.weight], forKey: Self.selectionKey)
         return state
     }
 

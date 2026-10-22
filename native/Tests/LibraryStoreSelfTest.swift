@@ -16,79 +16,75 @@ struct LibraryStoreSelfTest {
                 preconditionFailure("verification apps must fail closed without the matching isolated data directory")
             } catch is StoreError {}
         }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("FoldnoteStoreTest-\(UUID().uuidString)", isDirectory: true)
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BananaNotesStoreTest-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        var store = LibraryStore(directory: directory)
+        let store = LibraryStore(directory: directory)
         let emptyLoad = try store.load()
         precondition(emptyLoad == nil, "new store should load empty")
         let first = library(markdown: "first")
         try store.save(first)
-        let savedLoad = try store.load()
-        precondition(savedLoad?["notes"] != nil, "saved library should load")
+        let firstLoad = try store.load()
+        precondition(firstLoad?.notes.first?.markdown == "first", "saved library should load as a typed document")
         try store.save(library(markdown: "second"))
+
         let contender = LibraryStore(directory: directory)
         precondition(contender.startupError?.contains("Another Banana Notes instance") == true, "a second store cannot acquire the single-writer lock")
         do { try contender.save(library(markdown: "must not write")); preconditionFailure("lock loser must not save") }
         catch is StoreError {}
         let lockWinnerLibrary = try store.load()
-        precondition((lockWinnerLibrary?["notes"] as? [[String: Any]])?.first?["markdown"] as? String == "second", "lock loser leaves the primary untouched")
+        precondition(lockWinnerLibrary?.notes.first?.markdown == "second", "lock loser leaves the primary untouched")
+
         let directoryMode = (try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber)?.intValue
         let primaryMode = (try FileManager.default.attributesOfItem(atPath: store.libraryURL.path)[.posixPermissions] as? NSNumber)?.intValue
         let lockMode = (try FileManager.default.attributesOfItem(atPath: store.lockURL.path)[.posixPermissions] as? NSNumber)?.intValue
         precondition(directoryMode.map { $0 & 0o777 } == 0o700 && primaryMode.map { $0 & 0o777 } == 0o600 && lockMode.map { $0 & 0o777 } == 0o600,
                      "the data folder and files have explicit private permissions")
-        assertRejected(version: true, label: "boolean version")
-        assertRejected(version: 1.5, label: "fractional version")
-        var invalidTimestamp = library(markdown: "bad date")
-        var invalidTimestampNotes = invalidTimestamp["notes"] as! [[String: Any]]
-        invalidTimestampNotes[0]["createdAt"] = "yesterday"
-        invalidTimestamp["notes"] = invalidTimestampNotes
-        assertRejected(invalidTimestamp, label: "invalid timestamp")
-        var trashed = library(markdown: "keep this **Markdown**")
-        var trashedNotes = trashed["notes"] as! [[String: Any]]
-        trashedNotes[0]["trashedAt"] = "2026-10-20T12:00:00.000Z"; trashed["notes"] = trashedNotes
+
+        assertRejected(["version": true, "notes": [], "selectedID": NSNull(), "activeTag": NSNull()], label: "boolean version")
+        assertRejected(["version": 1.5, "notes": [], "selectedID": NSNull(), "activeTag": NSNull()], label: "fractional version")
+        assertRejected(["version": 1, "notes": [], "selectedID": NSNull(), "activeTag": NSNull(), "unknownState": "do not discard"], label: "unknown root field")
+        var unknownNote = note(id: "future", markdown: "")
+        unknownNote["futureState"] = "do not discard"
+        assertRejected(["version": 1, "notes": [unknownNote], "selectedID": NSNull(), "activeTag": NSNull()], label: "unknown note field")
+        assertRejected(["version": 1, "notes": [note(id: "date", markdown: "", createdAt: "yesterday")], "selectedID": NSNull(), "activeTag": NSNull()], label: "invalid timestamp")
+        let trashDocument = try LibraryDocument(version: 1,
+            notes: [LibraryNote(id: "trash", markdown: "keep this **Markdown**", createdAt: "2026-01-01T00:00:00Z",
+                                updatedAt: "2026-01-01T00:00:00Z", trashedAt: "2026-10-20T12:00:00.000Z")],
+            selectedID: "trash", activeTag: nil)
         let trashStore = LibraryStore(directory: directory.appendingPathComponent("trash"))
-        try trashStore.save(trashed)
+        try trashStore.save(trashDocument)
         let trashReload = try trashStore.load()!
-        precondition((trashReload["notes"] as! [[String: Any]])[0]["trashedAt"] as? String == "2026-10-20T12:00:00.000Z")
-        precondition((trashReload["notes"] as! [[String: Any]])[0]["markdown"] as? String == "keep this **Markdown**")
+        precondition(trashReload.notes[0].trashedAt == "2026-10-20T12:00:00.000Z")
+        precondition(trashReload.notes[0].markdown == "keep this **Markdown**")
         for invalid: Any in [NSNull(), true, "yesterday"] {
-            var badTrash = trashed; var notes = trashedNotes; notes[0]["trashedAt"] = invalid; badTrash["notes"] = notes
-            assertRejected(badTrash, label: "invalid trash timestamp")
+            assertRejected(["version": 1, "notes": [note(id: "trash", markdown: "", trashedAt: invalid)],
+                            "selectedID": NSNull(), "activeTag": NSNull()], label: "invalid trash timestamp")
         }
-        var duplicateIDs = library(markdown: "one")
-        duplicateIDs["notes"] = [note(id: "same", markdown: "one"), note(id: "same", markdown: "two")]
-        assertRejected(duplicateIDs, label: "duplicate note id")
-        var missingSelection = library(markdown: "note")
-        missingSelection.removeValue(forKey: "selectedID")
-        assertRejected(missingSelection, label: "missing selectedID")
-        var invalidSelection = library(markdown: "note")
-        invalidSelection["selectedID"] = 1
-        assertRejected(invalidSelection, label: "non-string selectedID")
-        var invalidTag = library(markdown: "note")
-        invalidTag["activeTag"] = "1not-a-tag"
-        assertRejected(invalidTag, label: "invalid activeTag")
-        let beforeOversizedSave = try Data(contentsOf: store.libraryURL)
-        assertRejectedSave(["version": 1, "notes": [], "selectedID": NSNull(), "activeTag": NSNull(),
-                            "extra": String(repeating: "x", count: LibraryStore.maximumBytes)], store: &store, label: "oversized envelope")
-        let afterOversizedSave = try Data(contentsOf: store.libraryURL)
-        precondition(afterOversizedSave == beforeOversizedSave, "oversized envelope must not replace last-good file")
+        assertRejected(["version": 1, "notes": [note(id: "same", markdown: "one"), note(id: "same", markdown: "two")],
+                        "selectedID": NSNull(), "activeTag": NSNull()], label: "duplicate note id")
+        assertRejected(["version": 1, "notes": [note(id: "note", markdown: "")], "activeTag": NSNull()], label: "missing selectedID")
+        assertRejected(["version": 1, "notes": [note(id: "note", markdown: "")], "selectedID": 1, "activeTag": NSNull()], label: "non-string selectedID")
+        assertRejected(["version": 1, "notes": [note(id: "note", markdown: "")], "selectedID": NSNull(), "activeTag": "1not-a-tag"], label: "invalid activeTag")
+        assertRejected(["version": 1, "notes": [note(id: "note", markdown: "")], "selectedID": NSNull(), "activeTag": NSNull(), "activeTags": NSNull()], label: "null activeTags")
         assertRejected(["version": 1, "notes": [note(id: "large", markdown: String(repeating: "x", count: LibraryStore.maximumNoteBytes + 1))],
                         "selectedID": NSNull(), "activeTag": NSNull()], label: "oversized note")
         assertRejected(["version": 1, "notes": (0...LibraryStore.maximumNotes).map { note(id: "note-\($0)", markdown: "") },
                         "selectedID": NSNull(), "activeTag": NSNull()], label: "too many notes")
-        let goodBytesBeforeRejectedSaves = try Data(contentsOf: store.libraryURL)
-        do {
-            try store.save(["version": true, "notes": [], "selectedID": NSNull(), "activeTag": NSNull()])
-            preconditionFailure("invalid library must not replace last-good file")
-        } catch is StoreError {}
-        let afterRejectedSave = try Data(contentsOf: store.libraryURL)
-        precondition(afterRejectedSave == goodBytesBeforeRejectedSaves, "rejected save must preserve last-good file")
+
+        let beforeOversizedSave = try Data(contentsOf: store.libraryURL)
+        let oversized = try LibraryDocument(notes: (0..<6).map { index in
+            LibraryNote(id: "large-\(index)", markdown: String(repeating: "x", count: 1_900_000),
+                        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z")
+        }, selectedID: nil, activeTag: nil)
+        do { try store.save(oversized); preconditionFailure("oversized envelope accepted") }
+        catch let error as StoreError { precondition(error.message.contains("10 MB")) }
+        let afterOversizedSave = try Data(contentsOf: store.libraryURL)
+        precondition(afterOversizedSave == beforeOversizedSave, "oversized envelope must not replace last-good file")
 
         let backup = try Data(contentsOf: store.backupURL)
-        let backupObject = try JSONSerialization.jsonObject(with: backup) as! [String: Any]
-        let backupNote = (backupObject["notes"] as! [[String: Any]])[0]
-        precondition(backupNote["markdown"] as? String == "first", "backup should retain last-good library")
+        let backupDocument = try JSONDecoder().decode(LibraryDocument.self, from: backup)
+        precondition(backupDocument.notes.first?.markdown == "first", "backup should retain last-good library")
         let backupMode = (try FileManager.default.attributesOfItem(atPath: store.backupURL.path)[.posixPermissions] as? NSNumber)?.intValue
         precondition(backupMode.map { $0 & 0o777 } == 0o600, "the backup is private")
 
@@ -102,12 +98,8 @@ struct LibraryStoreSelfTest {
         }
         precondition(writeGroup.wait(timeout: .now() + 10) == .success, "off-main ordered saves complete")
         let finalAsyncLibrary = try store.load()
-        precondition((finalAsyncLibrary?["notes"] as? [[String: Any]])?.first?["markdown"] as? String == "queued-3", "serial writer preserves submission order")
+        precondition(finalAsyncLibrary?.notes.first?.markdown == "queued-3", "serial writer preserves submission order")
         try store.save(library(markdown: String(repeating: "x", count: LibraryStore.maximumNoteBytes)))
-        do {
-            try store.save(library(markdown: String(repeating: "x", count: LibraryStore.maximumNoteBytes + 1)))
-            preconditionFailure("note larger than 2 MB accepted")
-        } catch let error as StoreError { precondition(error.message.contains("2 MB limit") && error.message.contains("Shorten")) }
 
         let corruptDirectory = directory.appendingPathComponent("corrupt", isDirectory: true)
         try FileManager.default.createDirectory(at: corruptDirectory, withIntermediateDirectories: true)
@@ -116,10 +108,8 @@ struct LibraryStoreSelfTest {
         try corruptBytes.write(to: corruptURL)
         let corruptStore = LibraryStore(directory: corruptDirectory)
         precondition(corruptStore.startupError != nil, "corrupt startup data should be reported")
-        do {
-            try corruptStore.save(first)
-            preconditionFailure("must reject save over corrupt library")
-        } catch is StoreError {}
+        do { try corruptStore.save(first); preconditionFailure("must reject save over corrupt library") }
+        catch is StoreError {}
         let untouchedBytes = try Data(contentsOf: corruptURL)
         precondition(untouchedBytes == corruptBytes, "corrupt bytes must remain untouched")
 
@@ -128,7 +118,8 @@ struct LibraryStoreSelfTest {
         let recoveryPrimary = recoveryDirectory.appendingPathComponent("library.json")
         let recoveryBackup = recoveryDirectory.appendingPathComponent("library.json.bak")
         try Data("corrupt primary".utf8).write(to: recoveryPrimary)
-        try JSONSerialization.data(withJSONObject: first, options: [.sortedKeys]).write(to: recoveryBackup)
+        let goodBackup = try JSONEncoder().encode(first)
+        try goodBackup.write(to: recoveryBackup)
         let recoveryStore = LibraryStore(directory: recoveryDirectory)
         precondition(recoveryStore.startupError != nil, "invalid primary remains a startup error despite valid backup")
         let recoveryStatus = recoveryStore.recoveryStatus()
@@ -141,35 +132,25 @@ struct LibraryStoreSelfTest {
         let quarantinedBytes = try Data(contentsOf: recoveryDirectory.appendingPathComponent(quarantined[0]))
         precondition(quarantined.count == 1 && quarantinedBytes == Data("corrupt primary".utf8),
                      "restore preserves corrupt primary bytes under a unique recovery name")
-        print("Native persistence, durability, permissions, recovery, limits and lock checks passed")
+        print("Native typed persistence, durability, permissions, recovery, limits and lock checks passed")
     }
 
-    private static func assertRejected(_ library: Any, label: String) {
-        guard let object = library as? [String: Any] else { preconditionFailure("test case \(label) is not an object") }
+    private static func assertRejected(_ object: Any, label: String) {
         do {
-            try LibraryStore.validate(object)
+            let data = try JSONSerialization.data(withJSONObject: object)
+            _ = try JSONDecoder().decode(LibraryDocument.self, from: data)
         } catch { return }
-        preconditionFailure("validation accepted \(label)")
+        preconditionFailure("typed decoding accepted \(label)")
     }
 
-    private static func assertRejected(version: Any, label: String) {
-        assertRejected(["version": version, "notes": [], "selectedID": NSNull(), "activeTag": NSNull()], label: label)
+    private static func note(id: String, markdown: String, createdAt: String = "2026-01-01T00:00:00Z", trashedAt: Any? = nil) -> [String: Any] {
+        var value: [String: Any] = ["id": id, "markdown": markdown, "createdAt": createdAt, "updatedAt": "2026-01-01T00:00:00Z"]
+        if let trashedAt { value["trashedAt"] = trashedAt }
+        return value
     }
 
-    private static func assertRejectedSave(_ library: Any, store: inout LibraryStore, label: String) {
-        do {
-            try store.save(library)
-        } catch { return }
-        preconditionFailure("save accepted \(label)")
-    }
-
-    private static func note(id: String, markdown: String) -> [String: Any] {
-        ["id": id, "markdown": markdown, "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"]
-    }
-
-    private static func library(markdown: String) -> [String: Any] {
-        ["version": 1, "notes": [["id": "note-1", "markdown": markdown,
-                                    "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"]],
-         "selectedID": "note-1", "activeTag": NSNull()]
+    private static func library(markdown: String) -> LibraryDocument {
+        try! LibraryDocument(notes: [LibraryNote(id: "note-1", markdown: markdown,
+            createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z")], selectedID: "note-1", activeTag: nil)
     }
 }

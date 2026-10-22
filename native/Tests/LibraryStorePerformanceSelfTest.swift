@@ -6,11 +6,11 @@ struct LibraryStorePerformanceSelfTest {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("LibraryPerf-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = LibraryStore(directory: root)
-        let notes: [[String: Any]] = (0..<5_000).map { index in
-            ["id": "note-\(index)", "markdown": String(repeating: "Synthetic note text — ", count: 8),
-             "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"]
+        let notes = (0..<5_000).map { index in
+            LibraryNote(id: "note-\(index)", markdown: String(repeating: "Synthetic note text — ", count: 8),
+                        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z")
         }
-        let library: [String: Any] = ["version": 1, "notes": notes, "selectedID": "note-0", "activeTag": NSNull()]
+        let library = try LibraryDocument(notes: notes, selectedID: "note-0", activeTag: nil)
         var durableMilliseconds: [Double] = []
         var submissionMilliseconds: [Double] = []
         var completionWasOffMain = true
@@ -33,7 +33,7 @@ struct LibraryStorePerformanceSelfTest {
         let mainP50 = submissionMilliseconds[submissionMilliseconds.count / 2]
         precondition(completionWasOffMain, "durable save completion should not run on the main thread")
         let saved = try store.load()
-        precondition((saved?["notes"] as? [[String: Any]])?.count == 5_000)
+        precondition(saved?.notes.count == 5_000)
         print(String(format: "5,000-note durable save: p50 %.1f ms end-to-end; p50 %.3f ms main-thread submission; completion off-main: yes", p50, mainP50))
     }
 }

@@ -11,10 +11,8 @@ final class FontSizePreferences {
         return Int(min(32, max(10, number.doubleValue)).rounded())
     }
     init(defaults: any PreferencesStore = UserDefaults.standard) { self.defaults = defaults }
-    func save(_ value: Any?) throws {
-        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue.isFinite, number.doubleValue >= 10, number.doubleValue <= 32,
-              number.doubleValue.rounded() == number.doubleValue else { throw StoreError(message: "Note text size must be a whole number between 10 and 32.") }
-        defaults.set(number.intValue, forKey: key)
+    func save(_ value: Int) throws {
+        guard (10...32).contains(value) else { throw StoreError(message: "Note text size must be a whole number between 10 and 32.") }
+        defaults.set(value, forKey: key)
     }
 }

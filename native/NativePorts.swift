@@ -6,8 +6,8 @@ protocol LibraryRepository: AnyObject {
     var directory: URL { get }
     var libraryURL: URL { get }
     var startupError: String? { get }
-    func load() throws -> [String: Any]?
-    func saveAsync(_ library: Any, completion: @escaping (Result<Void, Error>) -> Void)
+    func load() throws -> LibraryDocument?
+    func saveAsync(_ library: LibraryDocument, completion: @escaping (Result<Void, Error>) -> Void)
     func afterPendingWrites(_ completion: @escaping () -> Void)
     func recoveryStatus() -> LibraryRecoveryStatus
     func restoreBackup(now: Date) throws

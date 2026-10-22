@@ -200,7 +200,7 @@ private actor FakeOllamaLauncher: OllamaRuntimeLaunching {
         do {
             _ = try await ollamaService.handle(action: "semanticEnable", payload: ["enabled": true, "provider": "ollama", "model": 42])
             preconditionFailure("numeric model selection must reject")
-        } catch is SemanticSearchError {}
+        } catch is BridgeDecodeError {}
         ollamaDefaults.set("unsupported-model", forKey: "semanticSearch.model")
         do {
             _ = try await ollamaService.handle(action: "semanticEnable", payload: ["enabled": true, "provider": "ollama"])
@@ -250,5 +250,16 @@ private actor FakeOllamaLauncher: OllamaRuntimeLaunching {
             print("NaturalLanguage embedding smoke test passed (revision \(native.revision))")
         } else { print("NaturalLanguage embedding unavailable; smoke test skipped") }
         print("Native provider checks passed")
+    }
+}
+
+private extension SemanticSearchService {
+    func handle(action: String, payload: [String: Any]) async throws -> [String: Any] {
+        var envelope = payload
+        envelope["action"] = action
+        guard case .semantic(let command) = try BridgeCommandDecoder.decode(envelope) else {
+            throw StoreError(message: "Test request did not decode as a semantic capability.")
+        }
+        return try await handle(command)
     }
 }

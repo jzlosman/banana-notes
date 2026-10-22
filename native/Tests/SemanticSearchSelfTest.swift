@@ -106,14 +106,14 @@ struct SemanticSearchSelfTest {
         do {
             _ = try await service.handle(action: "semanticIndex", payload: ["notes": [["id": "x", "markdown": 4, "updatedAt": "now"]]])
             preconditionFailure("malformed note snapshot should reject")
-        } catch is SemanticSearchError {}
+        } catch is BridgeDecodeError {}
         do {
             _ = try await service.handle(action: "semanticEnable", payload: ["enabled": true, "model": "remote-model"])
             preconditionFailure("nonallowlisted model should reject")
         } catch is SemanticSearchError {}
         try Data("broken index".utf8).write(to: root.appendingPathComponent("semantic-index.json"))
         do {
-            _ = try await service.handle(action: "semanticSearch", payload: ["query": "apple"])
+            _ = try await service.handle(action: "semanticSearch", payload: ["query": "apple", "candidateIDs": ["apple"]])
             preconditionFailure("malformed index should be surfaced")
         } catch is SemanticSearchError {}
         let emptyRoot = root.appendingPathComponent("empty", isDirectory: true)
@@ -193,5 +193,16 @@ struct SemanticSearchSelfTest {
             precondition(!FileManager.default.fileExists(atPath: delayedRoot.appendingPathComponent("semantic-index.json").path), "invalidated build did not write an index")
         }
         print("Native semantic search checks passed")
+    }
+}
+
+private extension SemanticSearchService {
+    func handle(action: String, payload: [String: Any]) async throws -> [String: Any] {
+        var envelope = payload
+        envelope["action"] = action
+        guard case .semantic(let command) = try BridgeCommandDecoder.decode(envelope) else {
+            throw StoreError(message: "Test request did not decode as a semantic capability.")
+        }
+        return try await handle(command)
     }
 }

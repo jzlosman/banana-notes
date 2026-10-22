@@ -1,5 +1,4 @@
 import Foundation
-import CoreFoundation
 import Darwin
 
 struct StoreError: Error, LocalizedError {
@@ -155,13 +154,13 @@ final class LibraryStore: LibraryRepository, @unchecked Sendable {
     var backupURL: URL { directory.appendingPathComponent("library.json.bak") }
     var lockURL: URL { directory.appendingPathComponent("library.lock") }
 
-    func load() throws -> [String: Any]? {
+    func load() throws -> LibraryDocument? {
         if let startupError { throw StoreError(message: startupError) }
         guard fileManager.fileExists(atPath: libraryURL.path) else { return nil }
         return try readValidatedLibrary()
     }
 
-    func saveAsync(_ library: Any, completion: @escaping (Result<Void, Error>) -> Void) {
+    func saveAsync(_ library: LibraryDocument, completion: @escaping (Result<Void, Error>) -> Void) {
         writer.async { [self] in
             do { try saveOnWriter(library); completion(.success(())) }
             catch { completion(.failure(error)) }
@@ -173,18 +172,19 @@ final class LibraryStore: LibraryRepository, @unchecked Sendable {
         writer.async(execute: completion)
     }
 
-    func save(_ library: Any) throws {
+    func save(_ library: LibraryDocument) throws {
         try writer.sync { try saveOnWriter(library) }
     }
 
-    private func saveOnWriter(_ library: Any) throws {
+    private func saveOnWriter(_ library: LibraryDocument) throws {
         if let startupError { throw StoreError(message: startupError) }
         guard lockDescriptor >= 0 else { throw StoreError(message: "This instance does not own the library writer lock and cannot save.") }
-        guard let object = library as? [String: Any] else { throw StoreError(message: "Library must be a JSON object.") }
-        try Self.validate(object)
         let data: Data
-        do { data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) }
-        catch { throw StoreError(message: "Library could not be encoded: \(error.localizedDescription)") }
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            data = try encoder.encode(library)
+        } catch { throw StoreError(message: "Library could not be encoded: \(error.localizedDescription)") }
         guard data.count <= Self.maximumBytes else { throw StoreError(message: "Library is too large (maximum 10 MB).") }
 
         // Rotate only a verified last-good primary. A corrupt primary can never
@@ -208,7 +208,7 @@ final class LibraryStore: LibraryRepository, @unchecked Sendable {
         let modified = (try? fileManager.attributesOfItem(atPath: backupURL.path)[.modificationDate] as? Date)
         let updatedAt = modified.map { formatter.string(from: $0) }
         return LibraryRecoveryStatus(startupError: startupError, backupAvailable: true, backupUpdatedAt: updatedAt,
-                                    backupNoteCount: (library["notes"] as? [[String: Any]])?.count)
+                                    backupNoteCount: library.notes.count)
     }
 
     func restoreBackup(now: Date = Date()) throws {
@@ -247,51 +247,30 @@ final class LibraryStore: LibraryRepository, @unchecked Sendable {
     }()
     private static let iso8601Lock = NSLock()
 
-    static func validate(_ library: [String: Any]) throws {
-        guard let version = library["version"] as? NSNumber,
-              CFGetTypeID(version) != CFBooleanGetTypeID(), version.doubleValue == 1 else {
+    static func validate(_ library: LibraryDocument) throws {
+        guard library.version == 1 else {
             throw StoreError(message: "Unsupported library version. Expected version 1; no data was saved.")
         }
-        guard let notes = library["notes"] as? [[String: Any]] else {
-            throw StoreError(message: "Library notes must be an array.")
-        }
-        guard notes.count <= maximumNotes else { throw StoreError(message: "Library has too many notes (maximum 20,000).") }
+        guard library.notes.count <= maximumNotes else { throw StoreError(message: "Library has too many notes (maximum 20,000).") }
         var identifiers = Set<String>()
-        for (index, note) in notes.enumerated() {
-            guard let id = note["id"] as? String, !id.isEmpty, id.count <= 512,
-                  identifiers.insert(id).inserted,
-                  let markdown = note["markdown"] as? String,
-                  let createdAt = note["createdAt"] as? String, createdAt.count <= 128, isISO8601(createdAt),
-                  let updatedAt = note["updatedAt"] as? String, updatedAt.count <= 128, isISO8601(updatedAt) else {
-                throw StoreError(message: "Note at index \(index) has an invalid/duplicate id, Markdown value, or ISO-8601 timestamp.")
+        for (index, note) in library.notes.enumerated() {
+            guard !note.id.isEmpty, note.id.count <= 512, identifiers.insert(note.id).inserted,
+                  note.createdAt.count <= 128, isISO8601(note.createdAt),
+                  note.updatedAt.count <= 128, isISO8601(note.updatedAt) else {
+                throw StoreError(message: "Note at index \(index) has an invalid/duplicate id or ISO-8601 timestamp.")
             }
-            guard markdown.utf8.count <= maximumNoteBytes else {
-                throw StoreError(message: "Note \(id) exceeds the 2 MB limit. Shorten the note before saving.")
+            guard note.markdown.utf8.count <= maximumNoteBytes else {
+                throw StoreError(message: "Note \(note.id) exceeds the 2 MB limit. Shorten the note before saving.")
             }
-            if let trashedAt = note["trashedAt"] {
-                guard let timestamp = trashedAt as? String, timestamp.count <= 128, isISO8601(timestamp) else {
-                    throw StoreError(message: "Note at index \(index) has an invalid trash timestamp.")
-                }
+            if let trashedAt = note.trashedAt, (trashedAt.count > 128 || !isISO8601(trashedAt)) {
+                throw StoreError(message: "Note at index \(index) has an invalid trash timestamp.")
             }
         }
-        guard let selectedValue = library["selectedID"] else {
-            throw StoreError(message: "Library selectedID must be a string or null.")
-        }
-        if !(selectedValue is NSNull), !(selectedValue is String) {
-            throw StoreError(message: "Library selectedID must be a string or null.")
-        }
-        guard let tagValue = library["activeTag"] else {
+        if let tag = library.activeTag, !isValidTag(tag) {
             throw StoreError(message: "Library activeTag must be a valid tag or null.")
         }
-        if !(tagValue is NSNull) {
-            guard let tag = tagValue as? String, isValidTag(tag) else {
-                throw StoreError(message: "Library activeTag must be a valid tag or null.")
-            }
-        }
-        if let values = library["activeTags"] {
-            guard let tags = values as? [String], tags.allSatisfy(Self.isValidTag), Set(tags).count == tags.count else {
-                throw StoreError(message: "Library activeTags must be a list of unique valid tags.")
-            }
+        if let tags = library.activeTags, !tags.allSatisfy(Self.isValidTag) || Set(tags).count != tags.count {
+            throw StoreError(message: "Library activeTags must be a list of unique valid tags.")
         }
     }
 
@@ -306,15 +285,13 @@ final class LibraryStore: LibraryRepository, @unchecked Sendable {
         return value.count <= 80 && tagPattern.firstMatch(in: value, range: range) != nil
     }
 
-    private static func decodeAndValidate(_ data: Data) throws -> [String: Any] {
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw StoreError(message: "Library file is not a JSON object.")
-        }
-        try validate(object)
-        return object
+    private static func decodeAndValidate(_ data: Data) throws -> LibraryDocument {
+        do { return try JSONDecoder().decode(LibraryDocument.self, from: data) }
+        catch let error as StoreError { throw error }
+        catch { throw StoreError(message: "Library file is not a valid version 1 library: \(error.localizedDescription)") }
     }
 
-    private func readValidatedLibrary() throws -> [String: Any] {
+    private func readValidatedLibrary() throws -> LibraryDocument {
         try Self.decodeAndValidate(readValidatedData(from: libraryURL))
     }
 

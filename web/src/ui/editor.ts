@@ -3,6 +3,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { markdownExtensions } from './editor-schema';
 import { CompactLinkView } from './compact-link-view';
 import { handleEditorClipboardCopy, handleEditorClipboardCut, handleEditorClipboardPaste } from './clipboard';
+import { installMarkdownSource } from './editor/markdown-source';
 
 export function createMarkdownEditor(element: HTMLElement, markdown: string, onChange: (markdown: string) => void, onEditLink?: (editor: Editor, anchor: HTMLElement) => void): Editor {
   let editor!: Editor;
@@ -12,7 +13,7 @@ export function createMarkdownEditor(element: HTMLElement, markdown: string, onC
       ...markdownExtensions(), CompactLinkView,
       Placeholder.configure({ placeholder: 'Start typing…' }),
     ],
-    content: markdown,
+    content: '',
     contentType: 'markdown',
     editorProps: {
       attributes: { class: 'markdown-editor', 'aria-label': 'Note editor', role: 'textbox', 'aria-multiline': 'true', spellcheck: 'true', 'data-gramm': 'false', 'data-gramm_editor': 'false', 'data-enable-grammarly': 'false' },
@@ -32,5 +33,6 @@ export function createMarkdownEditor(element: HTMLElement, markdown: string, onC
     // not a note edit; only a content-changing command should rewrite Markdown.
     onUpdate: ({ editor, transaction }) => { if (transaction.docChanged) onChange(editor.getMarkdown()); },
   });
+  installMarkdownSource(editor, markdown);
   return editor;
 }

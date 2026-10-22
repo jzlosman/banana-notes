@@ -100,7 +100,8 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   function invalidate() { generations.set(state, generationOf(state) + 1); state.searchResult = null; searchBusy = false; }
   function changeMode(mode: ExplorerMode) {
     state.mode = mode; state.query = ''; state.before = ''; state.selectedIDs.clear(); state.selecting = false; invalidate();
-    root.replaceWith(renderExplorerView(options)); options.onModeChange?.();
+    const next = renderExplorerView(options); root.replaceWith(next);
+    next.querySelector<HTMLInputElement>('.library-search input')?.focus(); options.onModeChange?.();
   }
   function listActions(): MenuItem[] {
     return [
@@ -179,7 +180,8 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
     list.setAttribute('aria-setsize', String(results.length));
     if (!results.length) {
       const empty = el('div', 'empty-state library-empty'); empty.append(el('h2', '', state.mode === 'trash' ? 'Trash is empty' : searchBusy ? 'Searching…' : state.query ? 'No matching notes' : 'No notes'));
-      empty.append(el('p', '', state.mode === 'trash' ? 'Deleted notes are kept for 30 days.' : searchBusy ? 'Searching the local index.' : state.query || state.selectedTags.length || state.before ? 'Try another search or adjust your filters.' : 'Create a note with ⌘N.'));
+      const detail = state.mode === 'trash' ? '' : searchBusy ? 'Searching the local index.' : state.query || state.selectedTags.length || state.before ? 'Try another search or adjust your filters.' : 'Create a note with ⌘N.';
+      if (detail) empty.append(el('p', '', detail));
       list.append(empty);
     } else {
       const viewport = list.clientHeight || 720;

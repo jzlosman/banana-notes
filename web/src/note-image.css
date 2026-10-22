@@ -1,8 +1,9 @@
-.note-image-export { display: grid; gap: 16px; padding: 0 0 16px; }
+.image-settings-panel { display: flex; flex-direction: column; overflow: hidden; }
+.note-image-export { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 12px; padding: 0 0 4px; }
 .note-image-export label { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; }
 .note-image-export select { max-width: 55%; padding: 5px 7px; color: var(--ink); background: var(--chrome); border: 1px solid var(--line); border-radius: 5px; }
 .note-image-export input[type='range'] { max-width: 55%; accent-color: var(--accent); }
-.note-image-preview { width: 100%; min-height: 170px; padding: 24px; overflow: hidden; border-radius: 8px; background: var(--image-gradient); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.note-image-preview { width: 100%; min-height: 100px; flex: 1; padding: 18px; overflow: hidden; border-radius: 8px; background: var(--image-gradient); display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .note-image-preview > * { width: var(--image-width, 76%); max-width: 100%; box-sizing: border-box; background: var(--image-paper, #fff); color: var(--image-ink, #242735); }
 .note-image-dots { height: 18px; padding: 5px 10px 0; border-radius: 6px 6px 0 0; display: flex; gap: 4px; }
 .note-image-dots i { width: 6px; height: 6px; border-radius: 50%; background: #ff6058; }
@@ -12,4 +13,13 @@
 .note-image-preview-content { max-height: 100px; padding: 8px 10px; border-radius: 0 0 6px 6px; overflow: hidden; font-family: var(--note-font-family, ui-monospace, Menlo, monospace); font-weight: var(--note-font-weight, 500); font-synthesis: weight style; font-size: 9px; line-height: 1.4; }
 .note-image-preview-content > * { margin-block: 0 4px; }
 .note-image-preview-content img { max-width: 100%; height: auto; }
-.note-image-export [data-export] { justify-self: end; }
+.note-image-export-actions { position: sticky; bottom: 0; z-index: 1; flex: 0 0 auto; min-height: 42px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: auto; padding: 7px 0; background: var(--paper); }
+.note-image-export-status { margin-right: auto; color: var(--accent); font-size: 12px; }
+.note-image-export-hint { color: var(--muted); font-size: 12px; margin: 0; }
+.note-image-export [data-export] { flex-shrink: 0; }
+@media (max-height: 420px) {
+  .note-image-export { gap: 8px; }
+  .note-image-preview { min-height: 82px; padding: 10px; }
+  .note-image-preview-content { max-height: 54px; }
+  .note-image-export-actions { min-height: 38px; padding: 5px 0; }
+}

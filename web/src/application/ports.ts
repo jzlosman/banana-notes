@@ -78,8 +78,9 @@ export interface FeaturePreferences {
   load(): Promise<FeatureState>;
   setOCR(enabled: boolean): Promise<FeatureState>;
 }
-export interface HotkeyState { display: string; registered: boolean; available: boolean; error?: string | null }
-export interface HotkeyPreferences { load(): Promise<HotkeyState> }
+export interface HotkeyShortcut { keyCode: number; modifiers: number }
+export interface HotkeyState extends HotkeyShortcut { display: string; registered: boolean; available: boolean; error?: string | null }
+export interface HotkeyPreferences { load(): Promise<HotkeyState>; set(shortcut: HotkeyShortcut): Promise<HotkeyState> }
 
 /** Structural input keeps DOM File types outside application contracts. */
 export interface AttachmentFile {
@@ -129,7 +130,7 @@ export interface Capabilities {
   windowStyle: WindowStylePreferences;
   startup: StartupPreferences | null;
   features: FeaturePreferences;
-  hotkey: HotkeyPreferences;
+  hotkey: HotkeyPreferences | null;
   clipboard: ClipboardPort;
   attachments: Attachments | null;
   ocr: Ocr | null;

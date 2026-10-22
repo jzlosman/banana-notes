@@ -31,3 +31,22 @@ test('export controls show a visual preview and return selected preset and width
   assert.equal((previewOnly.querySelector('[data-export]') as HTMLButtonElement).disabled, true);
   assert.match(previewOnly.textContent!, /available in the Mac app/);
 });
+
+test('successful PNG export announces Saved before restoring the save action', async () => {
+  let expireFeedback: (() => void) | undefined;
+  const originalSetTimeout = window.setTimeout, originalClearTimeout = window.clearTimeout;
+  window.setTimeout = ((callback: TimerHandler) => { if (typeof callback === 'function') expireFeedback = () => { callback(); }; return 1; }) as typeof window.setTimeout;
+  window.clearTimeout = (() => {}) as typeof window.clearTimeout;
+  const panel = renderNoteImageExportControls({ request: buildNoteImageRequest('# Preview', {}, 'Preview note'), onExport: async () => true });
+  document.body.append(panel);
+  try {
+    const button = panel.querySelector<HTMLButtonElement>('[data-export]')!;
+    button.click(); await Promise.resolve();
+    assert.equal(panel.querySelector('[role="status"]')?.textContent, 'Saved');
+    assert.equal(button.textContent, 'Saved'); assert.equal(button.disabled, false);
+    expireFeedback?.();
+    assert.equal(panel.querySelector('[role="status"]')?.textContent, ''); assert.equal(button.textContent, 'Save PNG…');
+  } finally {
+    panel.remove(); window.setTimeout = originalSetTimeout; window.clearTimeout = originalClearTimeout;
+  }
+});

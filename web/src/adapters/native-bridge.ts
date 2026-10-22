@@ -199,11 +199,20 @@ export class NativeBridge implements Capabilities {
       load: async () => { const value = await this.loaded(); return { ocrEnabled: value.ocrEnabled ?? false, warning: value.featureWarning || undefined }; },
       setOCR: async ocrEnabled => { const value = await this.call('featurePreferences', { ocrEnabled }); return { ocrEnabled: value.ocrEnabled ?? ocrEnabled, warning: value.featureWarning || undefined }; },
     };
-    this.hotkey = { load: async () => {
-      const [value, preferences] = await Promise.all([this.loaded(), this.call('hotkeyPreferences')]);
-      return { display: preferences.display || value.hotkeyDisplay || '⌃⇧Space', registered: preferences.registered === true,
-        available: value.hotkeyAvailable !== false, error: preferences.error as string | null | undefined };
-    } };
+    this.hotkey = {
+      load: async () => {
+        const [value, preferences] = await Promise.all([this.loaded(), this.call('hotkeyPreferences')]);
+        return { keyCode: preferences.keyCode as number, modifiers: preferences.modifiers as number,
+          display: preferences.display || value.hotkeyDisplay || '⌃⇧Space', registered: preferences.registered === true,
+          available: value.hotkeyAvailable !== false, error: preferences.error as string | null | undefined };
+      },
+      set: async shortcut => {
+        const [value, preferences] = await Promise.all([this.loaded(), this.call('hotkeyPreferences', { shortcut })]);
+        return { keyCode: preferences.keyCode as number, modifiers: preferences.modifiers as number,
+          display: preferences.display || value.hotkeyDisplay || '⌃⇧Space', registered: preferences.registered === true,
+          available: value.hotkeyAvailable !== false, error: preferences.error as string | null | undefined };
+      },
+    };
     this.clipboard = { write: async content => { await this.call('clipboard', { content }); } };
     this.attachments = {
       pick: async () => {

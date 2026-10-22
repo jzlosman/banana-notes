@@ -84,7 +84,7 @@ export class PreviewAdapter implements Capabilities {
     load: async () => ({ ocrEnabled: localStorage.getItem(keys.ocr) === 'true' }),
     setOCR: async (ocrEnabled: boolean) => { localStorage.setItem(keys.ocr, String(ocrEnabled)); return { ocrEnabled }; },
   };
-  readonly hotkey = { load: async () => ({ display: '⌃⇧Space', registered: false, available: false }) };
+  readonly hotkey = null;
   readonly clipboard = { write: async ({ text, html }: ClipboardContent) => {
     if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
       await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);

@@ -11,8 +11,9 @@ function fixture(): Library {
   return lib;
 }
 test('only a new library receives Banana Notes welcome copy; existing note content survives loading',()=>{
-  const welcome = welcomeLibrary('welcome', time(1));
-  assert.match(welcome.notes[0].markdown, /^# Welcome to Banana Notes\n/);
+  const welcome = welcomeLibrary('welcome', time(1), '⌥⌘B');
+  assert.equal(welcome.notes[0].markdown, '# Welcome to Banana Notes\n\nPress **⌥⌘B** in any app to show or hide this window.\n\n1. Type a thought. It saves automatically.\n2. Press **Esc** to tuck the window away.\n3. Press **⌥⌘B** to bring it back, and **⌘P** to find any note.\n\nAdd a `#tag` to group related notes. Press **⌘N** for a new note.\n\nOpen **?** at the bottom right for all shortcuts.');
+  assert.deepEqual(tagsOf(welcome.notes[0].markdown), []);
   const old = fixture();
   old.notes[0].markdown = '# Welcome to Foldnote\n\nMy own edits and #ideas';
   assert.equal(validateLibrary(old).notes[0].markdown, old.notes[0].markdown);
@@ -64,6 +65,8 @@ test('tag counts are per note, not occurrences; title ignores frontmatter',()=>{
   assert.deepEqual(notebookTags(fixture()),[{tag:'ideas',count:1},{tag:'personal',count:1},{tag:'project',count:2}]);
   assert.equal(titleOf('---\ntags: [project]\n---\n# First thought\nBody'),'First thought');
   assert.equal(titleOf('#project\n\n# A real title'),'A real title');
+  assert.equal(titleOf('  \n\t'), '');
+  assert.equal(titleOf('---\ntags: [project]\n---\n'), '');
 });
 test('leading media cannot replace the note heading with an asset URL',()=>{
   assert.equal(titleOf('![Photo](foldnote-asset://media/12345678-1234-1234-1234-123456789abc.png)\n\n# A real heading\nBody'),'A real heading');

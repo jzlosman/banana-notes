@@ -12,7 +12,7 @@ import '../compact-link-view.css';
 import { openLinkEditor } from './link-editor';
 import { closePopover, openActionMenu } from './action-menu';
 import { handleNoteTrashShortcut } from './note-trash-shortcut';
-import { createElement, ChevronLeft, ChevronRight, Plus, Pin, Search, ArrowLeft, BookOpen, PanelTop, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
+import { createElement, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Pin, Search, ArrowLeft, BookOpen, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
 import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor } from './editor';
 import { type Library, type Note, noteNavigation, notebookTags, splitDocument, tagsOf, titleOf, excerptOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime } from '../domain/library';
@@ -46,7 +46,10 @@ import { LibraryCommands } from '../application/library-commands';
 import { ProjectCommands } from '../application/project-commands';
 import { LibrarySession } from '../application/session';
 import { loadWorkspace } from '../application/workspace-query';
-import type { AppCommand, Capabilities, ClipboardFormat, ClipboardContent, Clock, IdGenerator, LibraryRecoveryState, StartupState } from '../application/ports';
+import type { AppCommand, Capabilities, ClipboardFormat, ClipboardContent, Clock, IdGenerator, LibraryRecoveryState, StartupState, HotkeyState } from '../application/ports';
+import { findMatchesInText, noteFindMatches, selectNoteFindMatch, setNoteFind } from './note-find';
+import { focusPrimaryView, trapFocusWithin } from './focus-management';
+import { installThemeGridKeyboard, updateThemeGridTabStop } from './theme-grid';
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let capabilities: Capabilities;
 let clock: Clock;
@@ -56,7 +59,8 @@ let projectCommands: ProjectCommands;
 let library: Library;
 let librarySession: LibrarySession;
 let editor: Editor | undefined;
-let view: 'note' | 'explorer' | 'project' | 'help' | 'themes' = 'note';
+type AppView = 'note' | 'explorer' | 'project' | 'help' | 'themes';
+let view: AppView = 'note';
 let themeID = SYSTEM_THEME;
 let themeSaving = false;
 let themeQuery = '';
@@ -68,6 +72,16 @@ let explorerState: ExplorerState;
 const projectState = createProjectViewState();
 let startupState: StartupState = { launchAtLogin: false, launchStatus: 'notRegistered', launchError: null, newNoteOnLaunch: false };
 let hotkeyDisplay = '⌃⇧Space';
+let hotkeyState: HotkeyState = { keyCode: 49, modifiers: (1 << 12) | (1 << 9), display: '⌃⇧Space', registered: false, available: false };
+let findOpen = false;
+let findQuery = '';
+let findIndex = 0;
+let findBar: HTMLElement | undefined;
+let ocrReturnFocus: HTMLElement | null = null;
+let renderedView: AppView | undefined;
+let renderedAppearanceTab: SettingsTab | undefined;
+const editorSelections = new Map<string, { anchor: number; head: number }>();
+const sourceSelections = new Map<string, { start: number; end: number }>();
 let imageOptions: NoteImageOptions = {};
 let semanticSequence = 0;
 let indexCoordinator: SemanticIndexCoordinator;
@@ -154,7 +168,10 @@ function commitMarkdown(markdown: string): void {
   replaceLibrary({ ...result.library, selectedID: id });
   persist(); renderBadges(); renderCounter();
 }
-function disposeEditor(): void { editor?.destroy(); editor = undefined; activeEditorID = null; }
+function disposeEditor(): void {
+  if (editor && activeEditorID) editorSelections.set(activeEditorID, { anchor: editor.state.selection.anchor, head: editor.state.selection.head });
+  editor?.destroy(); editor = undefined; activeEditorID = null;
+}
 function goNote(id?: string): void {
   if (id) { if (!library.notes.some(note => note.id === id && !note.trashedAt)) return; replaceLibrary({ ...library, selectedID: id }); persist(); }
   view = 'note'; render();
@@ -198,8 +215,7 @@ function renderHeader(): void {
     pin.title = pinned ? 'Unpin · hide when switching apps' : 'Pin · stay visible when switching apps'; pin.setAttribute('aria-label', pin.title);
   });
   pin.classList.toggle('active', pinned); pin.setAttribute('aria-pressed', String(pinned)); pin.disabled = !pinCapability;
-  const reverseSide = view === 'explorer' || view === 'project' || view === 'themes';
-  actions.append(pin, button(reverseSide ? 'Back to note · ⌘⇧E' : 'Show notes · ⌘⇧E', reverseSide ? PanelTop : BookOpen, flip), button('New note · ⌘N', Plus, newNote));
+  actions.append(pin, button('Show notes · ⌘⇧E', BookOpen, flip), button('New note · ⌘N', Plus, newNote));
   if (view === 'note' && selected()) {
     const source = button(sourceMode ? 'Show formatted note · ⌘⇧M' : 'Edit Markdown source · ⌘⇧M', Code, () => { sourceMode = !sourceMode; render(); });
     source.classList.toggle('active', sourceMode); source.setAttribute('aria-pressed', String(sourceMode)); actions.append(source);
@@ -262,6 +278,65 @@ function formatBar(): HTMLElement {
   }
   return bar;
 }
+function renderNoteFindBar(): HTMLElement {
+  const bar = element('div', 'note-find search-field');
+  bar.append(icon(Search));
+  const input = element('input', 'note-find-input'); input.type = 'search'; input.placeholder = 'Find in note…'; input.setAttribute('aria-label', 'Find in note'); input.value = findQuery;
+  const count = element('span', 'note-find-count'); count.setAttribute('role', 'status'); count.setAttribute('aria-live', 'polite'); count.setAttribute('aria-atomic', 'true');
+  const previous = button('Previous match · ⇧↵', ChevronUp, () => navigateNoteFind(-1), 'icon-button note-find-step');
+  const next = button('Next match · ↵', ChevronDown, () => navigateNoteFind(1), 'icon-button note-find-step');
+  const close = button('Close find · Esc', X, closeNoteFind, 'icon-button note-find-close');
+  input.oninput = () => { findQuery = input.value; findIndex = 0; updateNoteFind(); };
+  input.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); navigateNoteFind(event.shiftKey ? -1 : 1); } };
+  bar.append(input, count, previous, next, close); return bar;
+}
+function updateNoteFind(selectMatch = true): void {
+  const count = findBar?.querySelector<HTMLElement>('.note-find-count');
+  let matches = [] as ReturnType<typeof findMatchesInText>;
+  if (sourceMode) {
+    const source = app.querySelector<HTMLTextAreaElement>('.source-editor');
+    matches = source ? findMatchesInText(source.value, findQuery) : [];
+    if (matches.length) {
+      findIndex = ((findIndex % matches.length) + matches.length) % matches.length;
+      const match = matches[findIndex]; if (selectMatch) source?.setSelectionRange(match.from, match.to);
+    } else findIndex = 0;
+  } else if (editor) {
+    matches = setNoteFind(editor, findQuery, findIndex);
+    findIndex = matches.length ? ((findIndex % matches.length) + matches.length) % matches.length : 0;
+    if (selectMatch && matches[findIndex]) selectNoteFindMatch(editor, matches[findIndex]);
+  }
+  if (count) count.textContent = matches.length ? `${findIndex + 1} of ${matches.length}` : findQuery ? 'No matches' : '';
+}
+function navigateNoteFind(direction: -1 | 1): void {
+  const source = sourceMode ? app.querySelector<HTMLTextAreaElement>('.source-editor') : null;
+  const matches = source ? findMatchesInText(source.value, findQuery) : editor ? noteFindMatches(editor.state.doc, findQuery) : [];
+  if (!matches.length) return;
+  findIndex = (findIndex + direction + matches.length) % matches.length;
+  if (editor && !sourceMode) { setNoteFind(editor, findQuery, findIndex); selectNoteFindMatch(editor, matches[findIndex]); }
+  if (source) source.setSelectionRange(matches[findIndex].from, matches[findIndex].to);
+  updateNoteFind();
+  findBar?.querySelector<HTMLInputElement>('.note-find-input')?.focus();
+}
+function openNoteFind(): void {
+  if (view !== 'note' || !selected()) return;
+  if (findOpen) { findBar?.querySelector<HTMLInputElement>('.note-find-input')?.focus(); return; }
+  findOpen = true; findIndex = 0;
+  findQuery = sourceMode ? (() => { const source = app.querySelector<HTMLTextAreaElement>('.source-editor'); return source?.value.slice(source.selectionStart, source.selectionEnd) ?? ''; })()
+    : editor && !editor.state.selection.empty ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, ' ') : '';
+  findBar = renderNoteFindBar();
+  const tags = app.querySelector('.note-tags');
+  if (tags) tags.after(findBar);
+  else contentElement?.prepend(findBar);
+  updateNoteFind();
+  findBar.querySelector<HTMLInputElement>('.note-find-input')?.focus();
+  findBar.querySelector<HTMLInputElement>('.note-find-input')?.select();
+}
+function closeNoteFind(): void {
+  if (!findOpen) return;
+  findOpen = false; findQuery = ''; findIndex = 0; findBar?.remove(); findBar = undefined;
+  if (editor) { setNoteFind(editor, ''); editor.commands.focus(); }
+  else if (sourceMode) app.querySelector<HTMLTextAreaElement>('.source-editor')?.focus();
+}
 function renderNote(): void {
   const note = selected();
   contentElement = element('main', 'note-side');
@@ -270,6 +345,8 @@ function renderNote(): void {
     contentElement.append(empty); app.append(contentElement); return;
   }
   badgeElement = element('div', 'note-tags'); renderBadges(); contentElement.append(badgeElement);
+  findBar = undefined;
+  if (findOpen) { findBar = renderNoteFindBar(); contentElement.append(findBar); }
   const markdown = oversizedDraft?.noteID === note.id ? oversizedDraft.markdown : note.markdown;
   const parts = splitDocument(markdown); prefix = parts.frontmatter; activeEditorID = note.id;
   if (prefix && !prefix.endsWith('\n')) prefix += '\n';
@@ -277,14 +354,29 @@ function renderNote(): void {
   if (sourceMode) {
     const label = element('div', 'source-label', 'Markdown source' );
     const area = element('textarea', 'source-editor'); area.setAttribute('aria-label', 'Markdown source'); area.value = markdown; area.spellcheck = false;
-    area.oninput = () => commitMarkdown(area.value);
+    const savedSourceSelection = sourceSelections.get(note.id); if (savedSourceSelection) area.setSelectionRange(Math.min(savedSourceSelection.start, area.value.length), Math.min(savedSourceSelection.end, area.value.length));
+    const rememberSourceSelection = () => sourceSelections.set(note.id, { start: area.selectionStart, end: area.selectionEnd });
+    area.addEventListener('select', rememberSourceSelection); area.addEventListener('keyup', rememberSourceSelection); area.addEventListener('click', rememberSourceSelection);
+    area.oninput = () => { rememberSourceSelection(); commitMarkdown(area.value); if (findOpen) updateNoteFind(false); };
     contentElement.append(label, area);
-    app.append(contentElement); requestAnimationFrame(() => area.focus());
+    app.append(contentElement); requestAnimationFrame(() => findOpen ? findBar?.querySelector<HTMLInputElement>('.note-find-input')?.focus() : area.focus());
+    if (findOpen) updateNoteFind();
   } else {
     const scroll = element('div', 'editor-scroll'); const mount = element('div', 'editor-mount'); scroll.append(mount); contentElement.append(scroll); app.append(contentElement);
     editor = createMarkdownEditor(mount, parts.body, markdown => commitMarkdown(prefix + markdown), (_editor, anchor) => editNoteLink(anchor));
-    editor.on('selectionUpdate', refreshCodeTools); editor.on('update', refreshCodeTools); refreshCodeTools();
-    requestAnimationFrame(() => editor?.commands.focus('start'));
+    const saved = editorSelections.get(note.id);
+    if (saved) {
+      const end = editor.state.doc.content.size;
+      const from = Math.min(end, Math.min(saved.anchor, saved.head)), to = Math.min(end, Math.max(saved.anchor, saved.head));
+      try { editor.commands.setTextSelection({ from, to }); } catch { editor.commands.setTextSelection(0); }
+    }
+    editor.on('selectionUpdate', () => {
+      if (editor && activeEditorID) editorSelections.set(activeEditorID, { anchor: editor.state.selection.anchor, head: editor.state.selection.head });
+      refreshCodeTools();
+    });
+    editor.on('update', () => { refreshCodeTools(); if (findOpen) updateNoteFind(false); }); refreshCodeTools();
+    if (findOpen) updateNoteFind();
+    requestAnimationFrame(() => findOpen ? findBar?.querySelector<HTMLInputElement>('.note-find-input')?.focus() : editor?.commands.focus());
   }
 }
 function discardNote(id: string): void {
@@ -301,7 +393,7 @@ function renderExplorer(): void {
   explorerState.selectedTags = selectedTags(library);
   const changed = (next: Library, message: string) => { replaceLibrary(next); explorerState.selectedIDs.clear(); persist(); render(); notify(message); };
   app.append(renderExplorerView({ library, state: explorerState, now: effectiveTrashPurgeTime(library, clock.now()),
-    onOpenNote: id => goNote(id), onModeChange: renderHeaderScope,
+    onOpenNote: id => goNote(id), onModeChange: () => { renderHeaderScope(); announceView(); },
     onScopeChange: tags => { replaceLibrary(libraryCommands.selectNotebooks(librarySession.library, tags)); persist(); renderHeaderScope(); },
     onTrash: ids => { changed(libraryCommands.trashMany(librarySession.library, ids), `${ids.length} ${ids.length === 1 ? 'note' : 'notes'} moved to Trash · recoverable for 30 days`); notify('Moved to Trash · recoverable for 30 days', false, { label: 'Undo', run: () => changed(libraryCommands.restoreMany(librarySession.library, ids), 'Notes restored') }); },
     onRestore: ids => changed(libraryCommands.restoreMany(librarySession.library, ids), 'Notes restored'),
@@ -346,9 +438,11 @@ function refreshThemeSelection(): void {
   app.querySelectorAll<HTMLButtonElement>('.theme-option').forEach(option => {
     const selected = option.dataset.themeId === themeID;
     option.classList.toggle('selected', selected);
-    option.setAttribute('aria-pressed', String(selected));
+    option.setAttribute('aria-checked', String(selected));
     option.setAttribute('aria-disabled', String(themeSaving));
+    option.tabIndex = -1;
   });
+  const grid = app.querySelector<HTMLElement>('.theme-grid'); if (grid) updateThemeGridTabStop(grid, themeID);
   const status = app.querySelector<HTMLElement>('.theme-status');
   if (status) status.textContent = themeSaving ? 'Saving appearance…' : `${themeByID(themeID)?.name || 'Follow macOS'} · ${capabilities.presentation.savedLabel}`;
   app.querySelector('.themes-side')?.setAttribute('aria-busy', String(themeSaving));
@@ -426,25 +520,31 @@ async function importDroppedFiles(files: File[], id: string): Promise<void> {
 async function recognizeImage(url?: string, targetID = selected()?.id): Promise<void> {
   if (!ocrEnabled) throw new Error('Enable local image text recognition in General settings first.');
   if (!capabilities.ocr) throw new Error('Image text recognition is unavailable in this preview.');
+  const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const result = await capabilities.ocr.recognize(url);
-  if (result.cancelled) return;
-  const text = result.text; const dialog = element('section', 'ocr-result'); dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', 'Recognized image text');
+  if (result.cancelled) { if (returnFocus?.isConnected) returnFocus.focus(); return; }
+  const text = result.text; ocrReturnFocus = returnFocus; const dialog = element('section', 'ocr-result'); dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', 'Recognized image text');
   dialog.append(element('h2', '', 'Recognized text'));
   const area = element('textarea'); area.value = text; area.setAttribute('aria-label', 'Recognized text to copy or insert'); dialog.append(area);
   const actions = element('div', 'ocr-result-actions');
-  actions.append(button('Close recognized text', null, () => dialog.remove(), 'text-button', 'Close'), button('Copy recognized text', Clipboard, () => writeClipboard({ text: area.value }), 'text-button', 'Copy'));
+  actions.append(button('Close recognized text', null, closeOCRDialog, 'text-button', 'Close'), button('Copy recognized text', Clipboard, () => writeClipboard({ text: area.value }), 'text-button', 'Copy'));
   if (targetID) actions.append(button('Insert recognized text into source note', Plus, () => {
     const target = library.notes.find(note => note.id === targetID && !note.trashedAt); if (!target) throw new Error('The source note is no longer active.');
     if (editor && activeEditorID === targetID) {
       editor.chain().focus().insertContent(area.value.split(/\r?\n/).map(line => ({ type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [] }))).run();
     } else insertIntoNote(targetID, area.value);
-    dialog.remove();
+    closeOCRDialog();
   }, 'text-button', 'Insert into note'));
   dialog.append(actions); app.append(dialog); area.focus();
   dialog.onkeydown = event => {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dialog.remove(); }
-    if (event.key === 'Tab') { const targets = [...dialog.querySelectorAll<HTMLElement>('textarea,button')]; const index = targets.indexOf(document.activeElement as HTMLElement); event.preventDefault(); targets[(index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length]?.focus(); }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeOCRDialog(); }
+    if (event.key === 'Tab') trapFocusWithin(event, dialog);
   };
+}
+function closeOCRDialog(): void {
+  app.querySelector('.ocr-result')?.remove();
+  const target = ocrReturnFocus; ocrReturnFocus = null;
+  if (target?.isConnected) target.focus(); else if (editor && view === 'note') editor.commands.focus();
 }
 function currentImageRequest(): NoteImageRequest {
   const note = selected(); if (!note) throw new Error('Open a note to export it.');
@@ -452,11 +552,11 @@ function currentImageRequest(): NoteImageRequest {
   const html = highlightCodeHTML(documentClipboardPayload(note.markdown, 'formatted').html || '<p></p>', syntaxThemeID, themeID, matchMedia('(prefers-color-scheme: dark)').matches);
   return buildNoteImageRequest(note.markdown, { ...imageOptions, paper: colors?.paper, text: colors?.ink, accent: colors?.accent, html }, titleOf(note.markdown));
 }
-async function exportImageRequest(request: NoteImageRequest): Promise<void> {
+async function exportImageRequest(request: NoteImageRequest): Promise<boolean> {
   if (!capabilities.pngExport) throw new Error('PNG export is unavailable in this preview.');
   await Promise.all([queue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]);
   const result = await capabilities.pngExport.export(request);
-  if (result.exported) notify('PNG saved');
+  return result.exported;
 }
 async function exportCurrentPNG(): Promise<void> { await exportImageRequest(currentImageRequest()); }
 function chooseNoteFont(selection: NoteFontSelection): Promise<NoteFontState> {
@@ -568,16 +668,17 @@ function renderThemes(): void {
   }
   if (appearanceTab !== 'themes') {
     let panel: HTMLElement;
-    if (appearanceTab === 'general') panel = renderGeneralSettings({ capabilities, startup: startupState, onStartupChanged: next => { startupState = next; }, ocrEnabled, onOCREnabled: enabled => { ocrEnabled = enabled; }, onError: showError });
+    if (appearanceTab === 'general') panel = renderGeneralSettings({ capabilities, startup: startupState, onStartupChanged: next => { startupState = next; }, hotkey: hotkeyState, onHotkeyChanged: next => { hotkeyState = next; hotkeyDisplay = next.display; }, ocrEnabled, onOCREnabled: enabled => { ocrEnabled = enabled; }, onError: showError });
     else if (appearanceTab === 'code') {
       panel = element('section', 'settings-panel code-settings-panel'); panel.append(renderCodeSettings({ selectedID: syntaxThemeID, appThemeID: themeID, onSelect: chooseSyntaxTheme }));
     } else if (appearanceTab === 'search') {
       panel = element('section', 'settings-panel'); panel.append(renderSemanticSettings({ search: semanticSettingsPort(), getNotes: () => librarySession.library.notes, automaticIndex: () => ({ running: automaticIndexRunning, error: automaticIndexError }), registerRefresh: refresh => { refreshSemanticSettings = refresh; } }));
     } else {
       panel = element('section', 'settings-panel image-settings-panel');
-      if (selected()) panel.append(renderNoteImageExportControls({ request: currentImageRequest(), canExport: !!capabilities.pngExport, onExport: request => {
+      if (selected()) panel.append(renderNoteImageExportControls({ request: currentImageRequest(), canExport: !!capabilities.pngExport, onExport: async request => {
         imageOptions = { ...imageOptions, width: request.width, padding: request.padding, gradient: request.backgroundStart === '#f6d6b8' ? 'dawn' : request.backgroundStart === '#c4e7ed' ? 'ocean' : 'lavender' };
-        void (async () => { await capabilities.imagePreferences.save({ ...imageOptions }); await exportImageRequest(request); })().catch(showError);
+        try { await capabilities.imagePreferences.save({ ...imageOptions }); return await exportImageRequest(request); }
+        catch (error) { showError(error); return false; }
       } }));
       else panel.append(element('p', 'settings-description', 'Open or create a note first to preview its image.'));
     }
@@ -586,12 +687,13 @@ function renderThemes(): void {
   const search = element('div', 'search-field'); const input = element('input'); input.type = 'search'; input.placeholder = 'Search themes…'; input.setAttribute('aria-label', 'Search themes'); input.value = themeQuery;
   search.append(icon(Search), input); main.append(search);
   const filters = element('div', 'theme-filters'); filters.setAttribute('aria-label', 'Theme appearance');
-  const grid = element('div', 'theme-grid'); grid.setAttribute('aria-label', 'Available themes'); grid.id = 'appearance-content'; grid.setAttribute('role', 'tabpanel'); grid.setAttribute('aria-labelledby', 'appearance-tab-themes');
+  const gridPanel = element('div', 'theme-grid-panel'); gridPanel.id = 'appearance-content'; gridPanel.setAttribute('role', 'tabpanel'); gridPanel.setAttribute('aria-labelledby', 'appearance-tab-themes');
+  const grid = element('div', 'theme-grid'); grid.setAttribute('aria-label', 'Available themes'); grid.setAttribute('role', 'radiogroup'); gridPanel.append(grid);
   const matches = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();
   const themeOption = (theme?: ThemeDefinition): HTMLButtonElement => {
     const id = theme?.id || SYSTEM_THEME;
     const option = button(`Use ${theme?.name || 'Follow macOS'} theme`, null, () => chooseTheme(id), 'theme-option');
-    option.dataset.themeId = id;
+    option.dataset.themeId = id; option.setAttribute('role', 'radio');
     const preview = element('div', `theme-preview${theme ? '' : ' system-preview'}`); preview.setAttribute('aria-hidden', 'true');
     if (theme) {
       preview.style.setProperty('--preview-paper', theme.colors.paper); preview.style.setProperty('--preview-ink', theme.colors.ink);
@@ -620,18 +722,19 @@ function renderThemes(): void {
     }, `filter-chip${themeFilter === id ? ' selected' : ''}`, label);
     filter.setAttribute('aria-pressed', String(themeFilter === id)); filters.append(filter);
   }
-  main.append(filters, grid);
+  installThemeGridKeyboard(grid);
+  main.append(filters, gridPanel);
   const status = element('p', 'theme-status'); status.setAttribute('role', 'status'); main.append(status);
   const credit = element('p', 'theme-credit'); credit.append(document.createTextNode('Palettes from '));
   const link = element('a', '', 'Agent Paint'); link.href = 'https://github.com/jzlosman/agent-paint'; link.target = '_blank'; link.rel = 'noopener noreferrer'; credit.append(link);
-  main.append(credit); app.append(main); draw(); requestAnimationFrame(() => input.focus());
+  main.append(credit); app.append(main); draw();
   input.oninput = () => { themeQuery = input.value; draw(); };
 }
 function renderHelp(): void {
   const main = element('main', 'help-side');
   main.append(element('h1', '', 'Keyboard shortcuts'));
   const shortcuts = element('dl', 'shortcuts');
-  for (const [label, key] of [['Show / hide Banana Notes', hotkeyDisplay], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy selected text', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Move open note / focused list note to Trash', '⌘Backspace (⌘⌫)']]) {
+  for (const [label, key] of [['Show / hide Banana Notes', hotkeyDisplay], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find in note', '⌘F'], ['Next / previous match', '↵ / ⇧↵ · ⌘G / ⇧⌘G'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy selected text', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Move open note / focused list note to Trash', '⌘Backspace (⌘⌫)']]) {
     shortcuts.append(element('dt', '', label), element('dd', '', key));
   }
   main.append(shortcuts);
@@ -675,17 +778,57 @@ function renderFooter(): void {
   }
   footer.append(button('Shortcuts & Markdown help', CircleHelp, () => { view = view === 'help' ? 'note' : 'help'; render(); })); app.append(footer); renderCounter(); refreshCodeTools();
 }
+const viewAnnouncer = document.createElement('div');
+viewAnnouncer.className = 'visually-hidden'; viewAnnouncer.setAttribute('role', 'status'); viewAnnouncer.setAttribute('aria-live', 'polite'); viewAnnouncer.setAttribute('aria-atomic', 'true');
+function viewLabel(): string {
+  if (view === 'note') return 'Note';
+  if (view === 'explorer') return explorerState?.mode === 'trash' ? 'Trash' : 'Notes';
+  if (view === 'project') return 'Notebook overview';
+  if (view === 'help') return 'Help';
+  const tab = appearanceTab === 'window' ? 'Window' : appearanceTab === 'code' ? 'Code' : appearanceTab === 'general' ? 'General' : appearanceTab === 'search' ? 'Search' : appearanceTab === 'export' ? 'Export PNG' : 'Themes';
+  return `Settings · ${tab}`;
+}
+function announceView(): void {
+  if (!viewAnnouncer.isConnected) document.body.append(viewAnnouncer);
+  viewAnnouncer.textContent = '';
+  const announcement = viewLabel(); window.setTimeout(() => { viewAnnouncer.textContent = announcement; }, 0);
+}
+function focusCurrentView(settingsTabChanged = false): void {
+  if (settingsTabChanged) {
+    const target = appearanceTab === 'export' ? app.querySelector<HTMLElement>('#settings-title') : app.querySelector<HTMLButtonElement>('.appearance-tab[aria-selected="true"]');
+    if (target) { if (target.tagName === 'H1') target.tabIndex = -1; target.focus(); }
+    return;
+  }
+  focusPrimaryView(app, view === 'themes' ? 'settings' : view, {
+    sourceMode, findOpen,
+    ...(editor ? { focusEditor: () => editor?.commands.focus() } : {}),
+  });
+}
 function render(): void {
+  const previousView = renderedView;
+  const settingsTabChanged = view === 'themes' && renderedAppearanceTab !== appearanceTab;
+  const viewChanged = previousView !== view || settingsTabChanged;
   semanticSequence++;
   refreshSemanticSettings = undefined;
   closePopover();
   disposeDragRegion?.(); disposeDragRegion = undefined;
+  const source = app.querySelector<HTMLTextAreaElement>('.source-editor');
+  if (source && selected()) sourceSelections.set(selected()!.id, { start: source.selectionStart, end: source.selectionEnd });
   disposeEditor(); badgeElement = undefined; counterElement = undefined;
   app.replaceChildren(); app.className = `app-shell view-${view}`; app.setAttribute('aria-busy', 'false');
+  if (viewChanged && previousView) {
+    app.dataset.transition = previousView === 'note' && view === 'explorer' ? 'to-notes'
+      : previousView === 'explorer' && view === 'note' ? 'to-note' : 'other';
+  } else delete app.dataset.transition;
   renderHeader();
   if (view === 'note') renderNote(); else if (view === 'explorer') renderExplorer(); else if (view === 'project') renderProject(); else if (view === 'themes') renderThemes(); else renderHelp();
   renderFooter(); showSaveFailure();
   if (view === 'note' && oversizedDraft?.noteID === selected()?.id) showNoteSizeLimit();
+  if (viewChanged) {
+    announceView();
+    requestAnimationFrame(() => focusCurrentView(settingsTabChanged));
+  }
+  renderedView = view; renderedAppearanceTab = appearanceTab;
 }
 const handleAppCommand = createAppCommandHandler({
   isReady: () => sessionLoaded,
@@ -713,7 +856,11 @@ function bindAppKeyboardShortcuts(): () => void {
   handleTrash: event => handleNoteTrashShortcut(event, selected()?.id ?? null, discardNote),
   closePopover,
   hasOCRDialog: () => !!app.querySelector('.ocr-result'),
-  closeOCRDialog: () => { app.querySelector('.ocr-result')?.remove(); },
+  closeOCRDialog,
+  hasFind: () => findOpen,
+  closeFind: closeNoteFind,
+  openFind: openNoteFind,
+  findNext: navigateNoteFind,
   sourceMode: () => sourceMode,
   editorAvailable: () => !!editor,
   increaseFont: () => changeFontSize(stepFontSize(fontSize, 1)),
@@ -748,7 +895,7 @@ window.addEventListener('pagehide', () => { if (sessionLoaded) void Promise.all(
 async function start(): Promise<void> {
   try {
     const { library: loaded, appearance, typography, windowStyle: style, focused, features: featureState, startup, hotkey, imageOptions: imagePreferences, pinned: pinState } = await loadWorkspace(capabilities);
-    hotkeyDisplay = hotkey.display || '⌃⇧Space'; startupState = startup; ocrEnabled = featureState.ocrEnabled;
+    hotkeyDisplay = hotkey.display || '⌃⇧Space'; hotkeyState = hotkey; startupState = startup; ocrEnabled = featureState.ocrEnabled;
     themeID = applyAppearance(document.documentElement, appearance.themeID);
     syntaxThemeID = syntaxThemeIDs.includes(appearance.syntaxThemeID) ? appearance.syntaxThemeID as SyntaxThemeID : 'app'; applySyntaxAppearance();
     imageOptions = imagePreferences as NoteImageOptions;

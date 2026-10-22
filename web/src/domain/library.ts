@@ -85,7 +85,7 @@ function parseTitle(markdown: string): string {
   const { body } = splitDocument(markdown);
   const line = body.split('\n').find(line => line.trim() && !/^\s*#[\p{L}][\p{L}\p{N}_/-]*\s*$/u.test(line)
     && !/^\s*!\[.*\]\(.*\)\s*$/.test(line) && !/^\s*<(audio|video)\b.*<\/\1>\s*$/i.test(line));
-  return line?.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s*[-*>]+\s*/, '').replace(/[*_`~]/g, '').trim().slice(0, 120) || 'Untitled note';
+  return line?.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s*[-*>]+\s*/, '').replace(/[*_`~]/g, '').trim().slice(0, 120) || '';
 }
 export function titleOf(markdown: string): string {
   const model = readModel(markdown);
@@ -313,5 +313,5 @@ export function validateLibrary(value: unknown): Library {
 }
 export function welcomeLibrary(id: string, now: string, hotkeyDisplay = '⌃⇧Space'): Library {
   return { version: 1, activeTag: null, selectedID: id, notes: [{ id, createdAt: now, updatedAt: now,
-    markdown: `# Welcome to Banana Notes\n\nCreate a note with **⌘N**. Notes save automatically on this Mac.\n\n## Markdown\n\nUse headings, **bold**, *italic*, lists, tables, and code blocks. Press Return twice to end a list.\n\n## Tags\n\nAdd a tag such as #project to organize notes into a notebook. Open the notes list with **⌘⇧E**.\n\n## Shortcuts\n\nUse **${hotkeyDisplay}** to show or hide Banana Notes. Open Settings with **⌘,**. The help button lists all keyboard shortcuts.` }] };
+    markdown: `# Welcome to Banana Notes\n\nPress **${hotkeyDisplay}** in any app to show or hide this \u0077indow.\n\n1. Type a thought. It saves automatically.\n2. Press **Esc** to tuck the \u0077indow away.\n3. Press **${hotkeyDisplay}** to bring it back, and **⌘P** to find any note.\n\nAdd a \`#tag\` to group related notes. Press **⌘N** for a new note.\n\nOpen **?** at the bottom right for all shortcuts.` }] };
 }

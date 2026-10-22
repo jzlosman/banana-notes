@@ -1,4 +1,5 @@
 import { createElement, type IconNode } from 'lucide';
+import { trapFocusWithin } from './focus-management';
 
 export interface MenuAction {
   label: string;
@@ -46,7 +47,7 @@ export function openPopover(trigger: HTMLElement, content: HTMLElement, options:
   const outside = (event: PointerEvent) => { if (!content.contains(event.target as Node) && !trigger.contains(event.target as Node)) close(); };
   const keydown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(true); }
-    else if (event.key === 'Tab' && options.menu) close();
+    else if (event.key === 'Tab' && !content.matches('.link-editor')) trapFocusWithin(event, content);
   };
   dismiss = close;
   doc.addEventListener('pointerdown', outside, true); doc.addEventListener('keydown', keydown, true);

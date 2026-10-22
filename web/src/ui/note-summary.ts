@@ -6,9 +6,9 @@ export function renderNoteSummary(note: Note, options: { onOpen?: () => void; cu
   node.className = `note-row library-row-title${options.current ? ' current' : ''}`;
   if (node instanceof node.ownerDocument.defaultView!.HTMLButtonElement) node.type = 'button';
   const title = titleOf(note.markdown);
-  if (options.onOpen) { node.setAttribute('aria-label', `Open ${title}`); node.addEventListener('click', options.onOpen); }
+  if (options.onOpen) { node.setAttribute('aria-label', `Open ${title || 'Empty note'}`); node.addEventListener('click', options.onOpen); }
   const top = document.createElement('div'); top.className = 'note-row-top';
-  const heading = document.createElement('h2'); heading.textContent = title;
+  const heading = document.createElement('h2'); heading.textContent = title || 'Empty note'; if (!title) heading.classList.add('empty-note-title');
   const date = document.createElement('time'); date.dateTime = options.date ?? note.updatedAt;
   date.textContent = new Date(date.dateTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   top.append(heading, date);

@@ -1,5 +1,6 @@
 import { createElement, FolderOpen, type IconNode } from 'lucide';
-import type { Capabilities, StartupState } from '../application/ports';
+import type { Capabilities, StartupState, HotkeyState } from '../application/ports';
+import { DEFAULT_HOTKEY, shortcutFromKeyEvent } from '../domain/hotkey';
 import type { NoteFontSelection, NoteFontState } from '../domain/note-font';
 import { DEFAULT_WINDOW_STYLE, type WindowStyle } from '../domain/window-style';
 import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '../domain/font-size';
@@ -26,7 +27,7 @@ function button(label: string, glyph: IconNode | null, run: () => void | Promise
 export function renderAppearanceTabs(tab: SettingsTab, setTab: (tab: SettingsTab) => void, render: () => void, app: HTMLElement): HTMLElement {
   const tabsElement = element('div', 'appearance-tabs'); tabsElement.setAttribute('role', 'tablist'); tabsElement.setAttribute('aria-label', 'Settings sections');
   for (const [id, label] of tabs) {
-    const item = button(`${label} settings`, null, () => { setTab(id); render(); }, 'appearance-tab', label);
+    const item = button(`${label} settings`, null, () => { setTab(id); render(); app.querySelector<HTMLButtonElement>('.appearance-tab[aria-selected="true"]')?.focus(); }, 'appearance-tab', label);
     item.id = `appearance-tab-${id}`; item.setAttribute('role', 'tab'); item.setAttribute('aria-selected', String(tab === id));
     item.setAttribute('aria-controls', 'appearance-content'); item.tabIndex = tab === id ? 0 : -1;
     item.onkeydown = event => {
@@ -46,9 +47,13 @@ export function renderGeneralSettings(options: {
   onStartupChanged(state: StartupState): void;
   ocrEnabled: boolean;
   onOCREnabled(enabled: boolean): void;
+  hotkey: HotkeyState;
+  onHotkeyChanged(state: HotkeyState): void;
   onError(error: unknown): void;
 }): HTMLElement {
-  const panel = element('section', 'settings-panel'); const startup = element('section', 'settings-group'); startup.append(element('h2', '', 'Startup'));
+  const panel = element('section', 'settings-panel');
+  if (options.capabilities.hotkey) panel.append(renderHotkeySettings(options));
+  const startup = element('section', 'settings-group'); startup.append(element('h2', '', 'Startup'));
   const status = element('p', 'tool-status'); status.setAttribute('role', 'status');
   let startupState = options.startup;
   const approval = button('Open macOS Login Items settings', null, () => options.capabilities.startup?.openLoginSettings(), 'text-button', 'Open Login Items…', options.onError);
@@ -73,6 +78,60 @@ export function renderGeneralSettings(options: {
   data.append(element('h2', '', 'Storage'), element('p', 'settings-description', options.capabilities.dataFolder?.description ?? 'Browser preview only. Notes are stored separately from the Mac app.'));
   const openData = button('Open local data folder', FolderOpen, () => options.capabilities.dataFolder?.open(), 'text-button', 'Open data folder', options.onError);
   openData.disabled = !options.capabilities.dataFolder; data.append(openData); panel.append(data); return panel;
+}
+
+function renderHotkeySettings(options: {
+  capabilities: Capabilities;
+  hotkey: HotkeyState;
+  onHotkeyChanged(state: HotkeyState): void;
+  onError(error: unknown): void;
+}): HTMLElement {
+  const section = element('section', 'settings-group hotkey-settings'); section.append(element('h2', '', 'Keyboard'));
+  const row = element('div', 'setting-row hotkey-row'); const copy = element('span', 'setting-copy');
+  copy.append(element('span', 'setting-title', 'Global shortcut'), element('span', 'setting-hint', 'Show or hide Banana Notes from any app.'));
+  const controls = element('div', 'hotkey-controls');
+  const chord = element('button', 'hotkey-chord'); chord.type = 'button'; chord.textContent = options.hotkey.display;
+  chord.setAttribute('aria-label', `Record global shortcut. Current shortcut: ${options.hotkey.display}`);
+  const reset = element('button', 'text-button hotkey-reset', 'Reset'); reset.type = 'button'; reset.setAttribute('aria-label', 'Reset global shortcut to Control Shift Space');
+  controls.append(chord, reset); row.append(copy, controls); section.append(row);
+  const error = element('p', 'hotkey-error'); error.setAttribute('role', 'alert'); error.hidden = !options.hotkey.error; error.textContent = options.hotkey.error || '';
+  section.append(error);
+  let recording = false, saving = false;
+  const refresh = () => {
+    chord.textContent = recording ? 'Press a shortcut…' : saving ? 'Saving…' : options.hotkey.display;
+    chord.dataset.recording = String(recording);
+    chord.setAttribute('aria-label', recording ? 'Press a shortcut, or Escape to cancel' : `Record global shortcut. Current shortcut: ${options.hotkey.display}`);
+    chord.disabled = saving; reset.disabled = saving;
+  };
+  const save = async (shortcut: { keyCode: number; modifiers: number }) => {
+    recording = false; saving = true; error.hidden = true; error.textContent = ''; refresh();
+    try {
+      const next = await options.capabilities.hotkey!.set(shortcut);
+      if (!next.registered) {
+        error.textContent = next.error || 'The shortcut could not be registered. Your previous shortcut remains active.';
+        error.hidden = false;
+        return;
+      }
+      options.hotkey = next; options.onHotkeyChanged(next); error.hidden = true;
+    } catch (reason) {
+      error.textContent = reason instanceof Error ? reason.message : String(reason); error.hidden = false;
+    } finally { saving = false; refresh(); }
+  };
+  chord.onclick = () => { if (saving) return; recording = true; error.hidden = true; error.textContent = ''; refresh(); chord.focus(); };
+  chord.onkeydown = event => {
+    if (!recording) return;
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); recording = false; refresh(); return; }
+    if (['Meta', 'Control', 'Alt', 'Shift'].includes(event.key) || event.repeat) { event.preventDefault(); return; }
+    event.preventDefault(); event.stopPropagation();
+    const result = shortcutFromKeyEvent(event);
+    if (!result.ok) {
+      error.textContent = result.reason === 'modifier-required' ? 'Include at least one of Command, Control, or Option.' : 'That key is not supported. Try a letter, number, Space, Return, Tab, arrow, function, or punctuation key.';
+      error.hidden = false; return;
+    }
+    void save(result.shortcut);
+  };
+  reset.onclick = () => { if (!saving) void save(DEFAULT_HOTKEY); };
+  refresh(); return section;
 }
 
 function renderOCRPreferences(options: {

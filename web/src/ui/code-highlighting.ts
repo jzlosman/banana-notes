@@ -1,7 +1,8 @@
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { createElement, Check, Search } from 'lucide';
 import { common, createLowlight } from 'lowlight';
-import { themes, themeByID, type ThemeDefinition } from '../domain/themes.js';
+import { themes, themeByID } from '../domain/themes.js';
+import { syntaxColorsForTheme } from '../domain/theme-accessibility.js';
 
 export const syntaxThemeIDs = ['app', ...themes.map(({ id }) => id)] as const;
 export type SyntaxThemeID = typeof syntaxThemeIDs[number];
@@ -16,21 +17,14 @@ export function createHighlightedCodeBlock() {
 }
 
 function colors(id: SyntaxThemeID, appID: string, systemDark = false) {
-  const theme = (id === 'app' ? themeByID(appID) : themeByID(id)) as ThemeDefinition | undefined;
-  const c = theme?.colors;
-  const dark = theme ? theme.appearance === 'dark' : systemDark;
-  const hash = [...(id === 'app' ? appID : id)].reduce((n, char) => (n * 31 + char.charCodeAt(0)) >>> 0, 0);
-  const accent = c?.accent ?? (dark ? '#9bbcff' : '#315fbd');
-  const muted = c?.muted ?? (dark ? '#9aa3b2' : '#667085');
-  const ink = c?.ink ?? (dark ? '#e7eaf0' : '#202633');
-  const alternate = ['#d77835', '#a75cb5', '#2b9a83', '#c64d63'][hash % 4];
-  return { bg: c?.paper ?? (dark ? '#252a34' : '#f4f5f7'), fg: ink, keyword: accent, string: alternate, comment: muted, number: dark ? '#d6a45f' : '#925b12', type: dark ? '#76b7c5' : '#126d7e', func: dark ? '#c2a2e8' : '#7043a6' };
+  const theme = id === 'app' ? themeByID(appID) : themeByID(id);
+  return syntaxColorsForTheme(theme, systemDark);
 }
 
 export function applyCodeAppearance(root: HTMLElement, syntaxID: SyntaxThemeID | string, appThemeID: string, systemDark = false): void {
   const selected = syntaxThemeIDs.includes(syntaxID as SyntaxThemeID) ? syntaxID as SyntaxThemeID : 'app';
   const c = colors(selected, appThemeID, systemDark);
-  for (const [name, value] of Object.entries({ bg: c.bg, fg: c.fg, keyword: c.keyword, string: c.string, comment: c.comment, number: c.number, type: c.type, function: c.func })) {
+  for (const [name, value] of Object.entries({ bg: c.bg, fg: c.fg, ...c.tokens })) {
     root.style.setProperty(`--code-${name}`, value);
     root.style.setProperty(`--syntax-${name}`, value);
   }
@@ -52,7 +46,7 @@ function previewTokens(id: SyntaxThemeID, appThemeID: string): HTMLElement {
   const preview = document.createElement('pre'); preview.className = 'code-theme-preview';
   const code = document.createElement('code'); const c = colors(id, appThemeID, document.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
   preview.style.setProperty('--code-preview-bg', c.bg); preview.style.setProperty('--code-preview-fg', c.fg);
-  const colorByClass: Record<string, string> = { 'hljs-keyword': c.keyword, 'hljs-literal': c.keyword, 'hljs-type': c.type, 'hljs-built_in': c.type, 'hljs-string': c.string, 'hljs-comment': c.comment, 'hljs-number': c.number, 'hljs-title': c.func, 'hljs-function': c.func };
+  const colorByClass: Record<string, string> = { 'hljs-keyword': c.tokens.keyword, 'hljs-literal': c.tokens.keyword, 'hljs-type': c.tokens.type, 'hljs-built_in': c.tokens.type, 'hljs-string': c.tokens.string, 'hljs-comment': c.tokens.comment, 'hljs-number': c.tokens.number, 'hljs-title': c.tokens.function, 'hljs-function': c.tokens.function };
   const append = (parent: HTMLElement, node: any) => {
     if (node.type === 'text') { parent.append(document.createTextNode(node.value ?? '')); return; }
     if (node.type !== 'element') { for (const child of node.children ?? []) append(parent, child); return; }
@@ -130,9 +124,9 @@ export function highlightCodeHTML(html: string, syntaxID: SyntaxThemeID = 'app',
   const c = colors(syntaxID, appThemeID, systemDark);
   for (const pre of template.content.querySelectorAll<HTMLElement>('pre')) { pre.style.backgroundColor = c.bg; pre.style.color = c.fg; }
   for (const [selector, color] of [
-    ['.hljs-keyword,.hljs-selector-tag,.hljs-literal', c.keyword], ['.hljs-string,.hljs-attr', c.string],
-    ['.hljs-comment', c.comment], ['.hljs-number,.hljs-boolean', c.number], ['.hljs-type,.hljs-built_in', c.type],
-    ['.hljs-title,.hljs-function', c.func],
+    ['.hljs-keyword,.hljs-selector-tag,.hljs-literal', c.tokens.keyword], ['.hljs-string,.hljs-attr', c.tokens.string],
+    ['.hljs-comment', c.tokens.comment], ['.hljs-number,.hljs-boolean', c.tokens.number], ['.hljs-type,.hljs-built_in', c.tokens.type],
+    ['.hljs-title,.hljs-function', c.tokens.function],
   ]) for (const token of template.content.querySelectorAll<HTMLElement>(selector)) token.style.color = color;
   const holder = document.createElement('div'); holder.append(template.content);
   return holder.innerHTML;

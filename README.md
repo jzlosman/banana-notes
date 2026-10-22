@@ -155,24 +155,24 @@ The Help view shows your configured global shortcut; this table shows the new-in
 
 | Action | Shortcut |
 | --- | --- |
-| Show / hide Banana Notes | ⌃⇧Space |
-| New note | ⌘N |
-| Older / newer note | ⌘[  /  ⌘] |
-| Alternate navigation | ⌘⇧←  /  ⌘⇧→ |
-| Show notes | ⌘⇧E |
-| Find in note | ⌘F |
-| Next / previous match | ↵ / ⇧↵ · ⌘G / ⇧⌘G |
-| Find notes | ⌘P |
-| Markdown source / frontmatter | ⌘⇧M |
-| Settings | ⌘, |
-| Hide window | Esc |
-| Bold / italic | ⌘B  /  ⌘I |
-| Add / edit link | ⌘K |
-| Bigger / smaller note text | ⌘+  /  ⌘− |
-| Reset note text size | ⌘0 |
-| Copy selected text | ⌘C |
-| Copy formatted text | ⌘⌥C |
-| Move open note / focused list note to Trash | ⌘Backspace (⌘⌫) |
+| Show / hide Banana Notes | <kbd>⌃</kbd><kbd>⇧</kbd><kbd>Space</kbd> |
+| New note | <kbd>⌘</kbd><kbd>N</kbd> |
+| Older / newer note | <kbd>⌘</kbd><kbd>[</kbd> / <kbd>⌘</kbd><kbd>]</kbd> |
+| Alternate navigation | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>←</kbd> / <kbd>⌘</kbd><kbd>⇧</kbd><kbd>→</kbd> |
+| Show notes | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>E</kbd> |
+| Find in note | <kbd>⌘</kbd><kbd>F</kbd> |
+| Next / previous match | <kbd>Return</kbd> / <kbd>⇧</kbd><kbd>Return</kbd> · <kbd>⌘</kbd><kbd>G</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>G</kbd> |
+| Find notes | <kbd>⌘</kbd><kbd>P</kbd> |
+| Markdown source / frontmatter | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd> |
+| Settings | <kbd>⌘</kbd><kbd>,</kbd> |
+| Hide window | <kbd>Esc</kbd> |
+| Bold / italic | <kbd>⌘</kbd><kbd>B</kbd> / <kbd>⌘</kbd><kbd>I</kbd> |
+| Add / edit link | <kbd>⌘</kbd><kbd>K</kbd> |
+| Bigger / smaller note text | <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>−</kbd> |
+| Reset note text size | <kbd>⌘</kbd><kbd>0</kbd> |
+| Copy selected text | <kbd>⌘</kbd><kbd>C</kbd> |
+| Copy formatted text | <kbd>⌘</kbd><kbd>⌥</kbd><kbd>C</kbd> |
+| Move open note / focused list note to Trash | <kbd>⌘</kbd><kbd>Backspace</kbd> |
 
 ## FAQ
 

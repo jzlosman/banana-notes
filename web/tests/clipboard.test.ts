@@ -35,13 +35,18 @@ test('selection payload preserves inline and block structure without mutating th
   assert.equal(clipboard.selectionClipboardPayload(editor, 'markdown'), null);
   editor.destroy();
 });
-test('copy writes Markdown-only flavors; cut waits for a successful write and remains undoable', () => {
+test('copy writes visible text plus Markdown; cut waits for a successful write and remains undoable', () => {
   const editor = mount('First **bold**\n\nSecond');
   editor.commands.setTextSelection({ from: 1, to: 11 });
   const initial = editor.getMarkdown();
   const copy = eventWith();
   assert.equal(clipboard.handleEditorClipboardCopy(editor, copy.event), true);
-  assert.equal(copy.data['text/plain'], copy.data['text/markdown']); assert.equal(copy.data['text/html'], undefined);
+  assert.equal(copy.data['text/plain'], 'First bold');
+  assert.equal(copy.data['text/markdown'], 'First **bold**'); assert.equal(copy.data['text/html'], undefined);
+  const pasted = mount('');
+  clipboard.handleEditorClipboardPaste(pasted, copy.event);
+  assert.equal(pasted.state.doc.textContent, 'First bold'); assert.equal(pasted.view.dom.querySelector('strong')?.textContent, 'bold');
+  pasted.destroy();
   const cut = eventWith();
   assert.equal(clipboard.handleEditorClipboardCut(editor, cut.event), true);
   assert.notEqual(editor.getMarkdown(), initial);
@@ -51,6 +56,28 @@ test('copy writes Markdown-only flavors; cut waits for a successful write and re
   assert.equal(clipboard.handleEditorClipboardCut(editor, failed), true); assert.equal(editor.getMarkdown(), before);
   editor.destroy();
 });
+test('ordinary copy and cut preserve literal underscores, punctuation, and intentional backslashes', () => {
+  const literal = 'build_id = file_name; C:\\work\\my_file [literal] *asterisk*';
+  const editor = mount(String.raw`build\_id = file\_name; C:\\work\\my\_file \[literal\] \*asterisk\*`);
+  assert.equal(editor.state.doc.textContent, literal);
+  editor.commands.selectAll();
+  const copy = eventWith();
+  clipboard.handleEditorClipboardCopy(editor, copy.event);
+  assert.equal(copy.data['text/plain'], literal);
+  assert.match(copy.data['text/markdown'], /build\\_id/);
+  assert.equal(clipboard.selectionClipboardPayload(editor, 'markdown')!.text, copy.data['text/markdown']);
+  const cut = eventWith();
+  clipboard.handleEditorClipboardCut(editor, cut.event);
+  assert.equal(cut.data['text/plain'], literal);
+  assert.equal(editor.state.doc.textContent, '');
+  editor.commands.undo();
+  assert.equal(editor.state.doc.textContent, literal);
+  const target = mount('');
+  clipboard.handleEditorClipboardPaste(target, copy.event);
+  assert.deepEqual(target.state.doc.toJSON(), editor.state.doc.toJSON());
+  editor.destroy(); target.destroy();
+});
+
 test('own Markdown paste parses structure while unrelated paste remains unhandled', () => {
   const editor = mount('');
   const ordinary = eventWith({ 'text/plain': '**literal**' });

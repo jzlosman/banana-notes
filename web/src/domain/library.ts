@@ -1,4 +1,4 @@
-import { parseDocument, stringify } from 'yaml';
+import { isMap, isScalar, isSeq, parseDocument, stringify } from 'yaml';
 import { Marked, type Token } from 'marked';
 // Editor extensions install custom tokenizers; never let them mutate tag queries.
 const proseMarkdown = new Marked({ gfm: true });
@@ -80,6 +80,126 @@ export function withTag(markdown: string, tag: string): string {
   if (tagsOf(markdown).includes(normalized)) return markdown;
   const metadata = { ...parts.metadata, tags: [...new Set([...frontmatterTags(parts.metadata), normalized])] };
   return `---\n${stringify(metadata).trimEnd()}\n---\n${parts.body}`;
+}
+interface MarkdownRange { start: number; end: number; replacement?: string }
+function lineStart(source: string, offset: number): number { return source.lastIndexOf('\n', Math.max(0, offset - 1)) + 1; }
+function lineEnd(source: string, offset: number): number {
+  if (source[offset - 1] === '\n') return offset;
+  const newline = source.indexOf('\n', offset);
+  return newline < 0 ? source.length : newline + 1;
+}
+function removeFrontmatterTag(source: string, tag: string): { source: string; changed: boolean } {
+  const delimiters = source.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)(\r?\n)?$/);
+  if (!delimiters) return { source, changed: false };
+  const yaml = delimiters[2];
+  const yamlDocument = parseDocument(yaml, { uniqueKeys: true });
+  if (yamlDocument.errors.length || !isMap(yamlDocument.contents)) return { source, changed: false };
+  const edits: MarkdownRange[] = [];
+  for (const pair of yamlDocument.contents.items) {
+    if (!isScalar(pair.key) || (pair.key.value !== 'tags' && pair.key.value !== 'tag') || !pair.value) continue;
+    const fieldRange = pair.value.range;
+    if (isSeq(pair.value)) {
+      const values = pair.value.items;
+      const matches = values.map((value, index) => isScalar(value) && typeof value.value === 'string' && normalizeTag(value.value) === tag ? index : -1).filter(index => index >= 0);
+      const matchingIndices = new Set(matches);
+      if (!matches.length) continue;
+      const keyRange = pair.key.range;
+      if (!keyRange || !fieldRange) continue;
+      if (matches.length === values.length) {
+        edits.push({ start: lineStart(yaml, keyRange[0]), end: fieldRange[2] });
+      } else if (pair.value.flow) {
+        let cursor = 0;
+        while (cursor < values.length) {
+          if (!matchingIndices.has(cursor)) { cursor++; continue; }
+          const first = cursor;
+          while (cursor + 1 < values.length && matchingIndices.has(cursor + 1)) cursor++;
+          const last = cursor;
+          const firstRange = (values[first] as { range?: [number, number, number] }).range;
+          const lastRange = (values[last] as { range?: [number, number, number] }).range;
+          if (!firstRange || !lastRange) { cursor++; continue; }
+          if (last < values.length - 1) {
+            const nextRange = (values[last + 1] as { range?: [number, number, number] }).range;
+            if (nextRange) edits.push({ start: firstRange[0], end: nextRange[0] });
+          } else {
+            const previousRange = (values[first - 1] as { range?: [number, number, number] }).range;
+            if (previousRange) edits.push({ start: previousRange[1], end: lastRange[1] });
+          }
+          cursor++;
+        }
+      } else {
+        for (const index of matches) {
+          const range = (values[index] as { range?: [number, number, number] }).range;
+          if (range) edits.push({ start: lineStart(yaml, range[0]), end: lineEnd(yaml, range[2]) });
+        }
+      }
+    } else if (isScalar(pair.value) && typeof pair.value.value === 'string') {
+      const values = pair.value.value.split(/[\s,]+/).filter(value => value && normalizeTag(value) !== tag);
+      const allValues = pair.value.value.split(/[\s,]+/).filter(Boolean);
+      if (values.length === allValues.length) continue;
+      const keyRange = pair.key.range;
+      if (!keyRange || !fieldRange) continue;
+      if (!values.length) edits.push({ start: lineStart(yaml, keyRange[0]), end: fieldRange[2] });
+      else edits.push({ start: fieldRange[0], end: fieldRange[1], replacement: stringify(values.join(', ')).trimEnd() });
+    }
+  }
+  if (!edits.length) return { source, changed: false };
+  let updatedYAML = yaml;
+  for (const edit of edits.sort((left, right) => right.start - left.start)) {
+    updatedYAML = updatedYAML.slice(0, edit.start) + ('replacement' in edit ? edit.replacement : '') + updatedYAML.slice(edit.end);
+  }
+  if (!updatedYAML.trim()) return { source: '', changed: true };
+  return { source: `${delimiters[1]}${updatedYAML}${delimiters[3]}${delimiters[4] ?? ''}`, changed: true };
+}
+interface InlineTagRange extends MarkdownRange { tag: string }
+type SourceToken = Token & { text?: string; tokens?: Token[] };
+function inlineTagRanges(body: string): InlineTagRange[] {
+  const ranges: InlineTagRange[] = [];
+  const pattern = /(?:^|[\s(\[{])#([\p{L}][\p{L}\p{N}_/-]*)/gu;
+  const visit = (token: SourceToken, start: number, raw: string): void => {
+    if (token.type === 'image') return;
+    const children = Array.isArray(token.tokens) ? token.tokens : [];
+    if (token.type === 'text' && !children.length && typeof token.text === 'string' && raw === token.text) {
+      for (const match of token.text.matchAll(pattern)) {
+        const normalized = normalizeTag(match[1]);
+        if (!validTag(normalized)) continue;
+        const hash = match[0].lastIndexOf('#');
+        const tokenStart = start + match.index + hash;
+        ranges.push({ tag: normalized, start: tokenStart, end: tokenStart + match[1].length + 1 });
+      }
+    }
+    let childCursor = 0;
+    for (const child of children) {
+      const childRaw = String(child.raw ?? '');
+      if (!childRaw) continue;
+      const index = raw.indexOf(childRaw, childCursor);
+      if (index < 0) continue;
+      visit(child as SourceToken, start + index, childRaw);
+      childCursor = index + childRaw.length;
+    }
+  };
+  let cursor = 0;
+  for (const token of proseMarkdown.lexer(body)) {
+    const raw = String(token.raw ?? '');
+    if (!raw) continue;
+    const start = body.indexOf(raw, cursor);
+    if (start < 0) continue;
+    visit(token as SourceToken, start, raw);
+    cursor = start + raw.length;
+  }
+  return ranges;
+}
+/** Removes a tag everywhere it is stored; inline removal deletes only the #tag token. */
+export function removeTag(markdown: string, tag: string): string {
+  const normalized = normalizeTag(tag);
+  if (!validTag(normalized)) throw new Error('Use a letter first, then letters, numbers, dashes, underscores, or slashes.');
+  const parts = splitDocument(markdown);
+  if (parts.error) throw new Error(parts.error);
+  const frontmatter = removeFrontmatterTag(parts.frontmatter, normalized);
+  const inlineRanges = inlineTagRanges(parts.body).filter(range => range.tag === normalized);
+  if (!frontmatter.changed && !inlineRanges.length) return markdown;
+  let body = parts.body;
+  for (const range of inlineRanges.sort((left, right) => right.start - left.start)) body = body.slice(0, range.start) + body.slice(range.end);
+  return frontmatter.source + body;
 }
 function parseTitle(markdown: string): string {
   const { body } = splitDocument(markdown);

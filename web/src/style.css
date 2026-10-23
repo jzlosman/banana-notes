@@ -43,8 +43,11 @@ button, .titlebar, footer { -webkit-user-select: none; user-select: none; }
 main { min-height: 0; flex: 1; }
 .note-side { display: flex; flex-direction: column; }
 .note-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 24px 5px; max-height: 95px; overflow-y: auto; flex-shrink: 0; }
-.tag-badge { padding: 1px 8px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-size: 12px; font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.tag-badge-group { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; border-radius: 5px; background: var(--accent-soft); }
+.tag-badge { min-width: 0; padding: 1px 3px 1px 8px; border-radius: 5px 0 0 5px; color: var(--accent); background: transparent; font-size: 12px; font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag-badge:hover { filter: brightness(.95); }
+.tag-remove { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 21px; height: 20px; padding: 0 4px 1px 2px; border-radius: 0 5px 5px 0; color: var(--accent); font-size: 14px; line-height: 1; }
+.tag-remove:hover { background: var(--hover); }
 .add-tag { color: var(--muted); padding: 1px 3px; display: inline-flex; gap: 3px; align-items: center; font-size: 12px; border-radius: 4px; }
 .add-tag:hover { color: var(--accent); background: var(--accent-soft); }
 .tag-form { display: inline-flex; align-items: center; gap: 3px; height: 25px; color: var(--accent); }

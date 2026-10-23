@@ -10,6 +10,7 @@ import {
   navigate,
   purgeExpiredTrash,
   restoreNote,
+  removeTag as withoutTag,
   selectNotebook,
   selectNotebooks,
   trashNote,
@@ -44,7 +45,15 @@ export class LibraryCommands {
   addTag(library: Library, id: string, tag: string): LibraryCommandResult {
     const note = library.notes.find(candidate => candidate.id === id && !candidate.trashedAt);
     if (!note) return { kind: 'applied', library };
-    return this.edit(library, id, withTag(note.markdown, tag));
+    const markdown = withTag(note.markdown, tag);
+    return markdown === note.markdown ? { kind: 'applied', library } : this.edit(library, id, markdown);
+  }
+
+  removeTag(library: Library, id: string, tag: string): LibraryCommandResult {
+    const note = library.notes.find(candidate => candidate.id === id && !candidate.trashedAt);
+    if (!note) return { kind: 'applied', library };
+    const markdown = withoutTag(note.markdown, tag);
+    return markdown === note.markdown ? { kind: 'applied', library } : this.edit(library, id, markdown);
   }
 
   navigate(library: Library, delta: number): Library { return navigate(library, delta); }

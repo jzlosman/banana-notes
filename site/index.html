@@ -3,316 +3,225 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#5A3A22">
-    <meta name="description" content="Banana Notes is a little notepad that floats over whatever you're doing. Open it with a hotkey. Click back to your work and it fades out of the way.">
+    <meta name="theme-color" content="#FFFFFF">
+    <meta name="description" content="A little notepad that floats over your work. Press ⌃⇧Space, jot the thought, and click back to what you were doing.">
     <meta property="og:type" content="website">
     <meta property="og:title" content="Banana Notes — a floating notepad for your Mac">
-    <meta property="og:description" content="Banana Notes is a little notepad that floats over whatever you're doing. Open it with a hotkey. Click back to your work and it fades out of the way.">
+    <meta property="og:description" content="A little notepad that floats over your work. Press ⌃⇧Space, jot the thought, and click back to what you were doing.">
     <meta property="og:url" content="https://jzlosman.github.io/banana-notes/">
     <meta property="og:image" content="https://jzlosman.github.io/banana-notes/og.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Banana Notes — a floating notepad for your Mac">
-    <meta name="twitter:description" content="Banana Notes is a little notepad that floats over whatever you're doing. Open it with a hotkey. Click back to your work and it fades out of the way.">
+    <meta name="twitter:description" content="A little notepad that floats over your work. Press ⌃⇧Space, jot the thought, and click back to what you were doing.">
     <meta name="twitter:image" content="https://jzlosman.github.io/banana-notes/og.png">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="preload" href="fonts/space-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="fonts/space-mono-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="site.css">
     <title>Banana Notes — a floating notepad for your Mac</title>
   </head>
   <body class="bg-white font-sans text-ink antialiased">
-    <svg class="icon-sprite" aria-hidden="true" focusable="false">
-      <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" /></symbol>
-      <symbol id="icon-note" viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5zM15 3v5h5" /></symbol>
-      <symbol id="icon-pin" viewBox="0 0 24 24"><path d="m8 4 8 2-2 5 3 4-5-1-4 7 1-8-4-3 5-1z" /></symbol>
-      <symbol id="icon-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6h.01M4 12h.01M4 18h.01" /></symbol>
-      <symbol id="icon-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6M16 6l6 6-6 6M14 4l-4 16" /></symbol>
-      <symbol id="icon-add" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
-      <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
-      <symbol id="icon-toolbar" viewBox="0 0 76 16"><path d="M7 3v5m0 0-3-3m3 3 3-3M18 3h6v10h-6zM34 8h8M38 4v8M52 5h8M52 8h8M52 11h8M70 5l-4 3 4 3" /></symbol>
-    </svg>
     <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-header">
-      <a class="brand-lockup" href="#top" aria-label="Banana Notes home">
-        <img src="img/mark.svg" width="36" height="36" alt="">
-        <span class="brand-name"><strong>banana</strong><span>notes</span></span>
-      </a>
-      <button class="menu-toggle note-corner" type="button" aria-expanded="false" aria-controls="mobile-navigation" aria-label="Open menu">
-        <svg class="icon menu-glyph" aria-hidden="true"><use href="#icon-menu"></use></svg><span>Menu</span>
-      </button>
-      <nav class="desktop-nav" aria-label="Main navigation">
-        <a href="#fade">How it works</a>
-        <a href="#tags">Tags</a>
-        <a href="#facts">Privacy</a>
-        <a href="https://github.com/jzlosman/banana-notes" data-goatcounter-click="github-nav">GitHub</a>
-        <a class="button button-dark nav-download" href="https://github.com/jzlosman/banana-notes/releases" data-goatcounter-click="download-nav">Download for Mac</a>
-      </nav>
-      <nav class="mobile-nav" id="mobile-navigation" aria-label="Main navigation">
-        <a href="#fade">How it works</a>
-        <a href="#tags">Tags</a>
-        <a href="#facts">Privacy</a>
-        <a href="https://github.com/jzlosman/banana-notes" data-goatcounter-click="github-nav">GitHub</a>
-        <a class="button button-dark" href="https://github.com/jzlosman/banana-notes/releases" data-goatcounter-click="download-nav">Download for Mac</a>
-      </nav>
+    <header class="site-header" id="site-header">
+      <div class="nav-inner">
+        <a class="brand-lockup" href="#top" aria-label="Banana Notes home">
+          <img src="img/mark.svg" width="36" height="36" alt="">
+          <span class="brand-name"><strong>banana</strong><span>notes</span></span>
+        </a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-navigation" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+          <span>Menu</span>
+        </button>
+        <nav class="desktop-nav" aria-label="Main navigation">
+          <a href="#features">Features</a>
+          <a href="#privacy">Privacy</a>
+          <a href="https://github.com/jzlosman/banana-notes" data-goatcounter-click="github-nav">GitHub</a>
+          <a class="button button-dark nav-download" href="https://github.com/jzlosman/banana-notes/releases/latest" data-goatcounter-click="download-nav">Download for Mac</a>
+        </nav>
+        <nav class="mobile-nav" id="mobile-navigation" aria-label="Main navigation">
+          <a href="#features">Features</a>
+          <a href="#privacy">Privacy</a>
+          <a href="https://github.com/jzlosman/banana-notes" data-goatcounter-click="github-nav-mobile">GitHub</a>
+          <a class="button button-dark" href="https://github.com/jzlosman/banana-notes/releases/latest" data-goatcounter-click="download-nav-mobile">Download for Mac</a>
+        </nav>
+      </div>
     </header>
 
     <main id="main">
       <section class="hero-section" id="top" aria-labelledby="hero-title">
-        <div class="hero-copy">
-          <h1 id="hero-title" class="text-hero reveal" style="--reveal-delay: 0ms">Jot it down.<br>Get back to it.</h1>
-          <p class="hero-support reveal" style="--reveal-delay: 80ms"><span class="hero-desktop-copy">Banana Notes is a little notepad that floats over whatever you're doing. Open it with a hotkey. Click back to your work and it fades out of the way.</span><span class="hero-mobile-copy">A little notepad that floats over whatever you're doing on your Mac. One shortcut opens it. Click away and it fades.</span></p>
-          <div class="hero-actions reveal" style="--reveal-delay: 160ms">
-            <a class="button button-dark button-large" href="https://github.com/jzlosman/banana-notes/releases" data-goatcounter-click="download-hero">Download for Mac</a>
-            <div class="keyboard-cue" aria-label="Try Banana Notes with Control, Shift, and Space">
-              <span>or press</span><kbd>⌃</kbd><kbd>⇧</kbd><kbd>Space</kbd><span>to try it here</span>
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <h1 id="hero-title" class="hero-title">
+              <span class="title-mask"><span class="title-line">Jot it down.</span></span>
+              <span class="title-mask"><span class="title-line">Get back to it.</span></span>
+            </h1>
+            <p class="hero-support">A little notepad that floats over your work. Press ⌃⇧Space, jot the thought, and click back to what you were doing.</p>
+            <div class="hero-actions">
+              <a class="button button-dark button-large" href="https://github.com/jzlosman/banana-notes/releases/latest" data-goatcounter-click="download-hero">Download for Mac</a>
+              <p class="hero-facts"><span>Free and open source</span><span>macOS 14+ · v0.2.0</span></p>
             </div>
-            <button class="button button-dark touch-try" type="button" data-open-live-note>Try it here</button>
           </div>
-          <p class="hero-facts reveal" style="--reveal-delay: 240ms"><span class="hero-desktop-copy">Free and open source · macOS 14 or later · No account</span><span class="hero-mobile-copy">Free and open source · macOS 14+</span></p>
-        </div>
-        <div class="hero-visual" aria-label="Banana Notes floating over a code editor">
-          <div class="hero-motif" aria-hidden="true">
-            <svg viewBox="10 10 27 28" role="presentation" focusable="false">
-              <g transform="rotate(-8 23.5 24)">
+          <div class="hero-art">
+            <svg class="hero-motif" viewBox="10 10 27 28" aria-hidden="true" focusable="false">
+              <g>
                 <path d="M12.2 10 H34.8 Q37 10 37 12.2 V16.5 C37 30.5 32.5 38 17.5 38 H12.2 Q10 38 10 35.8 V12.2 Q10 10 12.2 10 Z" fill="#D9A00A"></path>
                 <path d="M17.2 10 H34.8 Q37 10 37 12.2 V16.5 C37 25 25 36.6 17.5 38 H12.2 Q10 38 10 35.8 V17.2 Z" fill="#FBE122"></path>
                 <path d="M12.2 10 H17.2 L10 17.2 V12.2 Q10 10 12.2 10 Z" fill="#2E1D12"></path>
               </g>
             </svg>
+            <figure class="floating-window hero-work">
+              <img src="img/work-window-1x.webp" srcset="img/work-window-1x.webp 1x, img/work-window-2x.webp 2x" width="560" height="440" alt="A dark GitHub code window showing TypeScript source" fetchpriority="high" decoding="async">
+            </figure>
+            <figure class="floating-window hero-note-window" data-ui>
+              <img src="img/note-launch-1x.webp" srcset="img/note-launch-1x.webp 1x, img/note-launch-2x.webp 2x" width="360" height="491" alt="Banana Notes showing a launch day checklist with tasks and a #launch tag" fetchpriority="high" decoding="async">
+            </figure>
           </div>
-          <div class="code-window hero-code" aria-label="A code editor showing pricing code">
-            <div class="code-titlebar"><span></span><span></span><span></span><p>pricing.ts</p></div>
-            <pre><code>import { quote } from './pricing'
-
-export function total(seats: number) {
-  const base = quote(seats)
-  // TODO: annual discount?
-  return base * 0.85
-}
-
-export const LAUNCH_DATE = '2026-11-04'
-export const BUDGET = 18_000</code></pre>
-          </div>
-          <img class="hero-note floating-product" src="img/note-light.png" width="400" height="520" alt="Banana Light note showing a launch day checklist with tasks and a #launch tag" fetchpriority="high" data-theme-image="banana-light">
         </div>
       </section>
 
-      <section class="problem-section" id="problem" aria-labelledby="problem-title">
+      <section class="problem-section" id="problem" aria-labelledby="problem-copy">
         <div class="section-inner problem-inner">
-          <p id="problem-title" class="problem-statement reveal">You're on a call and someone says a number worth keeping. By the time you've opened a notes app and named a file, it's gone.</p>
-          <div class="file-pile" aria-label="A pile of notes with untitled filenames">
-            <span class="file-chip">Untitled.txt</span><span class="file-chip">Untitled 2.txt</span><span class="file-chip">notes.txt</span><span class="file-chip">notes final.txt</span><span class="file-chip">Untitled 3.txt</span><span class="file-chip">todo.md</span><span class="file-chip">todo (1).md</span><span class="file-chip">call notes.txt</span><span class="file-chip">Untitled 7.txt</span><span class="file-chip">IMPORTANT.txt</span><span class="file-chip">notes final 2.txt</span><span class="file-chip">scratch.md</span><span class="file-chip">Untitled 12.txt</span><span class="file-chip">meeting.txt</span><span class="file-chip">meeting (copy).txt</span><span class="file-chip">Untitled 31.txt</span><span class="file-chip">ideas.txt</span><span class="file-chip">asdf.txt</span><span class="file-chip">Untitled 58.txt</span><span class="file-chip">remember this.txt</span><span class="file-chip">Untitled 104.txt</span><span class="file-chip">todo FINAL.md</span><span class="file-chip">Untitled 211.txt</span><span class="file-chip">notes-new.txt</span><span class="file-chip">Untitled 388.txt</span>
-          </div>
-          <div class="big-file reveal">
-            <svg class="file-icon" width="72" height="90" viewBox="0 0 16 20" aria-hidden="true" focusable="false"><path d="M2 1h8l5 5v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="#fff" stroke="currentColor" stroke-width="1.4"></path><path d="M10 1v5h5" fill="none" stroke="currentColor" stroke-width="1.4"></path></svg>
+          <p id="problem-copy" class="problem-statement">On a call, someone gives you a number to keep. Before you open a notes app, the moment is gone.</p>
+          <div class="big-file">
+            <svg class="file-icon" viewBox="0 0 16 20" aria-hidden="true" focusable="false"><path d="M2 1h8l5 5v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="#FFFFFF" stroke="currentColor" stroke-width="0.9"></path><path d="M10 1v5h5" fill="none" stroke="currentColor" stroke-width="0.9"></path></svg>
             <p class="big-filename">Untitled <span id="file-counter" aria-label="429">429</span>.txt</p>
           </div>
-          <p class="problem-tagline reveal">And the ones you did save look like this.</p>
+          <p class="problem-tagline" data-reveal>And the ones you did save look like this.</p>
         </div>
       </section>
 
-      <section class="fade-section" id="fade" aria-labelledby="fade-title">
-        <div class="fade-main section-inner">
-          <div class="fade-copy">
-            <h2 id="fade-title" class="section-heading reveal">Faded when you don't need it.</h2>
-            <p class="fade-description reveal">Pin a note over your editor, a doc or a video call. Click back to your work and it fades so you can see what's under it. Click the note and it's solid again.</p>
-            <p class="fade-detail reveal">Window opacity is fully customizable in the app.</p>
-          </div>
-          <div class="fade-demo reveal">
-            <div class="code-window fade-code" aria-label="A code editor beneath a faded note">
-              <div class="code-titlebar"><span></span><span></span><span></span><p>pricing.ts</p></div>
-              <pre><code>import { quote } from './pricing'
-
-export function total(seats: number) {
-  const base = quote(seats)
-  // TODO: annual discount?
-  return base * 0.85
-}
-
-export const BUDGET = 18_000</code></pre>
-            </div>
-            <article class="ui-note fade-note" data-ui="banana-light" aria-label="Example note at the chosen opacity">
-              <div class="ui-note-chrome"><span>All notes</span><svg class="icon-cluster" aria-hidden="true"><use href="#icon-toolbar"></use></svg></div>
-              <div class="ui-note-content"><span class="tag-chip">#launch</span><h3>Call with Priya</h3><p>budget: 18k<br>approve by Fri</p><ul class="note-checklist"><li><span aria-hidden="true"></span>Send the deck</li><li><span aria-hidden="true"></span>Ask about annual</li></ul></div>
-            </article>
-          </div>
+      <section class="fade-section section-inner" id="features" aria-labelledby="fade-title">
+        <div class="fade-copy">
+          <h2 id="fade-title" class="section-heading" data-reveal>Faded when you don’t need it.</h2>
+          <p class="fade-description" data-reveal>Pin a note over your editor, a doc or a video call. Click back to your work and it fades so you can see what’s under it. Click the note and it’s solid again.</p>
         </div>
-        <div class="opacity-control section-inner reveal">
-          <label for="opacity-slider">Inactive window opacity <output id="opacity-value" for="opacity-slider">100%</output></label>
-          <div class="range-track-wrap">
-            <div class="range-track" aria-hidden="true"><span id="opacity-fill"></span></div>
-            <input id="opacity-slider" class="poster-range" type="range" min="5" max="100" value="100" aria-label="Inactive window opacity" aria-describedby="fade-title">
-          </div>
-        </div>
+        <figure class="fade-demo" data-reveal aria-label="A real Banana Notes window fading over a code editor">
+          <img class="fade-capture fade-capture-full" src="img/fade-full-1x.webp" srcset="img/fade-full-1x.webp 1x, img/fade-full-2x.webp 2x" width="802" height="681" alt="Banana Notes at full opacity over a dark code editor" loading="lazy" decoding="async" data-fade-full>
+          <img class="fade-capture fade-capture-muted" src="img/fade-muted-1x.webp" srcset="img/fade-muted-1x.webp 1x, img/fade-muted-2x.webp 2x" width="802" height="681" alt="Banana Notes faded to 60 percent over the same code editor" loading="lazy" decoding="async" data-fade-muted>
+        </figure>
       </section>
 
       <section class="window-section section-inner" id="window" aria-labelledby="window-title">
-        <div class="deck-column reveal">
-          <div class="deck-stack" aria-label="Seven note pages">
-            <div class="deck-shadow deck-shadow-back" aria-hidden="true"></div><div class="deck-shadow deck-shadow-front" aria-hidden="true"></div>
-            <button class="deck-control deck-previous" type="button" aria-label="Previous note" data-deck-step="-1"><kbd>⌘[</kbd></button>
-            <div class="deck-pages" id="deck-pages" aria-live="polite">
-              <article class="ui-note deck-note is-current" data-note-id="launch" data-tags="launch" data-ui="banana-light" aria-label="Launch day checklist">
-                <div class="ui-note-chrome"><svg class="icon note-symbol" aria-hidden="true"><use href="#icon-note"></use></svg><span>All notes</span><svg class="icon-cluster" aria-hidden="true"><use href="#icon-toolbar"></use></svg></div><div class="ui-note-tags"><button class="tag-chip filter-trigger" type="button" data-filter-launch aria-pressed="false">#launch</button><span>＋ Tag</span></div>
-                <div class="ui-note-content"><h3>Launch day checklist</h3><p class="note-muted">#launch</p><p>Clear the small blockers first; leave room for the unexpected.</p><h4>Morning</h4><ul class="note-checklist"><li class="done"><span aria-hidden="true"></span>Review the release notes</li><li><span aria-hidden="true"></span>Check the welcome flow on a clean install</li><li><span aria-hidden="true"></span>Confirm support links</li></ul><h4>Afternoon</h4><ul class="note-checklist"><li><span aria-hidden="true"></span>Publish the announcement</li><li><span aria-hidden="true"></span>Watch the first session metrics</li></ul></div><div class="ui-note-footer"><span aria-hidden="true">B&nbsp; I&nbsp; ↗</span><span class="deck-counter">1 / 7</span></div>
-              </article>
-              <article class="ui-note deck-note" data-note-id="standup" data-tags="launch" hidden data-ui="banana-light" aria-label="Standup — Tue">
-                <div class="ui-note-chrome"><svg class="icon note-symbol" aria-hidden="true"><use href="#icon-note"></use></svg><span>All notes</span><svg class="icon-cluster" aria-hidden="true"><use href="#icon-toolbar"></use></svg></div><div class="ui-note-tags"><button class="tag-chip filter-trigger" type="button" data-filter-launch aria-pressed="false">#launch</button><span>＋ Tag</span></div><div class="ui-note-content"><h3>Standup — Tue</h3><p class="note-muted">#launch</p><h4>Today</h4><ul class="note-checklist"><li><span></span>Fix the pricing typo</li><li><span></span>Confirm the welcome flow</li></ul><p>Ship the docs after Priya signs off.</p><h4>Blocker</h4><p>Waiting on the final build.</p></div><div class="ui-note-footer"><span aria-hidden="true">B&nbsp; I&nbsp; ↗</span><span class="deck-counter">2 / 7</span></div>
-              </article>
-              <article class="ui-note deck-note" data-note-id="priya" data-tags="launch" hidden data-ui="banana-light" aria-label="Call with Priya">
-                <div class="ui-note-chrome"><svg class="icon note-symbol" aria-hidden="true"><use href="#icon-note"></use></svg><span>All notes</span><svg class="icon-cluster" aria-hidden="true"><use href="#icon-toolbar"></use></svg></div><div class="ui-note-tags"><button class="tag-chip filter-trigger" type="button" data-filter-launch aria-pressed="false">#launch</button><span>＋ Tag</span></div><div class="ui-note-content"><h3>Call with Priya</h3><p class="note-muted">#launch</p><p>budget: 18k<br>approve by Fri</p><ul class="note-checklist"><li><span></span>Send the deck</li><li><span></span>Ask about annual</li></ul></div><div class="ui-note-footer"><span aria-hidden="true">B&nbsp; I&nbsp; ↗</span><span class="deck-counter">3 / 7</span></div>
-              </article>
-              <article class="ui-note deck-note" data-note-id="pricing" data-tags="launch" hidden data-ui="banana-light" aria-label="Pricing ideas">
-                <div class="ui-note-chrome"><svg class="icon note-symbol" aria-hidden="true"><use href="#icon-note"></use></svg><span>All notes</span><svg class="icon-cluster" aria-hidden="true"><use href="#icon-toolbar"></use></svg></div><div class="ui-note-tags"><button class="tag-chip filter-trigger" type="button" data-filter-launch aria-pressed="false">#launch</button><span>＋ Tag</span></div><div class="ui-note-content"><h3>Pricing ideas</h3><p class="note-muted">#launch</p><p>Annual plan: 15% off.<br>Keep the monthly price simple.</p><ul class="note-checklist"><li><span></span>Decide on annual plan</li><li><span></span>Update the pricing page</li></ul></div><div class="ui-note-footer"><span aria-hidden="true">B&nbsp; I&nbsp; ↗</span><span class="deck-counter">4 / 7</span></div>
-              </article>
-              <article class="ui-note deck-note" data-note-id="groceries" data-tags="" hidden data-ui="banana-light" aria-label="Groceries">
-                <div class="ui-note-chrome"><svg class="icon note-symbol" aria-hidden="true"><use href="#icon-note"></use></svg><span>All notes</span><svg class="icon-cluster" aria-hidden="true"><use href="#icon-toolbar"></use></svg></div><div class="ui-note-tags"><span class="tag-placeholder">＋ Tag</span></div><div class="ui-note-content"><h3>Groceries</h3><h4>Market</h4><ul class="note-checklist"><li><span></span>Eggs</li><li><span></span>Coffee</li><li><span></span>Bananas</li><li><span></span>Oat milk</li></ul></div><div class="ui-note-footer"><span aria-hidden="true">B&nbsp; I&nbsp; ↗</span><span class="deck-counter">5 / 7</span></div>
-              </article>
-              <article class="ui-note deck-note" data-note-id="overstory" data-tags="" hidden data-ui="banana-light" aria-label="Book notes: The Overstory">
-                <div class="ui-note-chrome"><svg class="icon note-symbol" aria-hidden="true"><use href="#icon-note"></use></svg><span>All notes</span><svg class="icon-cluster" aria-hidden="true"><use href="#icon-toolbar"></use></svg></div><div class="ui-note-tags"><span class="tag-placeholder">＋ Tag</span></div><div class="ui-note-content"><h3>Book notes: The Overstory</h3><p>Some stories take the long way around. Trees make time visible.</p><h4>Remember</h4><p>Pay attention to the roots, not just the canopy.</p></div><div class="ui-note-footer"><span aria-hidden="true">B&nbsp; I&nbsp; ↗</span><span class="deck-counter">6 / 7</span></div>
-              </article>
-              <article class="ui-note deck-note" data-note-id="retry" data-tags="" hidden data-ui="banana-light" aria-label="Retry logic">
-                <div class="ui-note-chrome"><svg class="icon note-symbol" aria-hidden="true"><use href="#icon-note"></use></svg><span>All notes</span><svg class="icon-cluster" aria-hidden="true"><use href="#icon-toolbar"></use></svg></div><div class="ui-note-tags"><span class="tag-placeholder">＋ Tag</span></div><div class="ui-note-content"><h3>Retry logic</h3><pre class="note-code"><code>const retry = async (run: () => Promise&lt;void&gt;) =&gt; {
-  for (let attempt = 0; attempt &lt; 3; attempt++) {
-    try { return await run() }
-    catch (error) { if (attempt === 2) throw error }
-  }
-}</code></pre></div><div class="ui-note-footer"><span aria-hidden="true">B&nbsp; I&nbsp; ↗</span><span class="deck-counter">7 / 7</span></div>
-              </article>
-            </div>
-            <button class="deck-control deck-next" type="button" aria-label="Next note" data-deck-step="1"><kbd>⌘]</kbd></button>
+        <figure class="window-stage" aria-label="The notes list and note window">
+          <div class="window-list floating-window" data-reveal-from="left" data-ui>
+            <img src="img/window-list-1x.webp" srcset="img/window-list-1x.webp 1x, img/window-list-2x.webp 2x" width="420" height="611" alt="The Banana Notes list showing seven notes, tags and search" loading="lazy" decoding="async">
           </div>
-          <div class="deck-navigation"><button type="button" aria-label="Previous note" data-deck-step="-1">←</button><span id="deck-indicator" aria-live="polite">1 / 7</span><button type="button" aria-label="Next note" data-deck-step="1">→</button></div>
-        </div>
+          <div class="window-note floating-window" data-note-window data-reveal-from="right" data-ui role="group" aria-label="Three real notes shown in the same note window">
+            <div class="note-pages">
+              <img class="note-page is-current" src="img/window-launch-1x.webp" srcset="img/window-launch-1x.webp 1x, img/window-launch-2x.webp 2x" width="420" height="573" alt="Launch day checklist with morning and afternoon tasks" loading="lazy" decoding="async">
+              <img class="note-page" src="img/window-priya-1x.webp" srcset="img/window-priya-1x.webp 1x, img/window-priya-2x.webp 2x" width="420" height="573" alt="Call with Priya note with an 18k budget and two follow-up tasks" loading="lazy" decoding="async">
+              <img class="note-page" src="img/window-retry-1x.webp" srcset="img/window-retry-1x.webp 1x, img/window-retry-2x.webp 2x" width="420" height="573" alt="Retry logic note with a TypeScript code example" loading="lazy" decoding="async">
+            </div>
+          </div>
+        </figure>
         <div class="window-copy">
-          <div class="window-intro reveal"><h2 id="window-title" class="section-heading">One window.<br>Every note.</h2><p>No pile of windows to manage. Every note lives in this one small window, and you flip through them like pages in a notebook.</p></div>
-          <div class="filter-panel reveal">
-            <div class="filter-chips"><button class="tag-chip filter-trigger" type="button" data-filter-launch aria-pressed="false">#launch <span aria-hidden="true">×</span></button><span class="tag-chip passive-chip">#work</span><span class="tag-chip passive-chip">#ideas</span><span id="filter-count">4 notes</span></div>
-            <p>Filter to one tag and only those notes are left. New notes join it, and flipping stays inside it.</p>
-          </div>
-          <div class="search-panel reveal">
-            <label class="sr-only" for="note-search">Search notes by meaning or text</label>
-            <input id="note-search" type="search" value="what did Priya say about money" autocomplete="off" placeholder="Search notes">
-            <ul id="search-results" aria-label="Search results">
-              <li><button type="button" data-select-note="priya"><span><strong>Call with Priya</strong><small>budget: 18k, approve by Fri</small></span><em>by meaning</em></button></li>
-              <li><button type="button" data-select-note="pricing"><span><strong>Pricing ideas</strong><small>Annual plan: 15% off</small></span><em>by meaning</em></button></li>
-            </ul>
-            <p>Search by what you meant, not just the words you typed. It runs on your Mac, so your notes never leave it.</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="features-section" id="features" aria-label="What Banana Notes does">
-        <div class="feature-band is-on" data-feature="markdown">
-          <div class="feature-text"><h2>Type # and it's a title.</h2><div class="feature-consequence"><p>Markdown renders as you type. [ ] makes a checkbox and ** makes it bold. There's no preview pane.</p></div></div>
-          <button class="feature-switch" type="button" role="switch" aria-checked="true" aria-label="Type # and it's a title" data-feature-switch="markdown"><span></span></button>
-        </div>
-        <div class="feature-band" data-feature="naming">
-          <div class="feature-text"><h2>There's nothing to name.</h2><div class="feature-consequence"><p>Nothing to sign up for. Open it and write.</p></div></div>
-          <button class="feature-switch" type="button" role="switch" aria-checked="false" aria-label="There's nothing to name" data-feature-switch="naming"><span></span></button>
-        </div>
-        <div class="feature-band is-on" data-feature="fade">
-          <div class="feature-text"><h2>It tucks away when you click off.</h2><div class="feature-consequence"><p>Unless you pin it. No Dock icon, no ⌘Tab clutter, and ⌃⇧Space brings it right back.</p></div></div>
-          <button class="feature-switch" type="button" role="switch" aria-checked="true" aria-label="It tucks away when you click off" data-feature-switch="fade"><span></span></button>
-        </div>
-        <div class="feature-band" data-feature="local">
-          <div class="feature-text"><h2>Your notes stay on your Mac.</h2><div class="feature-consequence"><p>Notes live in one file on your Mac.</p></div></div>
-          <button class="feature-switch" type="button" role="switch" aria-checked="false" aria-label="Your notes stay on your Mac" data-feature-switch="local"><span></span></button>
-        </div>
-        <div class="feature-band" data-feature="themes">
-          <div class="feature-text"><h2>It wears your colors.</h2><div class="feature-consequence"><p>Banana Light · Nord · Catppuccin Latte · Rosé Pine Dawn</p></div></div>
-          <button class="feature-switch" type="button" role="switch" aria-checked="false" aria-label="It wears your colors" data-feature-switch="themes"><span></span></button>
-        </div>
-      </section>
-
-      <section class="tags-section" id="tags" aria-labelledby="tags-heading">
-        <div class="tags-sticky">
-          <div class="tags-story section-inner">
-            <div class="tags-copy">
-              <div class="tags-stage-copy" aria-live="polite">
-                <h2 id="tags-heading" class="section-heading">Every task,<br>in one list.</h2>
-                <p id="tags-description">Tasks end up scattered across a week of notes. Tag the ones that belong together, click the tag, and they're all here. Tick one off and the original note updates too.</p>
-              </div>
-              <div class="tag-stage-input">
-                <label class="sr-only" for="tag-stage-slider">Tag story stage</label>
-                <div class="tag-range-wrap"><div class="tag-range-track" aria-hidden="true"><span id="tag-range-fill"></span></div><input id="tag-stage-slider" type="range" min="1" max="4" step="1" value="4" aria-label="Tag story stage"></div>
-                <div class="tag-stage-labels"><span data-stage-label="1">Jot tasks anywhere</span><span data-stage-label="2">Tag them #launch</span><span data-stage-label="3">Click the tag</span><span class="active" data-stage-label="4">One list</span></div>
-              </div>
-            </div>
-            <div class="tags-fragment" aria-label="A story showing scattered tasks gathered with a tag">
-              <div class="tag-scattered" aria-hidden="true">
-                <article class="mini-note mini-note-one" data-ui="banana-light"><h3>Launch day</h3><p>[ ] Post the announcement</p><p>[ ] Check support links</p><span class="tag-chip stamp">#launch</span></article>
-                <article class="mini-note mini-note-two" data-ui="banana-light"><h3>Standup — Tue</h3><p>[ ] Fix the pricing typo</p><p>[ ] Confirm the build</p><span class="tag-chip stamp">#launch</span></article>
-                <article class="mini-note mini-note-three" data-ui="banana-light"><h3>Call with Priya</h3><p>[ ] Send the deck</p><p>[ ] Approve by Fri</p><span class="tag-chip stamp">#launch</span></article>
-                <article class="mini-note mini-note-four" data-ui="banana-light"><h3>Pricing ideas</h3><p>[ ] Choose annual plan</p><p>[ ] Update the page</p><span class="tag-chip stamp">#launch</span></article>
-                <span class="tag-cursor" aria-hidden="true">↖</span>
-              </div>
-              <div class="tag-overview ui-note" data-ui="banana-light" aria-label="Overview of six tasks from four notes">
-                <div class="overview-top"><strong>#launch · 4 notes</strong><span>•••</span></div>
-                <div class="overview-tabs"><span>Notes</span><strong>Tasks 6</strong><span>Media</span><span>Links</span></div>
-                <ul class="overview-tasks">
-                  <li><label><input type="checkbox" checked><span>Final build signed</span></label><small>Launch day</small></li>
-                  <li><label><input type="checkbox"><span>Post the announcement</span></label><small>Launch day</small></li>
-                  <li><label><input type="checkbox"><span>Email the beta group</span></label><small>Launch day</small></li>
-                  <li><label><input type="checkbox"><span>Send the deck</span></label><small>Call with Priya</small></li>
-                  <li><label><input type="checkbox"><span>Fix the pricing typo</span></label><small>Standup</small></li>
-                  <li><label><input type="checkbox"><span>Decide on annual plan</span></label><small>Pricing ideas</small></li>
-                </ul>
-              </div>
+          <div class="window-intro">
+            <h2 id="window-title" class="section-heading" data-reveal>One window.<br>Every note.</h2>
+            <p data-reveal>No pile of windows. Every note lives in this one small window. Flip through them like pages, or filter to a tag and only those are left.</p>
+            <div class="window-shortcuts" role="group" aria-label="Use Command and left or right bracket to move between notes">
+              <kbd>⌘[</kbd><kbd data-next-key>⌘]</kbd>
             </div>
           </div>
-          <div class="tags-mobile-sequence section-inner" aria-label="Four steps to gather tasks">
-            <article><h3>First, jot tasks anywhere.</h3><p>Put the next thing to do in whichever note is open.</p></article>
-            <article><h3>Then tag them #launch.</h3><p>Give related tasks the same tag.</p></article>
-            <article><h3>Click the tag.</h3><p>One click brings the related tasks together.</p></article>
-            <article><h3>Every task, in one list.</h3><p>Tasks end up scattered across a week of notes. Tag the ones that belong together, click the tag, and they're all here. Tick one off and the original note updates too.</p></article>
-            <div class="tag-stage-input mobile-stage-input"><label class="sr-only" for="tag-stage-slider-mobile">Tag story stage</label><input id="tag-stage-slider-mobile" type="range" min="1" max="4" step="1" value="4" aria-label="Tag story stage"></div>
-            <div class="tag-stage-labels mobile-stage-labels" role="group" aria-label="Tag story stages"><span data-stage-label="1">Jot tasks anywhere</span><span data-stage-label="2">Tag them #launch</span><span data-stage-label="3">Click the tag</span><span data-stage-label="4" class="active" aria-current="step">One list</span></div>
+        </div>
+      </section>
+
+      <section class="tasks-section section-inner" id="tasks" aria-labelledby="tasks-title">
+        <div class="tasks-copy">
+          <h2 id="tasks-title" class="section-heading" data-reveal>Every task,<br>in one list.</h2>
+          <p data-reveal>Tasks end up scattered across a week of notes. Tag the notes that belong together, click the tag, and every open task is here. Tick one off and the original note updates too.</p>
+        </div>
+        <figure class="tasks-art" data-task-art aria-label="Real Banana Notes tasks, gathered under the launch tag">
+          <img class="tasks-capture" data-ui src="img/tasks-1x.webp" srcset="img/tasks-1x.webp 1x, img/tasks-2x.webp 2x" width="440" height="620" alt="Open tasks from the launch tag, each linked to the note it came from" loading="lazy" decoding="async">
+        </figure>
+      </section>
+
+      <section class="themes-section" id="themes" aria-labelledby="themes-title">
+        <div class="section-inner themes-inner">
+          <div class="themes-heading">
+            <h2 id="themes-title" class="section-heading" data-reveal>Make it yours.</h2>
+            <p data-reveal>32 themes and six bundled fonts, all offline. The whole app re-skins, window chrome included.</p>
+          </div>
+          <div class="theme-gallery" aria-label="Eight Banana Notes themes">
+            <div class="theme-row theme-row-first">
+              <figure class="theme-card" data-theme-card><img src="img/theme-banana-light-1x.webp" srcset="img/theme-banana-light-1x.webp 1x, img/theme-banana-light-2x.webp 2x" width="380" height="480" alt="Banana Notes in Banana Light" loading="lazy" decoding="async"><figcaption>Banana Light</figcaption></figure>
+              <figure class="theme-card" data-theme-card><img src="img/theme-catppuccin-latte-1x.webp" srcset="img/theme-catppuccin-latte-1x.webp 1x, img/theme-catppuccin-latte-2x.webp 2x" width="380" height="480" alt="Banana Notes in Catppuccin Latte" loading="lazy" decoding="async"><figcaption>Catppuccin Latte</figcaption></figure>
+              <figure class="theme-card" data-theme-card><img src="img/theme-nord-1x.webp" srcset="img/theme-nord-1x.webp 1x, img/theme-nord-2x.webp 2x" width="380" height="480" alt="Banana Notes in Nord" loading="lazy" decoding="async"><figcaption>Nord</figcaption></figure>
+              <figure class="theme-card" data-theme-card><img src="img/theme-rose-pine-dawn-1x.webp" srcset="img/theme-rose-pine-dawn-1x.webp 1x, img/theme-rose-pine-dawn-2x.webp 2x" width="380" height="480" alt="Banana Notes in Rosé Pine Dawn" loading="lazy" decoding="async"><figcaption>Rosé Pine Dawn</figcaption></figure>
+            </div>
+            <div class="theme-row theme-row-second">
+              <figure class="theme-card" data-theme-card><img src="img/theme-tokyo-night-storm-1x.webp" srcset="img/theme-tokyo-night-storm-1x.webp 1x, img/theme-tokyo-night-storm-2x.webp 2x" width="380" height="480" alt="Banana Notes in Tokyo Night Storm" loading="lazy" decoding="async"><figcaption>Tokyo Night Storm</figcaption></figure>
+              <figure class="theme-card" data-theme-card><img src="img/theme-gruvbox-light-1x.webp" srcset="img/theme-gruvbox-light-1x.webp 1x, img/theme-gruvbox-light-2x.webp 2x" width="380" height="480" alt="Banana Notes in Gruvbox Light" loading="lazy" decoding="async"><figcaption>Gruvbox Light</figcaption></figure>
+              <figure class="theme-card" data-theme-card><img src="img/theme-dracula-1x.webp" srcset="img/theme-dracula-1x.webp 1x, img/theme-dracula-2x.webp 2x" width="380" height="480" alt="Banana Notes in Dracula" loading="lazy" decoding="async"><figcaption>Dracula</figcaption></figure>
+              <figure class="theme-card" data-theme-card><img src="img/theme-github-dark-1x.webp" srcset="img/theme-github-dark-1x.webp 1x, img/theme-github-dark-2x.webp 2x" width="380" height="480" alt="Banana Notes in GitHub Dark" loading="lazy" decoding="async"><figcaption>GitHub Dark</figcaption></figure>
+            </div>
           </div>
         </div>
       </section>
 
-      <section class="facts-section section-inner" id="facts" aria-labelledby="facts-heading">
-        <article class="fact-tile fact-lead reveal"><h2 id="facts-heading">Free, and yours.</h2><p>Banana Notes is open source under the MIT license. Read the code, build it yourself, keep it forever.</p></article>
-        <article class="fact-tile reveal"><h3>No account</h3><p>Nothing to sign up for. Open it and write.</p></article>
-        <article class="fact-tile reveal"><h3>No cloud</h3><p>Notes live in one file on your Mac.</p></article>
-        <article class="fact-tile reveal"><h3>No tracking</h3><p>No analytics, no telemetry, nothing phoned home.</p></article>
-        <article class="fact-tile reveal"><h3>Search stays local</h3><p>Meaning-based search runs on your Mac.</p></article>
-        <article class="fact-tile reveal"><h3>Plain Markdown</h3><p>Export every note as .md any time.</p></article>
-        <article class="fact-tile reveal"><h3>macOS 14+</h3><p>Universal: Apple silicon and Intel.</p></article>
+      <section class="privacy-section section-inner" id="privacy" aria-labelledby="privacy-title">
+        <div class="privacy-grid">
+          <article class="privacy-tile privacy-lead" data-reveal>
+            <h2 id="privacy-title">Free, and yours.</h2>
+            <p>Open source under the MIT license. Read the code, build it yourself, keep it forever.</p>
+          </article>
+          <article class="privacy-tile" data-reveal><h3>No account</h3><p>Nothing to sign up for.</p></article>
+          <article class="privacy-tile" data-reveal><h3>No cloud</h3><p>Notes live in one file on your Mac.</p></article>
+          <article class="privacy-tile" data-reveal><h3>No tracking</h3><p>No analytics or telemetry in the app.</p></article>
+          <article class="privacy-tile" data-reveal><h3>Local search</h3><p>Search by meaning, on your Mac.</p></article>
+          <article class="privacy-tile" data-reveal><h3>Plain Markdown</h3><p>Export every note as .md any time.</p></article>
+          <article class="privacy-tile" data-reveal><h3>Universal</h3><p>Apple silicon and Intel, macOS 14+.</p></article>
+        </div>
       </section>
 
-      <section class="cta-section section-inner" aria-labelledby="cta-heading">
-        <h2 id="cta-heading" class="cta-heading reveal">Don't lose the next one.</h2>
+      <section class="cta-section section-inner" id="download" aria-labelledby="cta-title">
+        <h2 id="cta-title" class="cta-heading" data-cta-heading>
+          <span class="title-mask"><span class="title-line">Save your thoughts while</span></span>
+          <span class="title-mask"><span class="title-line">they're ripe.</span></span>
+        </h2>
         <ol class="cta-steps">
-          <li class="reveal"><img src="img/mark.svg" width="44" height="44" alt=""><p>Download it and open it once. It lives in your menu bar, not the Dock.</p></li>
-          <li class="reveal"><div class="keycap-row"><kbd>⌃</kbd><kbd>⇧</kbd><kbd>Space</kbd></div><p>Press it from any app. Turn on Open at login and it's always ready.</p></li>
-          <li class="reveal"><strong>Write. Click away.</strong><p>It saves as you type, then fades until you need it again.</p></li>
+          <li class="cta-step" data-reveal>
+            <img src="img/mark.svg" width="44" height="44" alt="">
+            <p>Download it and open it once. It lives in your menu bar, not the Dock.</p>
+          </li>
+          <li class="cta-step" data-reveal>
+            <div class="keycap-row" aria-label="Control, Shift, Space"><kbd>⌃</kbd><kbd>⇧</kbd><kbd>Space</kbd></div>
+            <p>Press it from any app. Turn on Open at login and it’s always ready.</p>
+          </li>
+          <li class="cta-step" data-reveal>
+            <strong>Write. Click away.</strong>
+            <p>It saves as you type, then fades until you need it again.</p>
+          </li>
         </ol>
-        <div class="cta-actions reveal"><a class="button button-dark button-large" href="https://github.com/jzlosman/banana-notes/releases" data-goatcounter-click="download-cta">Download for Mac</a><a class="text-link" href="https://github.com/jzlosman/banana-notes" data-goatcounter-click="github-cta">View the code on GitHub</a></div>
+        <div class="cta-actions" data-reveal>
+          <a class="button button-dark button-large" href="https://github.com/jzlosman/banana-notes/releases/latest" data-goatcounter-click="download-cta">Download for Mac</a>
+          <a class="text-link" href="https://github.com/jzlosman/banana-notes" data-goatcounter-click="github-cta">View the code on GitHub</a>
+        </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <div class="footer-brand" aria-label="Banana Notes">
-        <img src="img/mark-on-cocoa.svg" width="200" height="200" alt="">
-        <p class="footer-wordmark"><strong>banana</strong><span>notes</span></p>
+      <div class="footer-inner">
+        <div class="footer-brand" aria-label="Banana Notes">
+          <img src="img/mark-on-cocoa.svg" width="190" height="190" alt="">
+          <p class="footer-wordmark"><span>banana</span><span>notes</span></p>
+        </div>
+        <div class="footer-bottom">
+          <nav aria-label="Footer navigation">
+            <a href="https://github.com/jzlosman/banana-notes" data-goatcounter-click="github-footer">GitHub</a>
+            <a href="https://github.com/jzlosman/banana-notes/releases">Releases</a>
+            <a href="https://github.com/jzlosman/banana-notes/blob/main/BRAND.md">Brand</a>
+            <a href="https://github.com/jzlosman/banana-notes/blob/main/SECURITY.md">Security</a>
+            <a href="https://github.com/jzlosman/banana-notes/blob/main/LICENSE">License</a>
+          </nav>
+          <p>MIT licensed. Made for macOS.</p>
+        </div>
+        <p class="site-counter-note">This site counts visits with GoatCounter. No cookies.</p>
       </div>
-      <div class="footer-bottom"><nav aria-label="Footer navigation"><a href="https://github.com/jzlosman/banana-notes" data-goatcounter-click="github-footer">GitHub</a><a href="https://github.com/jzlosman/banana-notes/releases">Releases</a><a href="https://github.com/jzlosman/banana-notes/blob/main/BRAND.md">Brand</a><a href="https://github.com/jzlosman/banana-notes/blob/main/SECURITY.md">Security</a><a href="https://github.com/jzlosman/banana-notes/blob/main/LICENSE">License</a></nav><p>MIT licensed. Set in Space Mono.</p><!-- taste-skill-ignore: Space Mono is the brand typeface specified by the design --></div>
-      <p class="site-counter-note">This site counts visits with GoatCounter. No cookies, nothing about you.</p>
     </footer>
 
-    <aside class="live-note" id="live-note" role="dialog" aria-label="Banana Notes quick note" aria-hidden="true" hidden data-theme="banana-light" data-ui="banana-light">
-      <div class="live-note-header" data-drag-handle>
-        <span>All notes</span><div class="live-note-actions"><button class="live-pin" type="button" aria-pressed="false" aria-label="Pin note" title="Pin note"><svg class="icon" aria-hidden="true"><use href="#icon-pin"></use></svg></button><button type="button" class="live-close" aria-label="Close note" title="Close note"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
-      </div>
-      <div class="live-note-tags"><span class="tag-chip">#launch</span><span>＋ Tag</span></div>
-      <label class="sr-only" for="live-note-editor">Write a note in Markdown</label>
-      <textarea id="live-note-editor" class="live-note-editor" spellcheck="false" autocapitalize="sentences" aria-describedby="live-note-status"># Try it
-[ ] Type a thought
-[ ] Click the page behind me</textarea>
-      <section class="live-note-preview" aria-label="Live Markdown preview"><div id="live-note-render" class="markdown-render"></div></section>
-      <div class="live-note-footer"><span aria-hidden="true">B&nbsp; I&nbsp; ↗</span><span>1 / 1</span><span class="sr-only" id="live-note-status" aria-live="polite">Saved in this browser.</span></div>
-    </aside>
+    <script src="vendor/gsap.min.js"></script>
+    <script src="vendor/ScrollTrigger.min.js"></script>
     <script type="module" src="js/main.js"></script>
     <script data-goatcounter="https://banana-notes.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
   </body>

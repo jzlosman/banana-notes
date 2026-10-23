@@ -3,6 +3,7 @@ node_modules/
 /build/
 /web/dist/
 /site/site.css
+/site/vendor/
 /assets/AppIcon.iconset/
 *.app/
 *.log

@@ -8,6 +8,10 @@ The editor uses the MIT-licensed TipTap/ProseMirror packages, Marked, YAML, and 
 
 The web build collects license and notice files from every npm package in its dependency graph. The app includes these, with a name/version/license inventory, under `Contents/Resources/web/third-party/dependencies/` and `dependencies.json`. Dependency source and license metadata are pinned in `package-lock.json`; the packages themselves are installed from npm, not vendored here.
 
+## Site motion
+
+The marketing site bundles GSAP 3.15.0 (including ScrollTrigger) from the pinned npm dependency into `site/vendor/` during `npm run site:build`. GSAP's package metadata identifies its license as the Standard “no charge” license, not MIT; the license terms are at [gsap.com/standard-license](https://gsap.com/standard-license). ScrollTrigger ships in the same package and is covered by that license.
+
 ## Bundled fonts
 
 Space Mono, JetBrains Mono, Overpass Mono and Fira Code are licensed under the SIL Open Font License 1.1. They are taken from pinned [Fontsource](https://fontsource.org) packages at build time (latin and latin-ext subsets only). Each font's license is included in the app under `Contents/Resources/web/third-party/font-licenses/`. The Banana Light and Banana Dark themes are original to Banana Notes.

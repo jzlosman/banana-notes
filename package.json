@@ -23,8 +23,8 @@
     "test": "tsx --test web/tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "dev": "node scripts/dev.mjs",
-    "site:build": "tailwindcss -i site/src/site.css -o site/site.css --minify",
-    "site:dev": "tailwindcss -i site/src/site.css -o site/site.css --watch"
+    "site:build": "tailwindcss -i site/src/site.css -o site/site.css --minify && node scripts/build-site.mjs",
+    "site:dev": "node scripts/build-site.mjs && tailwindcss -i site/src/site.css -o site/site.css --watch"
   },
   "dependencies": {
     "@tiptap/core": "3.32.0",
@@ -51,6 +51,7 @@
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.5",
     "esbuild": "0.28.2",
+    "gsap": "3.15.0",
     "jsdom": "^30.1.3",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.20.0",

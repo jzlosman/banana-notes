@@ -84,7 +84,7 @@ enum BananaMarkRenderer {
 
     private static func color(_ hex: String) -> NSColor {
         let value = UInt32(hex.dropFirst(), radix: 16) ?? 0
-        return NSColor(calibratedRed: CGFloat((value >> 16) & 0xff) / 255,
+        return NSColor(srgbRed: CGFloat((value >> 16) & 0xff) / 255,
                        green: CGFloat((value >> 8) & 0xff) / 255,
                        blue: CGFloat(value & 0xff) / 255, alpha: 1)
     }

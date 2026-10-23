@@ -6,7 +6,7 @@ All brand files live in [`assets/brand/`](assets/brand/) and are generated from 
 
 ## Logo
 
-The logo is the banana note and the name in lowercase Space Mono: **banana** in Bold, notes in Regular. The mark carries all of the colour, so the name stays in one dark ink.
+The logo is the banana note and the name in lowercase Space Mono: **banana** in Bold, notes in Regular. The mark carries all of the color, so the name stays in one dark ink.
 
 | File | Use it for |
 | --- | --- |
@@ -16,7 +16,7 @@ The logo is the banana note and the name in lowercase Space Mono: **banana** in 
 | `mark.svg` | The note on its own, on light backgrounds |
 | `mark-on-cocoa.svg` | The note on its own, on cocoa |
 | `app-icon.svg`, `app-icon-1024.png` | The app icon, on Apple's macOS icon grid |
-| `menu-bar.svg` | The one-colour menu-bar icon. macOS tints it for light and dark menu bars. |
+| `menu-bar.svg` | The one-color menu-bar icon. macOS tints it for light and dark menu bars. |
 
 **Clear space.** Keep at least half the mark's height clear on every side of the logo.
 
@@ -30,15 +30,15 @@ The logo is the banana note and the name in lowercase Space Mono: **banana** in 
 
 - Don't use the note without its outline on white or other light backgrounds.
 - Don't put the bare note on espresso or black. Use the app icon.
-- Don't capitalise the wordmark, or set it in another typeface.
+- Don't capitalize the wordmark, or set it in another typeface.
 - Don't set "banana" in yellow on a light background. Yellow type is fine on cocoa and espresso.
-- Don't recolour, stretch, re-tilt, outline or add effects to the mark.
+- Don't recolor, stretch, re-tilt, outline or add effects to the mark.
 
-## Colour
+## Color
 
 | Name | Hex | Role |
 | --- | --- | --- |
-| Banana | `#FBE122` | The note. The one pop of colour, and buttons on dark |
+| Banana | `#FBE122` | The note. The one pop of color, and buttons on dark |
 | Peel | `#D9A00A` | The note's curved edge. Rules and small accents; never text |
 | Espresso | `#2E1D12` | The note's tip. Deepest background |
 | Cocoa | `#5A3A22` | The app-icon tile. Primary dark background |

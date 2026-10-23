@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/hero.png" alt="Banana Notes: notes that float. A floating note over a code editor.">
+  <img src="docs/media/hero.png" alt="Jot it down. Get back to it. A Banana Notes note floating over a code editor.">
 </p>
 
 <p align="center">

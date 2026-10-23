@@ -1,4 +1,5 @@
-import { createElement, type IconNode } from 'lucide';
+import type { IconNode } from 'lucide';
+import { renderIcon } from './icon';
 import { trapFocusWithin } from './focus-management';
 
 export interface MenuAction {
@@ -65,7 +66,7 @@ export function openActionMenu(trigger: HTMLElement, items: MenuItem[], options:
     option.setAttribute('role', item.checked === undefined ? 'menuitem' : 'menuitemradio');
     if (item.checked !== undefined) option.setAttribute('aria-checked', String(item.checked));
     option.disabled = !!item.disabled;
-    if (item.icon) option.append(createElement([item.icon[0], { ...item.icon[1], width: 15, height: 15, 'stroke-width': 1.7, 'aria-hidden': 'true' }, item.icon[2]]));
+    if (item.icon) option.append(renderIcon(item.icon, 15));
     const label = doc.createElement('span'); label.textContent = item.label; option.append(label);
     if (item.shortcut) { const shortcut = doc.createElement('span'); shortcut.className = 'menu-shortcut'; shortcut.textContent = item.shortcut; option.append(shortcut); }
     option.onclick = () => { closePopover(true); try { Promise.resolve(item.run()).catch(error => options.onError?.(error)); } catch (error) { options.onError?.(error); } };

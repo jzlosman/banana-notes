@@ -8,6 +8,11 @@ updates:
     groups:
       development-dependencies:
         dependency-type: development
+    # @tiptap/markdown bundles marked; keep the direct dependency on the same major.
+    ignore:
+      - dependency-name: marked
+        update-types:
+          - version-update:semver-major
   - package-ecosystem: github-actions
     directory: /
     schedule:

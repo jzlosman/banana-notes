@@ -12,7 +12,8 @@ import '../compact-link-view.css';
 import { openLinkEditor } from './link-editor';
 import { closePopover, openActionMenu } from './action-menu';
 import { handleNoteTrashShortcut } from './note-trash-shortcut';
-import { createElement, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Pin, Search, ArrowLeft, BookOpen, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Pin, Search, ArrowLeft, BookOpen, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
+import { renderIcon } from './icon';
 import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor } from './editor';
 import { type Library, type Note, noteNavigation, splitDocument, tagsOf, titleOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime } from '../domain/library';
@@ -143,7 +144,7 @@ function updatePinnedState(isPinned: boolean): void {
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag); el.className = className; if (text !== undefined) el.textContent = text; return el;
 }
-function icon(node: IconNode, size = 17): SVGElement { return createElement([node[0], { ...node[1], width: size, height: size, 'stroke-width': 1.7, 'aria-hidden': 'true' }, node[2]]); }
+function icon(node: IconNode, size = 17): SVGElement { return renderIcon(node, size); }
 function button(label: string, node: IconNode | null, run: () => void | Promise<unknown>, className = 'icon-button', text?: string): HTMLButtonElement {
   const el = element('button', className); el.type = 'button'; el.title = label; el.setAttribute('aria-label', label);
   if (node) el.append(icon(node)); if (text) el.append(document.createTextNode(text));

@@ -1,5 +1,6 @@
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
-import { createElement, Check, Search } from 'lucide';
+import { Check, Search } from 'lucide';
+import { renderIcon } from './icon';
 import { common, createLowlight } from 'lowlight';
 import { themes, themeByID } from '../domain/themes.js';
 import { syntaxColorsForTheme } from '../domain/theme-accessibility.js';
@@ -62,7 +63,7 @@ function previewTokens(id: SyntaxThemeID, appThemeID: string): HTMLElement {
 export function renderCodeSettings({ selectedID, appThemeID, onSelect }: { selectedID: SyntaxThemeID; appThemeID: string; onSelect: (id: SyntaxThemeID) => void | Promise<void> }): HTMLElement {
   const root = document.createElement('section'); root.className = 'code-settings';
   const intro = document.createElement('p'); intro.className = 'code-settings-intro'; intro.textContent = 'Code colors are set separately from the app theme.';
-  const searchField = document.createElement('label'); searchField.className = 'search-field code-theme-search'; searchField.append(createElement([Search[0], { ...Search[1], width: 17, height: 17, 'stroke-width': 1.7, 'aria-hidden': 'true' }, Search[2]]));
+  const searchField = document.createElement('label'); searchField.className = 'search-field code-theme-search'; searchField.append(renderIcon(Search, 17));
   const search = plainInput(document.createElement('input')); search.type = 'search'; search.placeholder = 'Search code themes…'; search.setAttribute('aria-label', 'Search code themes'); searchField.append(search);
   const filters = document.createElement('div'); filters.className = 'code-theme-filters'; filters.setAttribute('role', 'group'); filters.setAttribute('aria-label', 'Filter code themes');
   let filter = 'all', currentID = selectedID, saving = false;
@@ -86,7 +87,7 @@ export function renderCodeSettings({ selectedID, appThemeID, onSelect }: { selec
     const info = document.createElement('span'); info.className = 'code-theme-info'; const words = document.createElement('span'); words.className = 'code-theme-words';
     const name = document.createElement('span'); name.className = 'code-theme-name'; name.textContent = option.name;
     const kind = document.createElement('span'); kind.className = 'code-theme-kind'; kind.textContent = option.id === 'app' ? `Match app · ${option.appearance}` : option.appearance;
-    words.append(name, kind); const check = document.createElement('span'); check.className = 'code-theme-check'; check.setAttribute('aria-hidden', 'true'); check.append(createElement([Check[0], { ...Check[1], width: 16, height: 16, 'stroke-width': 1.7 }, Check[2]])); info.append(words, check); button.append(info);
+    words.append(name, kind); const check = document.createElement('span'); check.className = 'code-theme-check'; check.setAttribute('aria-hidden', 'true'); check.append(renderIcon(Check, 16)); info.append(words, check); button.append(info);
     button.addEventListener('click', async () => { if (saving || option.id === currentID) return; saving = true; refresh(); try { await onSelect(option.id); currentID = option.id; } catch { /* The persistence adapter reports the error; retain the last confirmed choice. */ } finally { saving = false; refresh(); if (grid.isConnected) button.focus(); } });
     button.addEventListener('keydown', (event) => { const visible = buttons.filter((item) => !item.hidden); const index = visible.indexOf(button); let next = -1; if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % visible.length; if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + visible.length) % visible.length; if (event.key === 'Home') next = 0; if (event.key === 'End') next = visible.length - 1; if (next >= 0) { event.preventDefault(); visible[next].focus(); visible[next].click(); } });
     buttons.push(button); grid.append(button);

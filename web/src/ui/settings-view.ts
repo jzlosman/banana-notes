@@ -1,4 +1,5 @@
-import { createElement, FolderOpen, type IconNode } from 'lucide';
+import { FolderOpen, type IconNode } from 'lucide';
+import { renderIcon } from './icon';
 import type { Capabilities, StartupState, HotkeyState } from '../application/ports';
 import { DEFAULT_HOTKEY, shortcutFromKeyEvent } from '../domain/hotkey';
 import type { NoteFontSelection, NoteFontState } from '../domain/note-font';
@@ -15,7 +16,7 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', 
   const node = document.createElement(tag); node.className = className; if (text !== undefined) node.textContent = text; return node;
 }
 function icon(node: IconNode, size = 17): SVGElement {
-  return createElement([node[0], { ...node[1], width: size, height: size, 'stroke-width': 1.7, 'aria-hidden': 'true' }, node[2]]);
+  return renderIcon(node, size);
 }
 function button(label: string, glyph: IconNode | null, run: () => void | Promise<unknown>, className = 'icon-button', text?: string, onError: (error: unknown) => void = () => {}): HTMLButtonElement {
   const node = element('button', className); node.type = 'button'; node.title = label; node.setAttribute('aria-label', label);

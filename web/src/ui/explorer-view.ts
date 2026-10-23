@@ -1,6 +1,6 @@
-import { createElement, Search, ArrowLeft, Trash2, Ellipsis, SlidersHorizontal, CheckSquare, X, Archive, Hash, RotateCcw, LayoutList, type IconNode } from 'lucide';
-import { notebookTags, queryNotes, selectedTags, titleOf, trashExpiresAt, type Library, type Note } from '../domain/library';
-import { openActionMenu, openPopover, type MenuItem } from './action-menu';
+import { createElement, Search, ArrowLeft, Trash2, Ellipsis, SlidersHorizontal, CheckSquare, X, Archive, Hash, RotateCcw, ChevronDown, LayoutList, type IconNode } from 'lucide';
+import { groupNotesByLocalDay, queryNotes, recentNotebookTags, selectedTags, titleOf, trashExpiresAt, type Library, type Note } from '../domain/library';
+import { closePopover, openActionMenu, openPopover, type MenuItem } from './action-menu';
 import { renderNoteSummary } from './note-summary';
 import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { mergeSearchMatches, type NoteSearchResult } from '../application/note-search';
@@ -53,40 +53,79 @@ const expiryText = (note: Note, now: string) => {
 };
 const generations = new WeakMap<ExplorerState, number>();
 const generationOf = (state: ExplorerState) => generations.get(state) ?? 0;
+const NOTE_ROW_HEIGHT = 61;
+const DAY_HEADING_HEIGHT = 38;
+const OVERSCAN = 6;
+type VisibleItem = { kind: 'day'; label: string; key: string; top: number; height: number } | { kind: 'note'; note: Note; index: number; top: number; height: number };
 
 export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   const { library, state } = options;
   generations.set(state, generationOf(state) + 1);
   let searchBusy = false;
   let lastVisible: Note[] = [];
-  const rowHeight = 92;
-  const overscan = 6;
+  let rowOffsets: number[] = [];
   const root = el('main', 'explorer-side library-explorer'); root.setAttribute('aria-label', state.mode === 'trash' ? 'Trash' : 'Notes explorer');
   const heading = el('div', 'explorer-heading library-heading');
   if (state.mode === 'trash') heading.append(button('Back to notes', () => changeMode('notes'), ArrowLeft));
-  heading.append(el('h1', '', state.mode === 'trash' ? 'Trash' : 'Notes'));
-  const count = el('span', 'note-total'); heading.append(count);
+  const headingTitle = el('h1', '', state.mode === 'trash' ? 'Trash' : 'Notes'); heading.append(headingTitle);
+  const headingMeta = el('div', 'library-heading-meta');
+  const count = el('span', 'note-total'); headingMeta.append(count);
+  const overviewSeparator = el('span', 'overview-separator', '·'); overviewSeparator.setAttribute('aria-hidden', 'true'); overviewSeparator.hidden = true; headingMeta.append(overviewSeparator);
+  const overview = button('Open tag overview', () => options.onOverview([...state.selectedTags]), undefined, 'text-button overview-link'); overview.textContent = 'Overview'; overview.hidden = true; headingMeta.append(overview);
   const more = button('Notes actions', () => openActionMenu(more, listActions(), { label: 'Notes actions', onError: report }), Ellipsis);
-  more.setAttribute('aria-haspopup', 'menu'); heading.append(more); root.append(heading);
+  more.setAttribute('aria-haspopup', 'menu'); headingMeta.append(more); heading.append(headingMeta); root.append(heading);
 
   const controls = el('div', 'library-controls');
+  const recentTags = el('div', 'recent-tag-row'); recentTags.setAttribute('aria-label', 'Recent tags');
+  const allTags = recentNotebookTags(library);
+  const tagEntries = [...new Set([...state.selectedTags, ...allTags.map(item => item.tag)])].map(tag => ({
+    tag, count: allTags.find(item => item.tag === tag)?.count ?? 0,
+  }));
+  const chips = new Map<string, HTMLButtonElement>();
+  const allTagsButton = button(`All ${allTags.length} tags`, () => openAllTags(), undefined, 'recent-tags-all');
+  allTagsButton.setAttribute('aria-haspopup', 'dialog'); allTagsButton.setAttribute('aria-expanded', 'false');
+  allTagsButton.append(el('span', '', `All ${allTags.length}`), icon(ChevronDown, 13));
+  for (const item of tagEntries) {
+    const chip = el('button', 'recent-tag-chip'); chip.type = 'button';
+    chip.onclick = () => selectTag(item.tag);
+    chip.dataset.tag = item.tag;
+    chips.set(item.tag, chip); recentTags.append(chip);
+  }
+  recentTags.append(allTagsButton);
+  recentTags.hidden = state.mode === 'trash' || allTags.length === 0;
+  if (tagEntries.length > 5) tagEntries.slice(5).forEach(item => chips.get(item.tag)?.classList.add('is-overflowed'));
+
   const searchRow = el('div', 'library-search-row');
   const searchLabel = el('label', 'search-field library-search'); searchLabel.append(icon(Search));
-  const search = plainInput(el('input')); search.type = 'search'; search.placeholder = 'Search notes…'; search.setAttribute('aria-label', 'Search notes'); search.value = state.query;
+  const search = plainInput(el('input')); search.type = 'search'; search.placeholder = state.selectedTags.length === 1 ? `Search #${state.selectedTags[0]}` : 'Search notes'; search.setAttribute('aria-label', 'Search notes'); search.value = state.query;
   search.oninput = () => { state.query = search.value; invalidate(); redraw(); void runSearch(); };
-  search.onkeydown = event => { if (event.key === 'ArrowDown') { event.preventDefault(); focusRow(0); } };
+  search.onkeydown = event => {
+    if (event.key !== 'Tab') searchLabel.classList.add('user-focused');
+    if (event.key === 'ArrowDown') { event.preventDefault(); focusRow(0); }
+  };
+  search.addEventListener('blur', () => searchLabel.classList.remove('user-focused'));
+  searchLabel.addEventListener('pointerdown', () => searchLabel.classList.add('user-focused'));
+  let tabNavigation = false;
+  root.addEventListener('keydown', event => { if (event.key === 'Tab') tabNavigation = true; });
+  root.addEventListener('focusin', event => {
+    if (event.target === search && tabNavigation) searchLabel.classList.add('user-focused');
+    tabNavigation = false;
+  });
   searchLabel.append(search); searchRow.append(searchLabel);
   const filters = button('Filter and sort notes', () => openFilters(), SlidersHorizontal, 'icon-button library-filter-trigger'); filters.setAttribute('aria-haspopup', 'dialog');
   if (state.mode === 'notes') searchRow.append(filters);
-  controls.append(searchRow);
-  const scope = el('div', 'library-active-filters quiet-scroll side-scroll'); controls.append(scope);
+  const scope = el('div', 'library-active-filters quiet-scroll side-scroll');
   if (state.mode === 'trash') controls.append(el('p', 'library-trash-note', 'Notes can be restored for 30 days.'));
   const bulk = el('div', 'library-bulk');
   const status = el('p', 'explorer-semantic-status'); status.setAttribute('role', 'status');
-  const list = el('div', 'note-list library-note-list quiet-scroll side-scroll'); list.setAttribute('role', 'list'); list.setAttribute('aria-label', state.mode === 'trash' ? 'Trashed notes' : 'Notes');
+  const list = el('div', 'note-list library-note-list quiet-scroll'); list.setAttribute('role', 'list'); list.setAttribute('aria-label', state.mode === 'trash' ? 'Trashed notes' : 'Notes');
+  controls.append(recentTags, searchRow, scope);
   root.append(controls, bulk, status, list);
 
   function report(error: unknown) { options.onError?.(error instanceof Error ? error : new Error(String(error))); }
+  function selectedDate(note: Note): string {
+    return state.mode === 'trash' ? note.trashedAt! : state.sort === 'created' ? note.createdAt : note.updatedAt;
+  }
   function scopedNotes(query?: string): Note[] {
     return queryNotes(library, { query, before: state.before || undefined, sort: state.sort, tags: state.selectedTags, includeTrash: state.mode === 'trash' })
       .filter(note => state.mode === 'trash' ? !!note.trashedAt && !expired(note, options.now) : !note.trashedAt);
@@ -134,27 +173,85 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
       { label: 'Move to Trash', icon: Trash2, danger: true, shortcut: '⌘⌫', run: () => options.onTrash([note.id], options.now) },
     ];
   }
+  function selectTag(tag: string) {
+    state.selectedTags = state.selectedTags.length === 1 && state.selectedTags[0] === tag ? [] : [tag];
+    options.onScopeChange([...state.selectedTags]); invalidate(); refreshTagChips(); redraw(); void runSearch();
+  }
+  function refreshTagChips() {
+    for (const item of tagEntries) {
+      const chip = chips.get(item.tag)!;
+      const selected = state.selectedTags.includes(item.tag);
+      chip.classList.toggle('selected', selected); chip.setAttribute('aria-pressed', String(selected));
+      chip.setAttribute('aria-label', selected ? `Remove #${item.tag} filter` : `Filter by #${item.tag}`);
+      chip.replaceChildren(el('span', '', `#${item.tag}`));
+      if (selected) chip.append(el('span', 'recent-tag-remove', '×'));
+    }
+    recentTags.hidden = state.mode === 'trash' || allTags.length === 0;
+    measureRecentTags();
+  }
+  function measureRecentTags() {
+    if (recentTags.hidden || !recentTags.clientWidth) return;
+    const styles = recentTags.ownerDocument.defaultView?.getComputedStyle(recentTags);
+    const gap = Number.parseFloat(styles?.columnGap || styles?.gap || '6') || 6;
+    const available = recentTags.clientWidth - allTagsButton.getBoundingClientRect().width - (tagEntries.length ? gap : 0);
+    let used = 0, visibleCount = 0;
+    for (const item of tagEntries) {
+      const chip = chips.get(item.tag)!;
+      chip.classList.remove('is-overflowed');
+      const width = chip.getBoundingClientRect().width;
+      const next = used + (visibleCount ? gap : 0) + width;
+      if (visibleCount < 5 && next <= available + 0.5) { used = next; visibleCount++; }
+      else break;
+    }
+    for (const [index, item] of tagEntries.entries()) {
+      const chip = chips.get(item.tag)!;
+      const hidden = index >= visibleCount;
+      chip.setAttribute('aria-hidden', String(hidden)); chip.tabIndex = hidden ? -1 : 0;
+      chip.classList.toggle('is-overflowed', hidden);
+    }
+  }
+  function openAllTags() {
+    const panel = el('div', 'all-tags-popover');
+    const input = plainInput(el('input')); input.type = 'search'; input.placeholder = 'Find a tag'; input.setAttribute('aria-label', 'Find a tag'); input.autocomplete = 'off';
+    const searchLabel = el('label', 'all-tags-search'); searchLabel.append(icon(Search, 14), input);
+    const recently = el('div', 'all-tags-recent-label', 'Recently used');
+    const results = el('div', 'all-tags-list quiet-scroll'); results.setAttribute('role', 'listbox'); results.setAttribute('aria-label', 'Recently used tags');
+    panel.append(searchLabel, recently, results);
+    let filtered = allTags;
+    let activeIndex = 0;
+    const renderOptions = () => {
+      results.replaceChildren();
+      if (!filtered.length) { results.append(el('p', 'all-tags-empty', 'No matching tags')); activeIndex = -1; return; }
+      activeIndex = Math.max(0, Math.min(activeIndex, filtered.length - 1));
+      filtered.forEach((item, index) => {
+        const option = el('div', `all-tags-option${index === activeIndex ? ' highlighted' : ''}`);
+        option.setAttribute('role', 'option'); option.setAttribute('aria-selected', String(index === activeIndex)); option.setAttribute('aria-label', `#${item.tag}, ${item.count} ${item.count === 1 ? 'note' : 'notes'}`); option.tabIndex = -1;
+        option.append(el('span', '', `#${item.tag}`), el('span', 'all-tags-count', String(item.count)));
+        option.onclick = () => { closePopover(true); selectTag(item.tag); };
+        results.append(option);
+      });
+    };
+    input.oninput = () => { filtered = allTags.filter(item => item.tag.toLocaleLowerCase().includes(input.value.trim().replace(/^#/, '').toLocaleLowerCase())); activeIndex = 0; renderOptions(); };
+    input.onkeydown = event => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (!filtered.length) return;
+        event.preventDefault(); activeIndex = (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + filtered.length) % filtered.length; renderOptions();
+        results.querySelector<HTMLElement>('.highlighted')?.scrollIntoView?.({ block: 'nearest' });
+      } else if (event.key === 'Enter' && activeIndex >= 0) {
+        event.preventDefault(); const selected = filtered[activeIndex]; closePopover(true); if (selected) selectTag(selected.tag);
+      }
+    };
+    renderOptions(); openPopover(allTagsButton, panel, { label: 'All tags' });
+  }
   function openFilters() {
     const panel = el('div', 'library-filter-panel');
     const top = el('div', 'filter-panel-heading'); top.append(el('h2', '', 'Filter & sort'));
-    const reset = button('Reset note filters', () => { state.selectedTags = []; state.before = ''; options.onScopeChange([]); invalidate(); redraw(); void runSearch(); openFilters(); }, undefined, 'text-button'); reset.textContent = 'Reset'; top.append(reset); panel.append(top);
+    const reset = button('Reset note filters', () => { state.selectedTags = []; state.before = ''; state.sort = 'edited'; options.onScopeChange([]); invalidate(); refreshTagChips(); redraw(); void runSearch(); openFilters(); }, undefined, 'text-button'); reset.textContent = 'Reset'; top.append(reset); panel.append(top);
     const sortLabel = el('label', 'filter-setting', 'Sort by'); const sort = el('select'); sort.setAttribute('aria-label', 'Sort notes');
     for (const [value, text] of [['edited', 'Recently edited'], ['created', 'Recently created']]) { const option = el('option', '', text); option.value = value; sort.append(option); }
     sort.value = state.sort; sort.onchange = () => { state.sort = sort.value as ExplorerState['sort']; invalidate(); redraw(); void runSearch(); }; sortLabel.append(sort); panel.append(sortLabel);
     const dateLabel = el('label', 'filter-setting', 'Before date · UTC'); const date = el('input'); date.type = 'date'; date.value = state.before; date.setAttribute('aria-label', 'Before date (UTC)');
     date.onchange = () => { state.before = date.value; invalidate(); redraw(); void runSearch(); }; dateLabel.append(date); panel.append(dateLabel);
-    const tagHeading = el('h3', '', 'Tags'); panel.append(tagHeading, el('p', 'filter-hint', 'Match every selected tag.'));
-    const tags = notebookTags(library); if (!tags.some(item => item.tag === 'archive')) tags.push({ tag: 'archive', count: 0 });
-    const tagList = el('div', 'filter-tag-list quiet-scroll'); tagList.setAttribute('aria-label', 'Filter by tags');
-    for (const { tag, count: total } of tags) {
-      const chip = button(`Toggle ${tag} tag filter`, () => {
-        state.selectedTags = state.selectedTags.includes(tag) ? state.selectedTags.filter(item => item !== tag) : [...state.selectedTags, tag];
-        chip.setAttribute('aria-pressed', String(state.selectedTags.includes(tag))); chip.classList.toggle('selected', state.selectedTags.includes(tag));
-        options.onScopeChange([...state.selectedTags]); invalidate(); redraw(); void runSearch();
-      }, undefined, `filter-chip${state.selectedTags.includes(tag) ? ' selected' : ''}`);
-      chip.append(el('span', '', `#${tag}`), el('span', 'chip-count', String(total))); chip.setAttribute('aria-pressed', String(state.selectedTags.includes(tag))); tagList.append(chip);
-    }
-    panel.append(tagList);
     openPopover(filters, panel, { label: 'Filter and sort notes' });
   }
   async function runSearch() {
@@ -176,6 +273,19 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
       searchBusy = false; redraw();
     }
   }
+  function layoutItems(results: Note[]): VisibleItem[] {
+    const locale = document.documentElement.lang || document.defaultView?.navigator.language || 'en-US';
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const groups = groupNotesByLocalDay(results, selectedDate, options.now, locale, zone);
+    const items: VisibleItem[] = []; rowOffsets = []; let top = 0, index = 0;
+    for (const group of groups) {
+      items.push({ kind: 'day', label: group.label, key: group.key, top, height: DAY_HEADING_HEIGHT }); top += DAY_HEADING_HEIGHT;
+      for (const note of group.notes) {
+        rowOffsets[index] = top; items.push({ kind: 'note', note, index, top, height: NOTE_ROW_HEIGHT }); top += NOTE_ROW_HEIGHT; index++;
+      }
+    }
+    return items;
+  }
   function renderRows(results: Note[], focusIndex?: number) {
     list.replaceChildren();
     list.setAttribute('aria-setsize', String(results.length));
@@ -185,48 +295,65 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
       if (detail) empty.append(el('p', '', detail));
       list.append(empty);
     } else {
-      const viewport = list.clientHeight || 720;
-      const first = Math.max(0, Math.floor(list.scrollTop / rowHeight) - overscan);
-      const last = Math.min(results.length, Math.ceil((list.scrollTop + viewport) / rowHeight) + overscan);
-      const top = el('div', 'library-virtual-spacer'); top.setAttribute('aria-hidden', 'true'); top.style.height = `${first * rowHeight}px`; list.append(top);
-      for (let index = first; index < last; index++) {
-        const note = results[index];
-        const row = el('div', 'note-list-entry library-entry'); row.dataset.noteId = note.id; row.dataset.index = String(index); row.setAttribute('role', 'listitem');
-        row.setAttribute('aria-posinset', String(index + 1)); row.setAttribute('aria-setsize', String(results.length));
+      const items = layoutItems(results), totalHeight = items.length ? items[items.length - 1].top + items[items.length - 1].height : 0;
+      const viewport = list.clientHeight || 720, scrollTop = list.scrollTop;
+      let first = items.findIndex(item => item.top + item.height > scrollTop);
+      if (first < 0) first = 0;
+      let last = items.findIndex(item => item.top >= scrollTop + viewport);
+      if (last < 0) last = items.length;
+      first = Math.max(0, first - OVERSCAN); last = Math.min(items.length, last + OVERSCAN);
+      const topSpacer = el('div', 'library-virtual-spacer'); topSpacer.setAttribute('aria-hidden', 'true'); topSpacer.style.height = `${items[first]?.top ?? 0}px`; list.append(topSpacer);
+      for (const item of items.slice(first, last)) {
+        if (item.kind === 'day') {
+          const header = el('div', 'note-day-heading', item.label); header.setAttribute('role', 'heading'); header.setAttribute('aria-level', '2'); header.dataset.day = item.key; list.append(header); continue;
+        }
+        const note = item.note;
+        const row = el('div', 'note-list-entry library-entry'); row.dataset.noteId = note.id; row.dataset.index = String(item.index); row.setAttribute('role', 'listitem');
+        row.setAttribute('aria-posinset', String(item.index + 1)); row.setAttribute('aria-setsize', String(results.length));
         if (state.selecting) {
           const check = el('input', 'library-select'); check.type = 'checkbox'; check.checked = state.selectedIDs.has(note.id); check.setAttribute('aria-label', `Select ${titleOf(note.markdown)}`);
           check.onchange = () => { check.checked ? state.selectedIDs.add(note.id) : state.selectedIDs.delete(note.id); redraw(); }; row.append(check);
         }
-        row.append(renderNoteSummary(note, { onOpen: state.mode === 'trash' ? undefined : () => options.onOpenNote(note.id), current: library.selectedID === note.id, date: state.mode === 'trash' ? note.trashedAt : state.sort === 'created' ? note.createdAt : note.updatedAt }));
+        row.append(renderNoteSummary(note, {
+          onOpen: state.mode === 'trash' ? undefined : () => options.onOpenNote(note.id),
+          current: library.selectedID === note.id, date: selectedDate(note), showTags: state.mode !== 'trash' && state.selectedTags.length === 0, explorer: true,
+        }));
         if (state.mode === 'trash') row.append(el('span', 'library-expiry', expiryText(note, options.now)));
         const action = button(`Actions for ${titleOf(note.markdown)}`, () => openActionMenu(action, rowActions(note, action), { label: 'Note actions', onError: report }), Ellipsis, 'icon-button row-more'); action.setAttribute('aria-haspopup', 'menu'); row.append(action);
         row.oncontextmenu = event => { event.preventDefault(); openActionMenu(action, rowActions(note, action), { label: 'Note actions', point: { x: event.clientX, y: event.clientY }, onError: report }); };
         list.append(row);
       }
-      const bottom = el('div', 'library-virtual-spacer'); bottom.setAttribute('aria-hidden', 'true'); bottom.style.height = `${Math.max(0, results.length - last) * rowHeight}px`; list.append(bottom);
+      const bottomSpacer = el('div', 'library-virtual-spacer'); bottomSpacer.setAttribute('aria-hidden', 'true'); bottomSpacer.style.height = `${Math.max(0, totalHeight - (items[last - 1]?.top ?? 0) - (items[last - 1]?.height ?? 0))}px`; list.append(bottomSpacer);
       if (focusIndex !== undefined) list.querySelector<HTMLElement>(`.library-entry[data-index="${focusIndex}"] .library-row-title`)?.focus();
     }
     if (state.mode === 'notes' && state.query.trim() && state.searchResult?.kind === 'semantic' && !searchBusy && results.length) list.append(el('p', 'explorer-semantic-disclosure', 'Includes up to 50 semantic matches.'));
   }
   function focusRow(index: number) {
     if (index < 0 || index >= lastVisible.length) return;
-    list.scrollTop = index * rowHeight;
+    list.scrollTop = rowOffsets[index] ?? 0;
     renderRows(lastVisible, index);
   }
   function redraw() {
     const results = visible(), ids = new Set(results.map(note => note.id));
     lastVisible = results;
     state.selectedIDs = new Set([...state.selectedIDs].filter(id => ids.has(id)));
+    const selectedTag = state.selectedTags.length === 1 ? state.selectedTags[0] : undefined;
+    headingTitle.textContent = state.mode === 'trash' ? 'Trash' : selectedTag ? `#${selectedTag}` : state.selectedTags.length ? state.selectedTags.map(tag => `#${tag}`).join(' · ') : 'Notes';
     count.textContent = `${results.length} ${results.length === 1 ? 'note' : 'notes'}`;
+    overview.hidden = state.mode !== 'notes' || !state.selectedTags.length;
+    overviewSeparator.hidden = overview.hidden;
+    overview.setAttribute('aria-label', state.selectedTags.length === 1 ? `Open #${state.selectedTags[0]} overview` : 'Open notebook overview');
+    overview.onclick = () => options.onOverview([...state.selectedTags]);
+    search.placeholder = selectedTag ? `Search #${selectedTag}` : 'Search notes';
+    search.setAttribute('aria-label', selectedTag ? `Search #${selectedTag}` : 'Search notes');
+    refreshTagChips();
     scope.replaceChildren();
-    if (state.mode === 'notes') {
-      for (const tag of state.selectedTags) {
-        const chip = button(`Remove ${tag} filter`, () => { state.selectedTags = state.selectedTags.filter(value => value !== tag); options.onScopeChange([...state.selectedTags]); invalidate(); redraw(); void runSearch(); }, X, 'active-filter');
-        chip.prepend(el('span', '', `#${tag}`)); scope.append(chip);
-      }
-      if (state.before) { const chip = button('Remove before-date filter', () => { state.before = ''; invalidate(); redraw(); void runSearch(); }, X, 'active-filter'); chip.prepend(el('span', '', `Before ${state.before}`)); scope.append(chip); }
+    if (state.mode === 'notes' && state.before) {
+      const before = state.before;
+      const chip = button('Remove before-date filter', () => { state.before = ''; invalidate(); redraw(); void runSearch(); }, X, 'active-filter');
+      chip.prepend(el('span', '', `Before ${before}`)); scope.append(chip);
     }
-    scope.hidden = !scope.childElementCount; filters.classList.toggle('active', !!state.before || !!state.selectedTags.length);
+    scope.hidden = !scope.childElementCount; filters.classList.toggle('active', state.mode === 'notes' && (state.sort !== 'edited' || !!state.before));
     bulk.replaceChildren(); bulk.hidden = !state.selecting;
     if (state.selecting) {
       const all = el('input'); all.type = 'checkbox'; all.setAttribute('aria-label', 'Select all filtered notes'); all.checked = results.length > 0 && results.every(note => state.selectedIDs.has(note.id)); all.indeterminate = state.selectedIDs.size > 0 && !all.checked;
@@ -262,5 +389,9 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
     if (index >= 0 && index < lastVisible.length) { event.preventDefault(); focusRow(index); }
   });
   list.addEventListener('scroll', () => renderRows(lastVisible));
-  redraw(); if (state.query.trim()) void runSearch(); return root;
+  refreshTagChips(); redraw(); if (state.query.trim()) void runSearch();
+  const ResizeObserverConstructor = root.ownerDocument.defaultView?.ResizeObserver;
+  if (ResizeObserverConstructor) new ResizeObserverConstructor(measureRecentTags).observe(recentTags);
+  queueMicrotask(measureRecentTags);
+  return root;
 }

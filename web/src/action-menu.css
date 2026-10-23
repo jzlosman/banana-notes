@@ -1,4 +1,4 @@
-.action-popover { position: fixed; z-index: 50; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto; border-radius: 8px; background: var(--paper); color: var(--ink); box-shadow: 0 6px 28px #0000002b; }
+.action-popover { position: fixed; z-index: 50; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto; border-radius: 8px; background: var(--paper); color: var(--ink); box-shadow: 0 6px 28px color-mix(in srgb, var(--ink) 18%, transparent); }
 .action-menu { width: 236px; padding: 5px; }
 .menu-action { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: 4px; font-size: 12px; text-align: left; }
 .menu-action:hover:not(:disabled), .menu-action:focus-visible { background: var(--hover); }

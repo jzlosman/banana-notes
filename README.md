@@ -339,7 +339,7 @@ The generated brand files live in `assets/brand/`; see [BRAND.md](BRAND.md) for 
 
 Banana Notes' original code and artwork are [MIT licensed](LICENSE). Third-party code and palettes retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). Themes come from [Agent Paint](https://github.com/jzlosman/agent-paint).
 
-The source remains available here; signed and notarized binary releases will be published through GitHub Releases when a tagged release is approved. Launch-at-login is off unless you enable it. Sync, general note import, and edit-version history are not included.
+The source remains available here. Signed, notarized releases are available on GitHub Releases. Launch-at-login is off unless you enable it. Sync, general note import, and edit-version history are not included.
 
 ---
 

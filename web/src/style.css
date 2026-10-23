@@ -142,7 +142,6 @@ input::placeholder { color: var(--muted); opacity: 1; }
 .note-row:focus-visible { outline-offset: 3px; }
 .note-row-top { display: flex; align-items: baseline; gap: 16px; }
 .note-row h2 { font-size: 14px; line-height: 1.4; font-weight: 600; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note-row h2.empty-note-title { color: var(--muted); font-weight: 450; font-style: italic; }
 .note-row time { color: var(--muted); font-size: 11px; white-space: nowrap; margin-left: auto; flex-shrink: 0; }
 .note-excerpt { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 5px 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-tags { display: flex; gap: 8px; flex-wrap: wrap; color: var(--accent); font-size: 11px; }

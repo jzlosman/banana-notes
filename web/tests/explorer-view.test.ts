@@ -34,13 +34,35 @@ test('ordinary search puts notes first and keeps advanced filters and bulk opera
   assert.equal(root.querySelector('.library-bulk')?.hasAttribute('hidden'), true);
   assert.equal(root.querySelector('.library-tags'), null);
   assert.equal(root.querySelector('.library-filter-panel'), null);
-  assert.equal(root.querySelector('.library-heading')?.textContent, 'Notes3 notes');
+  assert.equal(root.querySelector('.library-heading h1')?.textContent, 'Notes'); assert.equal(root.querySelector('.note-total')?.textContent, '3 notes');
+  assert.equal(root.querySelector('.overview-separator')?.hasAttribute('hidden'), true);
 }));
-test('revealed AND tag filters prune stale selections and select all spans every filtered result', () => harness((_dom, root, _calls, state) => {
-  const panel = filters(root); click(panel, 'Toggle work tag filter'); click(panel, 'Toggle urgent tag filter');
-  assert.deepEqual([...root.querySelectorAll<HTMLElement>('.library-entry')].map(row => row.dataset.noteId), ['one']);
-  assert.deepEqual(state.selectedTags, ['work', 'urgent']); closePopover(); selectMode(root); click(root, 'Select all filtered notes'); assert.deepEqual([...state.selectedIDs], ['one']);
-  click(filters(root), 'Toggle personal tag filter'); assert.deepEqual([...state.selectedIDs], []);
+test('recent tag chips apply one tag, and the searchable All tags popover supports keyboard selection', () => harness((dom, root, calls, state) => {
+  const chips = [...root.querySelectorAll<HTMLButtonElement>('.recent-tag-chip')];
+  assert.ok(chips.length > 0 && chips.length <= 5);
+  click(root, 'Filter by #work');
+  assert.deepEqual(state.selectedTags, ['work']);
+  assert.equal(root.querySelector('.library-heading h1')?.textContent, '#work');
+  assert.equal(root.querySelector('.note-total')?.textContent, '2 notes');
+  assert.equal(root.querySelector('.overview-separator')?.textContent, '·');
+  assert.equal(root.querySelector('.overview-separator')?.hasAttribute('hidden'), false);
+  assert.equal(root.querySelector('.library-filter-trigger')?.classList.contains('active'), false, 'tag scope does not activate sort/date filters');
+  assert.equal((root.querySelector('[aria-label="Search #work"]') as HTMLInputElement).placeholder, 'Search #work');
+  assert.equal(root.querySelector('.row-tags'), null, 'filtered rows hide their tag labels');
+  const selected = root.querySelector<HTMLButtonElement>('[aria-label="Remove #work filter"]')!;
+  assert.equal(selected.getAttribute('aria-pressed'), 'true');
+  click(root, 'Remove #work filter'); assert.deepEqual(state.selectedTags, []);
+  assert.equal(root.querySelector('.library-heading h1')?.textContent, 'Notes');
+  assert.equal(root.querySelector('.active-filter'), null, 'the selected tag is not duplicated in an active-filter strip');
+  click(root, 'All 4 tags');
+  const input = dom.window.document.querySelector<HTMLInputElement>('[aria-label="Find a tag"]')!;
+  assert.equal(dom.window.document.activeElement, input);
+  input.value = 'work'; input.dispatchEvent(new dom.window.Event('input'));
+  assert.deepEqual([...dom.window.document.querySelectorAll('[role="option"]')].map(option => option.textContent?.trim()), ['#work2']);
+  input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  assert.deepEqual(state.selectedTags, ['work']); assert.equal(dom.window.document.activeElement?.getAttribute('aria-label'), 'All 4 tags');
+  click(root, 'Open #work overview'); assert.deepEqual(calls.overview?.at(-1), [['work']]);
 }));
 test('bulk tagging is requested only on demand, and actions receive the exact selection and supplied time', () => harness((_dom, root, calls) => {
   selectMode(root); click(root, 'Select all filtered notes'); click(root, 'Tag selected notes');
@@ -50,15 +72,24 @@ test('bulk tagging is requested only on demand, and actions receive the exact se
   click(root, 'Archive 3 selected notes'); assert.deepEqual(calls.archive?.[0]?.[0], ['four', 'two', 'one']);
   click(root, 'Done selecting'); assert.equal(root.querySelector('.library-bulk')?.hasAttribute('hidden'), true);
 }));
-test('archive filter exists at zero count; tag intersection and explicit date/sort inputs stay available', () => harness((dom, root, _calls, state) => {
-  const panel = filters(root); assert.match(panel.querySelector('[aria-label="Toggle archive tag filter"]')!.textContent!, /archive.*0/);
-  click(panel, 'Toggle work tag filter'); click(panel, 'Toggle personal tag filter'); assert.equal(root.querySelectorAll('.library-entry').length, 0);
+test('Filter and sort keeps before-date and sort controls without a tag panel', () => harness((dom, root, _calls, state) => {
+  const panel = filters(root);
+  assert.equal(panel.querySelector('[aria-label="Sort notes"]') !== null, true);
+  assert.equal(panel.querySelector('[type=date]') !== null, true);
+  assert.equal(panel.querySelector('.filter-tag-list'), null);
+  assert.doesNotMatch(panel.querySelector('.library-filter-panel')!.textContent!, /Tags|Match every selected tag/);
   const date = panel.querySelector('[type=date]') as HTMLInputElement; date.value = '2026-10-02'; date.dispatchEvent(new dom.window.Event('change')); assert.equal(state.before, '2026-10-02');
+  assert.equal(root.querySelector('.library-filter-trigger')?.classList.contains('active'), true);
   const sort = panel.querySelector('[aria-label="Sort notes"]') as HTMLSelectElement; sort.value = 'created'; sort.dispatchEvent(new dom.window.Event('change')); assert.equal(state.sort, 'created');
+  assert.equal(root.querySelector('.library-filter-trigger')?.classList.contains('active'), true);
+  click(panel, 'Reset note filters');
+  assert.equal(state.before, ''); assert.equal(state.sort, 'edited');
+  assert.equal(root.querySelector('.library-filter-trigger')?.classList.contains('active'), false);
 }));
 test('Trash comes from the common menu, shows recovery time and offers restore via row actions', () => harness((dom, root, calls, state) => {
   click(root, 'Notes actions'); menu(root, 'Trash'); const trash = dom.window.document.querySelector('.library-explorer') as HTMLElement;
   assert.equal(state.mode, 'trash'); assert.equal(trash.querySelectorAll('.library-entry').length, 1); assert.match(trash.querySelector('.library-expiry')!.textContent!, /16 days left/);
+  assert.equal(trash.querySelector('.recent-tag-row')?.hasAttribute('hidden'), true, 'tag filters are unavailable in Trash');
   assert.equal(trash.querySelector('.library-row-title')?.tagName, 'DIV'); click(trash, 'Actions for Three'); menu(trash, 'Restore note'); assert.deepEqual(calls.restore?.[0], [['three'], at(15)]);
   const title = trash.querySelector('.library-row-title') as HTMLElement; title.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Backspace', metaKey: true, bubbles: true })); assert.equal(calls.trash, undefined); assert.equal(calls.open, undefined);
   const expired = fixture(); expired.notes.find(note => note.id === 'three')!.trashedAt = '2026-09-01T12:00:00.000Z';
@@ -87,8 +118,9 @@ test('right click and the overflow expose the same actions; Escape restores focu
   const title = row.querySelector('.library-row-title')!; title.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Backspace', metaKey: true, bubbles: true, cancelable: true })); assert.deepEqual(calls.trash?.[0]?.[0], ['four']);
   root.querySelector('[aria-label="Search notes"]')!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Backspace', metaKey: true, bubbles: true })); assert.equal(calls.trash?.length, 1);
 }));
-test('overview is available from overflow and carries the selected notebook scope', () => harness((_dom, root, calls) => {
-  click(filters(root), 'Toggle work tag filter'); closePopover(); click(root, 'Notes actions'); menu(root, 'Notebook overview'); assert.deepEqual(calls.overview?.[0], [['work']]);
+test('overview is available from the selected tag heading and the overflow menu', () => harness((_dom, root, calls) => {
+  click(root, 'Filter by #work'); click(root, 'Open #work overview'); assert.deepEqual(calls.overview?.[0], [['work']]);
+  click(root, 'Notes actions'); menu(root, 'Notebook overview'); assert.deepEqual(calls.overview?.at(-1), [['work']]);
 }));
 test('one search field automatically enriches results and rejects stale or out-of-scope replies', async () => {
   const pending: ((value: NoteSearchResult) => void)[] = [];
@@ -100,7 +132,7 @@ test('one search field automatically enriches results and rejects stale or out-o
     assert.deepEqual([...root.querySelectorAll<HTMLElement>('.library-entry')].map(row => row.dataset.noteId), ['two', 'one']);
     assert.equal(root.querySelector('.note-total')?.textContent, '2 notes');
     assert.match(root.querySelector('.explorer-semantic-disclosure')?.textContent ?? '', /up to 50 semantic matches/i);
-    assert.equal(search.placeholder, 'Search notes…');
+    assert.equal(search.placeholder, 'Search notes');
     assert.equal(root.querySelector('.library-filter-trigger')?.classList.contains('active'), false, 'semantic capability is not a user-selected filter');
     const panel = filters(root); assert.equal(panel.querySelector('[aria-label="Search method"]'), null); assert.doesNotMatch(panel.querySelector('.library-filter-panel')!.textContent!, /Search using/);
   }, { onSearch: async () => new Promise<NoteSearchResult>(resolve => pending.push(resolve)) });
@@ -109,7 +141,7 @@ test('tag changes rerun search candidates and ignore an earlier async response',
   const pending: { candidates: string[]; resolve: (value: NoteSearchResult) => void }[] = [];
   await harness(async (dom, root, _calls, state) => {
     const search = root.querySelector('[aria-label="Search notes"]') as HTMLInputElement; search.value = 'meaning'; search.dispatchEvent(new dom.window.Event('input'));
-    assert.deepEqual(pending[0].candidates, ['four', 'two', 'one']); click(filters(root), 'Toggle work tag filter'); assert.deepEqual(pending[1].candidates, ['two', 'one']);
+    assert.deepEqual(pending[0].candidates, ['four', 'two', 'one']); click(root, 'Filter by #work'); assert.deepEqual(pending[1].candidates, ['two', 'one']);
     pending[0].resolve({ kind: 'semantic', ids: ['four'] }); pending[1].resolve({ kind: 'semantic', ids: ['one', 'two'] }); await tick(); assert.deepEqual(state.searchResult, { kind: 'semantic', ids: ['one', 'two'] });
   }, { onSearch: async (_query, candidates) => new Promise<NoteSearchResult>(resolve => pending.push({ candidates, resolve })) });
 });
@@ -161,8 +193,8 @@ test('resetting filters reruns enrichment against the restored scope', async () 
   await harness(async (dom, root) => {
     const search = root.querySelector<HTMLInputElement>('[aria-label="Search notes"]')!;
     search.value = 'meaning'; search.dispatchEvent(new dom.window.Event('input')); await tick();
-    click(filters(root), 'Toggle work tag filter'); await tick();
-    closePopover(); click(filters(root), 'Reset note filters'); await tick();
+    click(root, 'Filter by #work'); await tick();
+    click(filters(root), 'Reset note filters'); await tick();
     assert.deepEqual(scopes, [['four', 'two', 'one'], ['two', 'one'], ['four', 'two', 'one']]);
   }, { onSearch: async (_query, candidates) => { scopes.push(candidates); return { kind: 'semantic', ids: candidates }; } });
 });

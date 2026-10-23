@@ -201,20 +201,91 @@ export function removeTag(markdown: string, tag: string): string {
   for (const range of inlineRanges.sort((left, right) => right.start - left.start)) body = body.slice(0, range.start) + body.slice(range.end);
   return frontmatter.source + body;
 }
-function parseTitle(markdown: string): string {
-  const { body } = splitDocument(markdown);
-  const line = body.split('\n').find(line => line.trim() && !/^\s*#[\p{L}][\p{L}\p{N}_/-]*\s*$/u.test(line)
-    && !/^\s*!\[.*\]\(.*\)\s*$/.test(line) && !/^\s*<(audio|video)\b.*<\/\1>\s*$/i.test(line));
-  return line?.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s*[-*>]+\s*/, '').replace(/[*_`~]/g, '').trim().slice(0, 120) || '';
+function plainMarkdownLine(line: string): string {
+  return line
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')
+    .replace(/<((?:https?:\/\/|mailto:)[^>\s]+)>/gi, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/, '')
+    .replace(/^\s{0,3}>\s?/, '')
+    .replace(/^\s*(?:(?:[-+*]|\d+[.)])\s+)?(?:\[[ xX]\]\s+)?/, '')
+    .replace(/\\([\\`*_{}\[\]()#+.!<>|-])/g, '$1')
+    .replace(/<\/?[\w-]+(?:\s+[^<>]*?)?>/g, '')
+    .replace(/[*_~`]/g, '')
+    .replace(/(^|[\s([{])#[\p{L}][\p{L}\p{N}_/-]*/gu, '$1')
+    .replace(/\s+/g, ' ').trim();
 }
+function titleParts(markdown: string): { title: string; lineIndex: number } {
+  const lines = splitDocument(markdown).body.split(/\r?\n/);
+  const lineIndex = lines.findIndex(line => line.trim()
+    && !/^\s*#[\p{L}][\p{L}\p{N}_/-]*\s*$/u.test(line)
+    && !/^\s*!\[.*\]\(.*\)\s*$/.test(line)
+    && !/^\s*<(audio|video)\b.*<\/\1>\s*$/i.test(line)
+    && plainMarkdownLine(line));
+  return { title: lineIndex < 0 ? '' : plainMarkdownLine(lines[lineIndex]).slice(0, 120), lineIndex };
+}
+function parseTitle(markdown: string): string { return titleParts(markdown).title; }
 export function titleOf(markdown: string): string {
   const model = readModel(markdown);
   return model.title ??= parseTitle(markdown);
 }
 export function excerptOf(markdown: string): string {
   const model = readModel(markdown);
-  return model.excerpt ??= splitDocument(markdown).body.split('\n').filter(line => line.trim()).slice(1).join(' ')
-    .replace(/[#*`_>~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160) || '';
+  if (model.excerpt !== undefined) return model.excerpt;
+  const body = splitDocument(markdown).body;
+  const { title, lineIndex } = titleParts(markdown);
+  model.excerpt = body.split(/\r?\n/).flatMap((line, index) => {
+    if (index === lineIndex) return [];
+    const plain = plainMarkdownLine(line);
+    return plain && plain !== title ? [plain] : [];
+  }).join(', ').replace(/\s+/g, ' ').trim().slice(0, 160);
+  return model.excerpt;
+}
+export function isBlankMarkdown(markdown: string): boolean { return !splitDocument(markdown).body.trim(); }
+
+export function noteTaskProgress(markdown: string): { done: number; total: number } | null {
+  const { body } = splitDocument(markdown);
+  const tokens = proseMarkdown.lexer(body);
+  let total = 0, done = 0;
+  const visit = (items: Token[]): void => {
+    for (const token of items) {
+      const list = token as Token & { type: string; items?: { task?: boolean; checked?: boolean; tokens?: Token[] }[] };
+      if (list.type === 'list' && list.items) {
+        for (const item of list.items) {
+          if (item.task) { total++; if (item.checked) done++; }
+          if (item.tokens) visit(item.tokens);
+        }
+      } else if ('tokens' in token && Array.isArray(token.tokens)) visit(token.tokens);
+    }
+  };
+  visit(tokens);
+  return total ? { done, total } : null;
+}
+
+export interface NoteDayGroup { key: string; label: string; notes: Note[] }
+function localDayParts(value: string, locale: string, timeZone: string): { key: string; year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat(locale, { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value));
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  const year = Number(values.year), month = Number(values.month), day = Number(values.day);
+  return { key: `${values.year}-${values.month}-${values.day}`, year, month, day };
+}
+export function groupNotesByLocalDay(notes: readonly Note[], dateOf: (note: Note) => string, now: string, locale = 'en-US', timeZone = 'UTC'): NoteDayGroup[] {
+  const today = localDayParts(now, locale, timeZone);
+  const groups = new Map<string, NoteDayGroup>();
+  for (const note of notes) {
+    const date = dateOf(note), parts = localDayParts(date, locale, timeZone);
+    let group = groups.get(parts.key);
+    if (!group) {
+      const day = Math.round((Date.UTC(today.year, today.month - 1, today.day) - Date.UTC(parts.year, parts.month - 1, parts.day)) / 86_400_000);
+      const label = day === 0 ? 'Today' : day === 1 ? 'Yesterday' : new Intl.DateTimeFormat(locale, {
+        timeZone, weekday: 'long', month: 'short', day: 'numeric', ...(parts.year === today.year ? {} : { year: 'numeric' }),
+      }).format(new Date(date));
+      group = { key: parts.key, label, notes: [] }; groups.set(parts.key, group);
+    }
+    group.notes.push(note);
+  }
+  return [...groups.values()];
 }
 function searchTextOf(note: Note): string {
   const model = readModel(note.markdown);
@@ -251,6 +322,7 @@ export function queryNotes(library: Library, options: NoteQuery = {}): Note[] {
   const needle = options.query?.trim().toLocaleLowerCase('en-US');
   const boundary = options.before === undefined ? undefined : utcDateBoundary(options.before);
   return library.notes.filter(note => {
+    if (isBlankMarkdown(note.markdown)) return false;
     if (note.trashedAt ? !options.includeTrash : !inTagScope(note, tags)) return false;
     if (boundary && Date.parse(options.sort === 'created' ? note.createdAt : note.updatedAt) >= boundary) return false;
     return !needle || searchTextOf(note).includes(needle);
@@ -272,10 +344,25 @@ function normalizeTagList(tags: string[]): string[] {
   if (normalized.some(tag => !validTag(tag))) throw new Error('That notebook tag is not valid. Use letters, numbers, dashes, underscores, or slashes.');
   return [...new Set(normalized)];
 }
+function notebookTagUsage(library: Library): { tag: string; count: number; lastUsed: string }[] {
+  const usage = new Map<string, { count: number; lastUsed: string }>();
+  for (const note of library.notes) {
+    if (note.trashedAt || isBlankMarkdown(note.markdown)) continue;
+    for (const tag of tagsOf(note.markdown)) {
+      const current = usage.get(tag) ?? { count: 0, lastUsed: note.updatedAt };
+      current.count++;
+      if (note.updatedAt > current.lastUsed) current.lastUsed = note.updatedAt;
+      usage.set(tag, current);
+    }
+  }
+  return [...usage].map(([tag, value]) => ({ tag, ...value }));
+}
 export function notebookTags(library: Library): { tag: string; count: number }[] {
-  const counts = new Map<string, number>();
-  library.notes.filter(note => !note.trashedAt).forEach(note => tagsOf(note.markdown).forEach(tag => counts.set(tag, (counts.get(tag) || 0) + 1)));
-  return [...counts].sort(([a], [b]) => a.localeCompare(b)).map(([tag, count]) => ({ tag, count }));
+  return notebookTagUsage(library).sort((a, b) => a.tag.localeCompare(b.tag)).map(({ tag, count }) => ({ tag, count }));
+}
+export function recentNotebookTags(library: Library): { tag: string; count: number }[] {
+  return notebookTagUsage(library).sort((a, b) => b.lastUsed.localeCompare(a.lastUsed) || a.tag.localeCompare(b.tag))
+    .map(({ tag, count }) => ({ tag, count }));
 }
 export function selectNotebooks(library: Library, tags: string[]): Library {
   const activeTags = normalizeTagList(tags);

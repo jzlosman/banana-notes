@@ -15,7 +15,7 @@ import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { createElement, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Pin, Search, ArrowLeft, BookOpen, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
 import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor } from './editor';
-import { type Library, type Note, noteNavigation, notebookTags, splitDocument, tagsOf, titleOf, excerptOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime } from '../domain/library';
+import { type Library, type Note, noteNavigation, splitDocument, tagsOf, titleOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime } from '../domain/library';
 import { SaveQueue } from '../application/persistence';
 import { themes, themeByID, resolveThemeID, SYSTEM_THEME, type ThemeDefinition } from '../domain/themes';
 import { applyAppearance } from './appearance';

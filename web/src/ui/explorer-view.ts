@@ -79,11 +79,11 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
   const filters = button('Filter and sort notes', () => openFilters(), SlidersHorizontal, 'icon-button library-filter-trigger'); filters.setAttribute('aria-haspopup', 'dialog');
   if (state.mode === 'notes') searchRow.append(filters);
   controls.append(searchRow);
-  const scope = el('div', 'library-active-filters'); controls.append(scope);
+  const scope = el('div', 'library-active-filters quiet-scroll side-scroll'); controls.append(scope);
   if (state.mode === 'trash') controls.append(el('p', 'library-trash-note', 'Notes can be restored for 30 days.'));
   const bulk = el('div', 'library-bulk');
   const status = el('p', 'explorer-semantic-status'); status.setAttribute('role', 'status');
-  const list = el('div', 'note-list library-note-list'); list.setAttribute('role', 'list'); list.setAttribute('aria-label', state.mode === 'trash' ? 'Trashed notes' : 'Notes');
+  const list = el('div', 'note-list library-note-list quiet-scroll side-scroll'); list.setAttribute('role', 'list'); list.setAttribute('aria-label', state.mode === 'trash' ? 'Trashed notes' : 'Notes');
   root.append(controls, bulk, status, list);
 
   function report(error: unknown) { options.onError?.(error instanceof Error ? error : new Error(String(error))); }
@@ -145,7 +145,7 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
     date.onchange = () => { state.before = date.value; invalidate(); redraw(); void runSearch(); }; dateLabel.append(date); panel.append(dateLabel);
     const tagHeading = el('h3', '', 'Tags'); panel.append(tagHeading, el('p', 'filter-hint', 'Match every selected tag.'));
     const tags = notebookTags(library); if (!tags.some(item => item.tag === 'archive')) tags.push({ tag: 'archive', count: 0 });
-    const tagList = el('div', 'filter-tag-list'); tagList.setAttribute('aria-label', 'Filter by tags');
+    const tagList = el('div', 'filter-tag-list quiet-scroll'); tagList.setAttribute('aria-label', 'Filter by tags');
     for (const { tag, count: total } of tags) {
       const chip = button(`Toggle ${tag} tag filter`, () => {
         state.selectedTags = state.selectedTags.includes(tag) ? state.selectedTags.filter(item => item !== tag) : [...state.selectedTags, tag];

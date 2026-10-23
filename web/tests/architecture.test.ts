@@ -11,6 +11,12 @@ function sourceFiles(directory: string): string[] {
     return entry.isDirectory() ? sourceFiles(path) : entry.name.endsWith('.ts') ? [path] : [];
   });
 }
+function styleFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? styleFiles(path) : entry.name.endsWith('.css') ? [path] : [];
+  });
+}
 function importsOf(source: string): string[] {
   return [...source.matchAll(/(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?['"]([^'"]+)['"]/g)].map(match => match[1]);
 }
@@ -74,6 +80,30 @@ test('UI never imports adapters; adapter internals stay inward of the UI boundar
     }
   }
   assert.deepEqual(failures, []);
+});
+
+test('every vertical auto-scroller opts into the shared quiet-scroll treatment', () => {
+  // Layout selectors stay plain (so media-query overrides keep working); the element that receives a
+  // scrolling class must also receive `quiet-scroll` where the UI creates it.
+  const markup = sourceFiles(join(sourceRoot, 'ui')).map(file => readFileSync(file, 'utf8')).join('\n');
+  const classLiterals = [...markup.matchAll(/'([^'\n]*)'|"([^"\n]*)"/g)].map(match => (match[1] ?? match[2]).split(/\s+/));
+  const failures: string[] = [];
+  for (const file of styleFiles(sourceRoot)) {
+    const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/(?:^|;)\s*overflow(?:-y)?\s*:\s*(?:auto|scroll)\b/i.test(match[2])) continue;
+      for (const selector of match[1].split(',')) {
+        const scroller = selector.trim().match(/\.([a-z][a-z0-9-]*)(?![\s\S]*\.)/)?.[1];
+        if (!scroller) { failures.push(`${file}: ${selector.trim()}`); continue; }
+        if (!classLiterals.some(classes => classes.includes(scroller) && classes.includes('quiet-scroll'))) failures.push(`${file}: .${scroller}`);
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+  const sharedStyles = readFileSync(join(sourceRoot, 'style.css'), 'utf8');
+  assert.match(sharedStyles, /html\[data-focused='false'\]\s+\.quiet-scroll\s*\{[^}]*--scrollbar-thumb:\s*transparent/);
+  assert.match(sharedStyles, /@media\s*\(prefers-contrast:\s*more\)[\s\S]*?\.quiet-scroll[\s\S]*?50%/);
+  assert.match(sharedStyles, /@media\s*\(forced-colors:\s*active\)[\s\S]*?\.quiet-scroll[\s\S]*?scrollbar-color:\s*auto[\s\S]*?CanvasText/);
 });
 
 test('main is the only TypeScript module at the source root and the platform action bus is removed', () => {

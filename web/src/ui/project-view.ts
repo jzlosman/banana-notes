@@ -29,7 +29,7 @@ export function renderProjectView(options: ProjectViewOptions): HTMLElement {
   const root = el('section', 'project-view'); root.setAttribute('aria-label', 'Notebook overview');
   const content = projectContent(options.notes);
   const nav = el('div', 'project-tabs'); nav.setAttribute('role', 'tablist'); nav.setAttribute('aria-label', 'Notebook sections');
-  const panel = el('div', 'project-panel'); panel.id = 'project-panel'; panel.setAttribute('role', 'tabpanel');
+  const panel = el('div', 'project-panel quiet-scroll side-scroll'); panel.id = 'project-panel'; panel.setAttribute('role', 'tabpanel');
   const state = options.state ?? createProjectViewState();
   let section: Section = state.section, filter: TaskFilter = state.filter;
   const sections: { id: Section; label: string; count: number }[] = [

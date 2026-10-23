@@ -1,4 +1,5 @@
 import AppKit
+@testable import BananaNotesCore
 import WebKit
 
 @main

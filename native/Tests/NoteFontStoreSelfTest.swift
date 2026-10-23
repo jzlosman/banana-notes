@@ -127,6 +127,10 @@ struct NoteFontStoreSelfTest {
         precondition(dataMode == 0o700 && fontRootMode == 0o700 && fontFileMode == 0o600 && manifestMode == 0o600,
                      "downloaded fonts, manifests and their directories have private permissions")
         precondition(store.exportCSS(fontSize: 15).contains("font-weight:600") && store.exportCSS(fontSize: 15).contains("15px"))
+        let exportWithBrandFont = store.exportCSS(fontSize: 15, addingFontIDs: ["space-mono"])
+        precondition(exportWithBrandFont.contains(".content{font-family:\"Avenir Next\"")
+            && exportWithBrandFont.contains("foldnote-font://bundled/space-mono-latin-700-normal.woff2"),
+                     "PNG export includes Space Mono wordmark faces without changing the selected note font")
         _ = try store.select(NoteFontSelection(fontID: "space-mono", weight: 400))
         let bundledCSS = store.exportCSS(fontSize: 15)
         precondition(bundledCSS.contains("@font-face{font-family:'Space Mono'"))

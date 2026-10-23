@@ -4,8 +4,8 @@ import AppKit
 /// Curved edges antialias natively; the menu bar never resizes a raster image.
 enum StatusItemIcon {
     static func make() -> NSImage {
-        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { bounds in
-            BananaMark.draw(in: bounds, color: .black)
+        let image = NSImage(size: NSSize(width: BananaMark.menuBarCanvasSize, height: BananaMark.menuBarCanvasSize), flipped: false) { bounds in
+            BananaMarkRenderer.drawMenuGlyph(in: bounds)
             return true
         }
         image.isTemplate = true

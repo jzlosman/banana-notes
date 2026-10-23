@@ -14,7 +14,7 @@ bash scripts/native-tests.sh
 npm run build
 ```
 
-Create a feature branch and open a pull request against `main`. Include meaningful tests and, for interface changes, screenshots using synthetic notes. The browser preview is available with `npm run dev` after building the web assets.
+Create a feature branch and open a pull request against `main`. Include meaningful tests and, for interface changes, screenshots using synthetic notes. The browser preview is available with `npm run dev` after building the web assets. For the static Pages site, run `npm run site:dev` and `cd site && python3 -m http.server 4321` in separate terminals; run `npm run site:build` for a production stylesheet.
 
 To test the native UI without touching your notes or preferences, create an isolated bundle:
 

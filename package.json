@@ -9,16 +9,22 @@
     "type": "git",
     "url": "https://github.com/jzlosman/banana-notes.git"
   },
-  "bugs": { "url": "https://github.com/jzlosman/banana-notes/issues" },
+  "bugs": {
+    "url": "https://github.com/jzlosman/banana-notes/issues"
+  },
   "homepage": "https://github.com/jzlosman/banana-notes#readme",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "scripts": {
     "build:web": "node scripts/build-web.mjs",
     "build": "npm run build:web && bash scripts/build-app.sh",
     "test": "tsx --test web/tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "dev": "node scripts/dev.mjs"
+    "dev": "node scripts/dev.mjs",
+    "site:build": "tailwindcss -i site/src/site.css -o site/site.css --minify",
+    "site:dev": "tailwindcss -i site/src/site.css -o site/site.css --watch"
   },
   "dependencies": {
     "@tiptap/core": "3.32.0",
@@ -41,10 +47,12 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@fontsource-variable/overpass-mono": "5.3.0",
     "@fontsource/space-mono": "5.3.0",
+    "@tailwindcss/cli": "^4.3.3",
     "@types/jsdom": "^27.0.0",
     "@types/node": "^24.0.0",
     "esbuild": "0.25.12",
     "jsdom": "^27.0.0",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }

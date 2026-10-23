@@ -4,6 +4,18 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-23
+
+### Added
+
+- Your most recently used tags sit above search in the notes list, with an **All tags** picker you can search and use from the keyboard. Selecting a tag filters the list and links to its overview.
+- Task notes show their progress ("2 of 5 done") in the notes list.
+
+### Changed
+
+- The notes list groups notes by day, shows clean titles and previews without Markdown syntax, and separates rows with soft lines. The open note is marked by its accent-colored title.
+- Empty notes no longer appear in the notes list, counts or search.
+
 ## [0.2.0] - 2026-10-23
 
 ### Added

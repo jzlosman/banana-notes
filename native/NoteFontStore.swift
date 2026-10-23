@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import CoreFoundation
 
 struct NoteFontError: Error, LocalizedError {
     let message: String
@@ -82,13 +81,13 @@ struct NoteFontStore {
     private struct ParsedFace { let url: URL; let weight: String; let unicodeRange: String? }
 
     let directory: URL
-    private let defaults: UserDefaults
+    private let defaults: any PreferencesStore
     private let client: FontHTTPClient
     private let fm = FileManager.default
     private var root: URL { directory.appendingPathComponent("fonts", isDirectory: true) }
     private var manifestURL: URL { root.appendingPathComponent(Self.manifestName) }
 
-    init(directory: URL, defaults: UserDefaults = .standard, client: FontHTTPClient? = nil) {
+    init(directory: URL, defaults: any PreferencesStore = UserDefaults.standard, client: FontHTTPClient? = nil) {
         self.directory = directory.standardizedFileURL
         self.defaults = defaults
         self.client = client ?? FontURLSessionClient()
@@ -105,13 +104,11 @@ struct NoteFontStore {
         return result
     }
 
-    func select(_ value: Any?) throws -> [String: Any] {
-        guard let object = value as? [String: Any], let id = object["fontID"] as? String,
-              let number = object["weight"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue.isFinite, number.doubleValue == Double(number.intValue),
-              let weight = Int(exactly: number.intValue), [400, 500, 600].contains(weight),
-              let font = knownFont(id: id), Self.supportedWeights(font).contains(weight) else { throw NoteFontError(message: "Choose an available font and weight 400, 500, or 600.") }
-        defaults.set(["fontID": id, "weight": weight], forKey: Self.selectionKey)
+    func select(_ selection: NoteFontSelection) throws -> [String: Any] {
+        guard let font = knownFont(id: selection.fontID), Self.supportedWeights(font).contains(selection.weight) else {
+            throw NoteFontError(message: "Choose an available font and weight 400, 500, or 600.")
+        }
+        defaults.set(["fontID": selection.fontID, "weight": selection.weight], forKey: Self.selectionKey)
         return state
     }
 
@@ -138,7 +135,7 @@ struct NoteFontStore {
         let stagingName = ".stage-\(UUID().uuidString.lowercased())"
         try ensureRoot()
         let staging = root.appendingPathComponent(stagingName, isDirectory: true)
-        try fm.createDirectory(at: staging, withIntermediateDirectories: false)
+        try fm.createDirectory(at: staging, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         var staged: [String: String] = [:]
         var total = 0
         do {
@@ -154,7 +151,7 @@ struct NoteFontStore {
                 total += response.data.count
                 guard total <= Self.maximumFamilyBytes else { throw NoteFontError(message: "Font family exceeds the 100 MiB download limit.") }
                 let filename = Self.sha256(Data(rawURL.utf8)) + ".woff2"
-                try response.data.write(to: staging.appendingPathComponent(filename), options: [.atomic])
+                try DurableFileWriter.write(response.data, replacing: staging.appendingPathComponent(filename))
                 staged[rawURL] = filename
             }
             try Task.checkCancellation()
@@ -303,17 +300,14 @@ struct NoteFontStore {
 
     private func persist(_ manifest: Manifest) throws {
         let data = try JSONEncoder().encode(manifest)
-        let temporary = root.appendingPathComponent(".manifest-\(UUID().uuidString)")
-        try data.write(to: temporary, options: [.atomic])
-        if fm.fileExists(atPath: manifestURL.path) { _ = try fm.replaceItemAt(manifestURL, withItemAt: temporary) }
-        else { try fm.moveItem(at: temporary, to: manifestURL) }
+        try DurableFileWriter.write(data, replacing: manifestURL)
     }
 
     private func ensureRoot() throws {
-        if !fm.fileExists(atPath: directory.path) { try fm.createDirectory(at: directory, withIntermediateDirectories: true) }
+        try DurableFileWriter.prepareDirectory(directory)
         let parentValues = try directory.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
         guard parentValues.isSymbolicLink != true, parentValues.isDirectory == true else { throw NoteFontError(message: "Font data directory must be a real directory.") }
-        if !fm.fileExists(atPath: root.path) { try fm.createDirectory(at: root, withIntermediateDirectories: false) }
+        try DurableFileWriter.prepareDirectory(root)
         try verifyRealDirectory(root)
     }
 

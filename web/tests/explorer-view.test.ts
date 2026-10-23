@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { createExplorerState, renderExplorerView, type ExplorerViewOptions } from '../src/explorer-view';
-import { closePopover } from '../src/action-menu';
-import type { NoteSearchResult } from '../src/note-search';
+import { createExplorerState, renderExplorerView, type ExplorerViewOptions } from '../src/ui/explorer-view';
+import { closePopover } from '../src/ui/action-menu';
+import type { NoteSearchResult } from '../src/application/note-search';
 import { createNote, updateNote, trashNote, type Library } from '../src/domain';
 
 const at = (day: number) => `2026-10-${String(day).padStart(2, '0')}T12:00:00.000Z`;
@@ -65,6 +65,21 @@ test('Trash comes from the common menu, shows recovery time and offers restore v
   const state2 = createExplorerState(expired); state2.mode = 'trash';
   const view = renderExplorerView({ library: expired, state: state2, now: at(15), onOpenNote() {}, onScopeChange() {}, onTrash() {}, onRestore() {}, onArchive() {}, onTag() {}, onOverview() {} }); assert.equal(view.querySelectorAll('.library-entry').length, 0);
 }));
+test('empty Trash states its 30-day retention only once', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>'); const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  try {
+    const library: Library = { version: 1, notes: [], selectedID: null, activeTag: null };
+    const state = createExplorerState(library); state.mode = 'trash';
+    const root = renderExplorerView({ library, state, now: at(15), onOpenNote() {}, onScopeChange() {}, onTrash() {}, onRestore() {}, onArchive() {}, onTag() {}, onOverview() {} });
+    assert.equal((root.textContent!.match(/30 days/g) ?? []).length, 1);
+    assert.equal(root.querySelector('.library-empty p'), null);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'document', previous); else delete (globalThis as any).document;
+    dom.window.close();
+  }
+});
+
 test('right click and the overflow expose the same actions; Escape restores focus without hiding the app', () => harness((dom, root, calls) => {
   const row = root.querySelector('.library-entry') as HTMLElement; row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 }));
   assert.match(dom.window.document.querySelector('[role=menu]')!.textContent!, /Archive note.*Move to Trash/);

@@ -8,12 +8,9 @@ struct FeaturePreferencesSelfTest {
         defer { defaults.removePersistentDomain(forName: name) }
         let prefs = FeaturePreferences(defaults: defaults)
         precondition(!prefs.ocrEnabled)
-        try prefs.setOCR(true); precondition(FeaturePreferences(defaults: defaults).ocrEnabled)
-        for invalid: Any in ["true", 1, NSNull()] {
-            do { try prefs.setOCR(invalid); preconditionFailure("invalid OCR preference accepted") } catch is StoreError {}
-        }
+        prefs.setOCR(true); precondition(FeaturePreferences(defaults: defaults).ocrEnabled)
         precondition(prefs.ocrEnabled)
-        try prefs.setOCR(false); precondition(!prefs.ocrEnabled)
+        prefs.setOCR(false); precondition(!prefs.ocrEnabled)
         print("Optional feature preference checks passed")
     }
 }

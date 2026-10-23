@@ -1,6 +1,6 @@
 import AppKit
 
-final class FoldnotePanel: NSPanel {
+final class NotePanel: NSPanel {
     var hideAction: (() -> Void)?
     // Borderless panels do not accept typing by default.
     override var canBecomeKey: Bool { true }

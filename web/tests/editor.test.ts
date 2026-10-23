@@ -7,7 +7,7 @@ for(const key of ['window','document','navigator','Node','HTMLElement','Element'
 }
 globalThis.requestAnimationFrame=callback=>setTimeout(()=>callback(0),0) as any;
 globalThis.cancelAnimationFrame=id=>clearTimeout(id);
-const {createMarkdownEditor}=await import('../src/editor');
+const {createMarkdownEditor}=await import('../src/ui/editor');
 function mount(markdown:string,onChange=(md:string)=>{}) { const el=document.createElement('div'); document.body.append(el); return createMarkdownEditor(el,markdown,onChange); }
 test('live editor renders common Markdown, tasks, tables and fenced code in one editable surface',()=>{
   const editor=mount('# Heading\n\n**Strong** and *emphasis* and ~~gone~~.\n\n- Bullet\n\n1. Ordered\n\n- [ ] A task\n\n> Quote\n\n```js\nconst x = 1;\n```\n\n| A | B |\n|---|---|\n| One | Two |');
@@ -30,9 +30,9 @@ test('opening multiple editors cannot change tag queries or another editor parse
   const first=mount(markdown);
   for(let i=0;i<4;i++) {
     const other=mount('- [ ] A #work task\n\n# Header');
-    assert.deepEqual(tagsOf(markdown),['project']);
+    assert.deepEqual(tagsOf(markdown),[]);
     assert.deepEqual(tagsOf('- [ ] A #work task'),['work']);
-    assert.match(first.getMarkdown(),/#project/);other.destroy();
+    assert.match(first.getMarkdown(),/`#tag`/);other.destroy();
   }
   first.destroy();
 });

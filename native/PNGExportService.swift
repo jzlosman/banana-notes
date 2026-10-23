@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 
-struct NoteImageRequest {
+struct NoteImageRequest: Decodable, Equatable {
     let html: String
     let title: String
     let backgroundStart: String
@@ -11,6 +11,29 @@ struct NoteImageRequest {
     let accent: String
     let width: Int
     let padding: Int
+    let showMark: Bool
+
+    private enum CodingKeys: String, CodingKey { case html, title, backgroundStart, backgroundEnd, paper, text, accent, width, padding, showMark }
+
+    init(html: String, title: String, backgroundStart: String, backgroundEnd: String, paper: String, text: String,
+         accent: String, width: Int, padding: Int, showMark: Bool = true) {
+        self.html = html; self.title = title; self.backgroundStart = backgroundStart; self.backgroundEnd = backgroundEnd
+        self.paper = paper; self.text = text; self.accent = accent; self.width = width; self.padding = padding; self.showMark = showMark
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        html = try container.decode(String.self, forKey: .html)
+        title = try container.decode(String.self, forKey: .title)
+        backgroundStart = try container.decode(String.self, forKey: .backgroundStart)
+        backgroundEnd = try container.decode(String.self, forKey: .backgroundEnd)
+        paper = try container.decode(String.self, forKey: .paper)
+        text = try container.decode(String.self, forKey: .text)
+        accent = try container.decode(String.self, forKey: .accent)
+        width = try container.decode(Int.self, forKey: .width)
+        padding = try container.decode(Int.self, forKey: .padding)
+        showMark = container.contains(.showMark) ? try container.decode(Bool.self, forKey: .showMark) : true
+    }
 }
 
 enum PNGExportError: Error, LocalizedError {
@@ -157,11 +180,20 @@ enum PNGExportError: Error, LocalizedError {
         guard parts.count == 2, let data = Data(base64Encoded: String(parts[1])), !data.isEmpty, data.count <= 256_000 else { return false }
         return data.starts(with: [0x89, 0x50, 0x4e, 0x47]) || data.starts(with: [0xff, 0xd8, 0xff]) || data.starts(with: [0x47, 0x49, 0x46, 0x38]) || (data.count >= 12 && String(data: data[8..<12], encoding: .ascii) == "WEBP")
     }
-    private func htmlDocument(_ r: NoteImageRequest) -> String {
+    func htmlDocument(_ r: NoteImageRequest) -> String {
         let title = Self.escape(r.title)
-        let content = Self.mediaPlaceholders(r.html)
+        let deduplicated = PNGExportPolicy.removingDuplicateLeadingTitle(from: r.html, title: r.title)
+        let content = Self.mediaPlaceholders(deduplicated)
+        let signature = r.showMark ? PNGExportPolicy.signature(padding: Double(r.padding)) : nil
+        let frame = signature.flatMap { PNGExportPolicy.signatureFrame(width: Double(r.width), padding: Double(r.padding), signature: $0) }
+        let ink = PNGExportPolicy.wordmarkColor(backgroundStart: r.backgroundStart, backgroundEnd: r.backgroundEnd)
+        var markStyle = "", markHTML = ""
+        if let signature, let frame {
+            markStyle = ".signature{position:absolute;right:\(Double(r.width) - frame.maxX)px;bottom:\(frame.y)px;height:\(frame.height)px;display:flex;align-items:center;gap:6px;pointer-events:none}.signature svg{display:block;flex:none}.signature span{font:600 11px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:-.01em;color:\(ink?.hex ?? "#09080D");opacity:\(ink?.alpha ?? PNGExportPolicy.wordmarkAlpha)}"
+            markHTML = "<div class=\"signature\" aria-hidden=\"true\">\(BananaMark.logoSVG(side: signature.logoSide))\(signature.showsWordmark ? "<span>Banana Notes</span>" : "")</div>"
+        }
         return """
-        <!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src foldnote-asset: data:; font-src foldnote-font:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'"><style>*{box-sizing:border-box}html,body{margin:0;width:max-content;min-width:\(r.width)px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:\(r.text)}body{padding:\(r.padding)px;background:linear-gradient(135deg,\(r.backgroundStart),\(r.backgroundEnd))}.card{width:\(r.width - 2*r.padding)px;border-radius:18px;overflow:hidden;background:\(r.paper);box-shadow:0 18px 48px #0003}.dots{height:32px;display:flex;align-items:center;gap:7px;padding:0 14px}.dot{width:9px;height:9px;border-radius:50%}.red{background:#ff5f57}.yellow{background:#febc2e}.green{background:#28c840}.title{font-weight:600;padding:3px 22px 12px;border-bottom:1px solid #0001}.content{padding:24px 28px;overflow-wrap:anywhere;line-height:1.65}pre{font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#0000000b;padding:14px;border-radius:8px}pre code{font:inherit}img{max-width:100%;height:auto}.content h1{line-height:1.25;margin:0 0 18px}.content a{color:\(r.accent)}.content ul[data-type=taskList]{list-style:none;padding:0;margin:14px 0}.content li[data-type=taskItem]{display:flex;align-items:flex-start;gap:8px;margin:7px 0}.content li[data-type=taskItem]>label{padding-top:3px}.content li[data-type=taskItem]>div{flex:1}.content li[data-type=taskItem] p{margin:0}.content li[data-checked=true]>div{opacity:.7;text-decoration:line-through}\(fontCSS())</style></head><body><article class="card"><div class="dots"><i class="dot red"></i><i class="dot yellow"></i><i class="dot green"></i></div><div class="title">\(title)</div><main class="content">\(content)</main></article></body></html>
+        <!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src foldnote-asset: data:; font-src foldnote-font:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'"><style>*{box-sizing:border-box}html,body{margin:0;width:max-content;min-width:\(r.width)px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:\(r.text)}body{position:relative;padding:\(r.padding)px;background:linear-gradient(135deg,\(r.backgroundStart),\(r.backgroundEnd))}.card{width:\(r.width - 2*r.padding)px;border-radius:18px;overflow:hidden;background:\(r.paper);box-shadow:0 18px 48px #0003}.dots{height:32px;display:flex;align-items:center;gap:7px;padding:0 14px}.dot{width:9px;height:9px;border-radius:50%}.red{background:#ff5f57}.yellow{background:#febc2e}.green{background:#28c840}.title{font-weight:600;padding:3px 22px 12px;border-bottom:1px solid #0001}.content{padding:24px 28px;overflow-wrap:anywhere;line-height:1.65}pre{font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#0000000b;padding:14px;border-radius:8px}pre code{font:inherit}img{max-width:100%;height:auto}.content h1{line-height:1.25;margin:0 0 18px}.content>:first-child{margin-top:0}.content a{color:\(r.accent)}.content ul[data-type=taskList]{list-style:none;padding:0;margin:14px 0}.content li[data-type=taskItem]{display:flex;align-items:flex-start;gap:8px;margin:7px 0}.content li[data-type=taskItem]>label{padding-top:3px}.content li[data-type=taskItem]>div{flex:1}.content li[data-type=taskItem] p{margin:0}.content li[data-checked=true]>div{opacity:.7;text-decoration:line-through}\(fontCSS())\(markStyle)</style></head><body><article class="card"><div class="dots"><i class="dot red"></i><i class="dot yellow"></i><i class="dot green"></i></div><div class="title">\(title)</div><main class="content">\(content)</main></article>\(markHTML)</body></html>
         """
     }
     private static func escape(_ value: String) -> String { value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;") }

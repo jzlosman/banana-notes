@@ -7,7 +7,7 @@ for (const key of ['window','document','navigator','Node','HTMLElement','Element
 }
 globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as any;
 globalThis.cancelAnimationFrame = id => clearTimeout(id);
-const [{ createMarkdownEditor }, clipboard] = await Promise.all([import('../src/editor'), import('../src/clipboard')]);
+const [{ createMarkdownEditor }, clipboard] = await Promise.all([import('../src/ui/editor'), import('../src/ui/clipboard')]);
 function mount(markdown: string) { const host = document.createElement('div'); document.body.append(host); return createMarkdownEditor(host, markdown, () => {}); }
 function eventWith(data: Record<string, string> = {}) {
   let prevented = false;

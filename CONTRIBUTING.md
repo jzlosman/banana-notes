@@ -26,6 +26,14 @@ BANANA_NOTES_DATA_DIR="$PROFILE/data" \
 
 Quit the verification app before removing its temporary directory. It has a separate bundle identity and synthetic notes. Its bundle also requires a binding to that profile’s sibling `data/` directory, so reopening through LaunchServices cannot fall back to personal notes when an environment variable is absent. Never substitute your personal library.
 
+## Architecture
+
+The web app separates deterministic rules in `web/src/domain/`, use cases and ports in `web/src/application/`, effect adapters in `web/src/adapters/`, and interface code in `web/src/ui/`; `web/src/main.ts` composes the capabilities, and `web/tests/architecture.test.ts` checks the dependency boundaries.
+
+On macOS, `AppDelegate.swift` handles lifecycle callbacks and `NativeApplicationRuntime.swift` composes the window, hotkey, bridge, menu, and termination services. `BridgeCommandDecoder` turns wire actions into typed `BridgeCommand` values; `BridgeRouter` dispatches each to a capability handler. `NativePorts.swift` defines effect ports, while framework-independent policy code is checked by `ArchitectureSelfTest`.
+
+Dependencies point inward: domain and application rules depend on contracts, while UI and adapters depend on those inner boundaries. To add a native capability, add its wire action and typed `BridgeCommand` case, implement and register a handler, then expose a web capability port and adapter.
+
 ## Design and safety
 
 - Keep note rules deterministic and independent of AppKit, WebKit, storage, and network adapters. Separate read models from state-changing commands.

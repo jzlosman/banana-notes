@@ -7,10 +7,10 @@ dom.window.Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 dom.window.Range.prototype.getBoundingClientRect = () => new dom.window.DOMRect();
 globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as any;
 globalThis.cancelAnimationFrame = id => clearTimeout(id);
-const { createMarkdownEditor } = await import('../src/editor');
-const { queryLinkSelection, applyLinkEdit, removeSelectedLink } = await import('../src/editor-links');
-const { openLinkEditor } = await import('../src/link-editor');
-const { closePopover } = await import('../src/action-menu');
+const { createMarkdownEditor } = await import('../src/ui/editor');
+const { queryLinkSelection, applyLinkEdit, removeSelectedLink } = await import('../src/ui/editor-links');
+const { openLinkEditor } = await import('../src/ui/link-editor');
+const { closePopover } = await import('../src/ui/action-menu');
 function mount(markdown: string, writes: string[] = []) { const host = document.createElement('div'); document.body.append(host); return createMarkdownEditor(host, markdown, text => writes.push(text)); }
 
 test('link query is read-only; adding a link preserves selected rich text and is one undo step', () => {

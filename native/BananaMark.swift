@@ -15,6 +15,44 @@ enum BananaMark {
         }
     }
 
+    /// Full-color logo paths, identical to `assets/banana-notes-logo.svg` (enforced by BananaMarkSelfTest).
+    static let logoPaths: [(d: String, fill: String)] = [
+        (d: "M818 233C811 206 798 181 783 160C779 155 783 150 790 144C804 133 821 122 833 119C841 117 845 121 849 130C862 157 867 185 880 214L856 230Z", fill: "#27251E"),
+        (d: "M162 722C146 720 132 719 121 727C110 734 105 744 107 757C109 773 119 785 135 794L155 770Z", fill: "#27251E"),
+        (d: "M818 232L807 281C805 313 802 338 793 364C776 415 748 452 713 474C736 437 753 400 769 362C790 314 806 268 818 232Z", fill: "#F4D447"),
+        (d: "M161 722C253 731 334 728 411 710C501 689 572 645 634 585C665 555 690 517 713 474C750 459 790 449 829 430C843 423 850 418 849 405C846 369 827 324 807 285L818 232L880 213C907 256 924 304 932 353C941 406 935 455 920 507C896 591 847 671 780 740C713 810 642 855 561 882C489 906 419 910 352 901C265 890 193 848 135 794C145 771 155 745 161 722Z", fill: "#F4D447")
+    ]
+
+    static func logoSVG(side: Double) -> String {
+        let paths = logoPaths.map { "<path d=\"\($0.d)\" fill=\"\($0.fill)\"/>" }.joined()
+        return "<svg viewBox=\"0 0 1024 1024\" width=\"\(side)\" height=\"\(side)\" aria-hidden=\"true\">\(paths)</svg>"
+    }
+
+    /// SVG paths are derived from the same native geometry for export surfaces that cannot share an AppKit bitmap.
+    static func svgPathData() -> [String] {
+        sourcePaths().map { path in
+            var result = ""
+            for index in 0..<path.elementCount {
+                var points = [NSPoint](repeating: .zero, count: 3)
+                let element = points.withUnsafeMutableBufferPointer {
+                    path.element(at: index, associatedPoints: $0.baseAddress!)
+                }
+                func point(_ value: NSPoint) -> String {
+                    "\(Int(value.x.rounded())) \(1024 - Int(value.y.rounded()))"
+                }
+                switch element {
+                case .moveTo: result += "M \(point(points[0])) "
+                case .lineTo: result += "L \(point(points[0])) "
+                case .curveTo, .cubicCurveTo: result += "C \(point(points[0])) \(point(points[1])) \(point(points[2])) "
+                case .quadraticCurveTo: result += "Q \(point(points[0])) \(point(points[1])) "
+                case .closePath: result += "Z "
+                @unknown default: break
+                }
+            }
+            return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
     private static func sourcePaths() -> [NSBezierPath] {
         func path(_ build: (NSBezierPath) -> Void) -> NSBezierPath {
             let result = NSBezierPath()

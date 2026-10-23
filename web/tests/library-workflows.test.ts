@@ -60,17 +60,20 @@ test('bulk edits are atomic on malformed frontmatter and safely ignore stale IDs
   assert.deepEqual(bulkArchiveNotes(lib, ['missing'], at(10)), lib);
 });
 
-test('bulk trash, restore, and purge honor exact 30-day expiry and preserve content timestamps', () => {
-  const lib = fixture();
+test('bulk trash, restore, and purge honor strict 30-day expiry and conservative effective time', () => {
+  const base = fixture();
+  const lib = { ...base, notes: base.notes.map(note => note.id === 'b' ? { ...note, updatedAt: at(31) } : note) };
   const trashed = bulkTrashNotes(lib, ['a', 'stale'], at(1));
   const note = trashed.notes.find(n => n.id === 'a')!;
   assert.deepEqual(note, { ...lib.notes.find(n => n.id === 'a')!, trashedAt: at(1) });
   assert.equal(trashExpiresAt(note), '2026-10-31T12:00:00.000Z');
   assert.deepEqual(restoreNote(trashed, 'a', '2026-10-31T11:59:59.999Z').notes.find(n => n.id === 'a'), lib.notes.find(n => n.id === 'a'));
-  assert.equal(bulkRestoreNotes(trashed, ['a'], '2026-10-31T12:00:00.000Z').notes.find(n => n.id === 'a')!.trashedAt, at(1));
+  assert.equal(bulkRestoreNotes(trashed, ['a'], '2026-10-31T12:00:00.000Z').notes.find(n => n.id === 'a')!.trashedAt, undefined);
   const restored = bulkRestoreNotes(trashed, ['a', 'missing'], '2026-10-31T11:59:59.999Z');
   assert.deepEqual(restored.notes.find(n => n.id === 'a'), lib.notes.find(n => n.id === 'a'));
-  const purged = purgeExpiredTrash(trashed, '2026-10-31T12:00:00.000Z');
+  const exactRetention = purgeExpiredTrash(trashed, '2026-10-31T12:00:00.000Z');
+  assert.equal(exactRetention.notes.some(n => n.id === 'a'), true);
+  const purged = purgeExpiredTrash(trashed, '2026-10-31T12:00:00.001Z');
   assert.equal(purged.notes.some(n => n.id === 'a'), false);
   assert.equal(purged.notes.some(n => n.id === 'b'), true);
   assert.deepEqual(purgeExpiredTrash(trashed, '2026-10-31T11:59:59.999Z'), trashed);

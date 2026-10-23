@@ -5,7 +5,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http:
 for (const key of ['window', 'document', 'navigator', 'Node', 'HTMLElement', 'Element', 'MutationObserver', 'DOMParser', 'getComputedStyle', 'KeyboardEvent', 'MouseEvent'] as const) if (key in dom.window) Object.defineProperty(globalThis, key, { value: (dom.window as any)[key], configurable: true, writable: true });
 globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as any;
 globalThis.cancelAnimationFrame = id => clearTimeout(id);
-const { createHighlightedCodeBlock, applyCodeAppearance, highlightCodeHTML, renderCodeLanguageSelector, syntaxThemeIDs, renderCodeSettings } = await import('../src/code-highlighting');
+const { createHighlightedCodeBlock, applyCodeAppearance, highlightCodeHTML, renderCodeLanguageSelector, syntaxThemeIDs, renderCodeSettings } = await import('../src/ui/code-highlighting');
 const { Editor } = await import('@tiptap/core');
 const StarterKit = (await import('@tiptap/starter-kit')).default;
 const { Markdown } = await import('@tiptap/markdown');

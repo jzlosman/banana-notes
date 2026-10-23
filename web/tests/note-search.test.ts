@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeSearchMatches, searchNotes, type NoteSearchPort, type SearchReadiness } from '../src/note-search';
+import { mergeSearchMatches, searchNotes, type NoteSearchPort, type SearchReadiness } from '../src/application/note-search';
 
 const ready: SearchReadiness = { enabled: true, runtimeAvailable: true, installed: true };
 function harness(status: SearchReadiness = ready) {

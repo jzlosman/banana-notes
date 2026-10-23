@@ -12,12 +12,12 @@ struct CatalogTheme: Decodable {
 /// catalog, not bridge-supplied colors or paths, determines native chrome.
 final class AppearancePreferences {
     static let systemID = "system"
-    private let defaults: UserDefaults
+    private let defaults: any PreferencesStore
     private let catalog: [String: CatalogTheme]
     let catalogError: String?
     private let key = "appearanceTheme"
 
-    init(catalogURL: URL, defaults: UserDefaults = .standard) {
+    init(catalogURL: URL, defaults: any PreferencesStore = UserDefaults.standard) {
         self.defaults = defaults
         do {
             let themes = try JSONDecoder().decode([CatalogTheme].self, from: Data(contentsOf: catalogURL))

@@ -1,7 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { renderSemanticSettings, semanticSearch, type SemanticInvoke, type SemanticStatus } from '../src/semantic-search';
+import { renderSemanticSettings as renderSettingsPanel } from '../src/ui/semantic-search';
+import { semanticSearch } from '../src/application/semantic-query';
+import type { SemanticSearchPort } from '../src/application/ports';
+import { parseSemanticHits, parseSemanticStatus, type SemanticStatus } from '../src/application/semantic-contract';
+
+type SemanticInvoke = (action: string, payload?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+type LegacySettingsInput = { invoke: SemanticInvoke; getNotes: Parameters<typeof renderSettingsPanel>[0]['getNotes']; onChanged?: Parameters<typeof renderSettingsPanel>[0]['onChanged']; automaticIndex?: Parameters<typeof renderSettingsPanel>[0]['automaticIndex']; registerRefresh?: Parameters<typeof renderSettingsPanel>[0]['registerRefresh'] };
+function semanticPort(invoke: SemanticInvoke): SemanticSearchPort {
+  return {
+    status: async () => await invoke('semanticStatus') as unknown as SemanticStatus,
+    index: (notes, force) => invoke('semanticIndex', { notes, force }),
+    search: async (query, candidateIDs) => {
+      const result = await invoke('semanticSearch', { query, candidateIDs });
+      return parseSemanticHits(result.hits);
+    },
+    configuration: {
+      set: async configuration => parseSemanticStatus(await invoke('semanticEnable', configuration as unknown as Record<string, unknown>)),
+      startRuntime: async () => { await invoke('semanticStartRuntime'); },
+      downloadModel: async model => { await invoke('semanticDownload', { model }); },
+      clearIndex: async () => { await invoke('semanticClearIndex'); },
+      cancel: async () => { await invoke('semanticCancel'); },
+    },
+  };
+}
+function renderSemanticSettings(input: LegacySettingsInput): HTMLElement {
+  const { invoke, ...options } = input;
+  return renderSettingsPanel({ ...options, search: semanticPort(invoke) });
+}
 
 const models = [
   { name: 'all-minilm:22m', disclosure: '22M parameters · approximately 46 MB' },
@@ -31,11 +58,11 @@ const choose = (root: HTMLElement, role: string, dom: JSDOM) => { const input = 
 test('semantic query adapter scopes candidates and rejects malformed/non-finite hit scores', async () => {
   let received: { action: string; payload?: Record<string, unknown> } | undefined;
   const invoke: SemanticInvoke = async (action, payload) => { received = { action, payload }; return { hits: [{ id: 'n1', score: 0.9, snippet: 'A useful note' }] }; };
-  assert.deepEqual(await semanticSearch(invoke, 'something useful', ['n1']), [{ id: 'n1', score: 0.9, snippet: 'A useful note' }]);
+  assert.deepEqual(await semanticSearch(semanticPort(invoke), 'something useful', ['n1']), [{ id: 'n1', score: 0.9, snippet: 'A useful note' }]);
   assert.equal(received?.action, 'semanticSearch');
   assert.deepEqual(received?.payload, { query: 'something useful', candidateIDs: ['n1'] });
-  await assert.rejects(semanticSearch(async () => ({ hits: [{ id: 'bad' }] }), 'x', []), /invalid hit/);
-  await assert.rejects(semanticSearch(async () => ({ hits: [{ id: 'bad', score: Infinity, snippet: 'x' }] }), 'x', []), /invalid hit/);
+  assert.deepEqual(await semanticSearch(semanticPort(async () => ({ hits: [{ id: 'other', score: 0.8, snippet: 'outside scope' }] })), 'useful', ['n1']), []);
+  assert.throws(() => parseSemanticHits([{ id: 'bad', score: Infinity, snippet: 'x' }]), /invalid hit/);
 });
 
 test('native radio selection persists Apple, Ollama, and Disabled without opening-time effects', withDocument(async dom => {
@@ -127,14 +154,14 @@ test('native Apple hides Ollama controls while retaining index management', with
 
 test('switching from the actual Apple embedding space to Ollama preserves its remembered model', withDocument(async dom => {
   const payloads: Record<string, unknown>[] = [];
-  const apple: SemanticStatus = { ...base, enabled: true, model: 'apple:nl-english:revision-1' };
+  let state: SemanticStatus = { ...base, enabled: true, model: 'apple:nl-english:revision-1' };
   const root = renderSemanticSettings({ getNotes: () => [], invoke: async (action, payload) => {
     if (action === 'semanticEnable') {
       payloads.push(payload!);
       assert.equal(payload?.model, undefined, 'Apple revision identifiers are not valid Ollama models');
-      return { ...apple, provider: 'ollama', model: 'embeddinggemma:latest' };
+      state = { ...state, provider: 'ollama', model: 'embeddinggemma:latest' };
     }
-    return apple as unknown as Record<string, unknown>;
+    return state as unknown as Record<string, unknown>;
   } });
   await tick(); choose(root, 'ollama', dom); await tick();
   assert.deepEqual(payloads, [{ enabled: true, provider: 'ollama' }]);

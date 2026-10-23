@@ -12,4 +12,4 @@ node scripts/import-agent-paint.mjs
 node scripts/import-agent-paint.mjs /path/to/agent-paint
 ```
 
-The adapter maps upstream Paseo semantic colors to Foldnote roles and applies deterministic WCAG contrast corrections. Upstream source colors are not modified.
+The adapter maps upstream Paseo semantic colors to Banana Notes roles and applies deterministic WCAG contrast corrections. Upstream source colors are not modified.

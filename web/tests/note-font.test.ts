@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import {
   DEFAULT_NOTE_FONT_STATE, applyNoteFont, renderNoteFontSettings, resolveNoteFontSelection, resolveNoteFontState,
   type NoteFontDefinition, type NoteFontState,
-} from '../src/note-font';
+} from '../src/ui/note-font';
 
 const hash = 'a'.repeat(64);
 const googleFont: NoteFontDefinition = {

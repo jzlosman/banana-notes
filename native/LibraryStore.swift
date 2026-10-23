@@ -85,7 +85,7 @@ final class LibraryStore: LibraryRepository, @unchecked Sendable {
     init(directory: URL? = nil) {
         if let directory {
             self.directory = directory.standardizedFileURL
-        } else if Bundle.main.bundleIdentifier?.hasPrefix("dev.local.foldnote.verification.") == true {
+        } else if Bundle.main.bundleIdentifier?.hasPrefix("com.jzlosman.banana-notes.verification.") == true {
             do {
                 self.directory = try Self.verificationDirectory(bundleURL: Bundle.main.bundleURL,
                     binding: Bundle.main.object(forInfoDictionaryKey: "BananaNotesVerificationDataDirectory"))

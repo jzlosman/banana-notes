@@ -9,7 +9,7 @@ struct PanelMotionIntegrationSelfTest {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
 
-        let suiteName = "dev.local.foldnote.panel-motion-test.\(UUID().uuidString)"
+        let suiteName = "com.jzlosman.banana-notes.panel-motion-test.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let style = WindowStylePreferences(defaults: defaults)

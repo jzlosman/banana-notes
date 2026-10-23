@@ -60,8 +60,8 @@ lipo "$MACOS/Banana Notes" -verify_arch arm64
 lipo "$MACOS/Banana Notes" -verify_arch x86_64
 
 plutil -create xml1 "$CONTENTS/Info.plist"
-# Keep the bundle identity so preferences, login-item identity, and single-instance behavior survive the rename.
-/usr/libexec/PlistBuddy -c 'Add :CFBundleIdentifier string dev.local.foldnote' "$CONTENTS/Info.plist"
+# The public bundle identity owns preferences, login-item registration, and single-instance behavior.
+/usr/libexec/PlistBuddy -c 'Add :CFBundleIdentifier string com.jzlosman.banana-notes' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleName string Banana Notes' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Banana Notes' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Banana Notes' "$CONTENTS/Info.plist"
@@ -75,7 +75,7 @@ plutil -create xml1 "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :NSHighResolutionCapable bool true' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes array' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0 dict' "$CONTENTS/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLName string dev.local.foldnote' "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLName string com.jzlosman.banana-notes' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes array' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string banananotes' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:1 string foldnote' "$CONTENTS/Info.plist"

@@ -1,4 +1,5 @@
 import AppKit
+@testable import BananaNotesCore
 
 private final class RecordingWindow: NSWindow {
     var simulatedKeyWindow = false

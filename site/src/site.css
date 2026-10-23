@@ -178,7 +178,6 @@
     left: 0;
     width: min(760px, 60%);
     padding-right: 8px;
-    background: var(--color-white);
   }
   .hero-title {
     color: var(--color-ink);
@@ -387,7 +386,8 @@
 }
 
 @media (max-width: 1300px) and (min-width: 1101px) {
-  .hero-work { left: 180px; }
+  .hero-art { left: calc(100% - 520px); transform: scale(.86); transform-origin: top left; }
+  .hero-work { left: 80px; }
 }
 
 @media (max-width: 767px) {

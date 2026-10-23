@@ -36,7 +36,7 @@
   <tr>
     <td valign="top"><a href="#no-file-names"><strong>No files to name</strong></a><br><kbd>⌘</kbd><kbd>N</kbd> and start typing. Goodbye, Untitled (429).</td>
     <td valign="top"><a href="#media"><strong>Media and pretty exports</strong></a><br>Drop in images, audio and video. Share any note as a PNG.</td>
-    <td valign="top"><a href="#themes"><strong>Make it yours</strong></a><br>30 themes, any Google Font, on-device search.</td>
+    <td valign="top"><a href="#themes"><strong>Make it yours</strong></a><br>32 themes, six bundled fonts, on-device search.</td>
   </tr>
 </table>
 
@@ -141,11 +141,11 @@ Drag or paste images into a note, or use **Note actions (…) → Attach file…
 Pin it to keep it on screen while you switch apps, or unpin it so it tucks away as soon as you click elsewhere. <kbd>Esc</kbd> or <kbd>⌘</kbd><kbd>W</kbd> hides it; it keeps running for next time. No Dock icon, no <kbd>⌘</kbd><kbd>Tab</kbd> clutter. Set or reset the shortcut in **Settings → General → Global shortcut**; new installs default to <kbd>⌃</kbd><kbd>⇧</kbd><kbd>Space</kbd>, while installs with an existing library and no saved shortcut retain the legacy <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> default. The app menu includes **About Banana Notes**; **Check for Updates…** is available in builds packaged with Sparkle.
 
 <a id="themes"></a>
-### 30 themes. Any Google Font.
+### 32 themes. Six bundled fonts.
 
 ![Ten of the thirty bundled themes](docs/media/themes.png)
 
-Dracula, Nord, Catppuccin, Rosé Pine, Tokyo Night, Gruvbox, Solarized, GitHub and more. Everything re-skins instantly, native window chrome included, and code blocks can have their own syntax theme. For fonts, pick SF Mono, System, Avenir Next or Georgia, or type any Google Fonts name and click **Download and use**.
+Banana Light and Banana Dark, plus Dracula, Nord, Catppuccin, Rosé Pine, Tokyo Night, Gruvbox, Solarized, GitHub and more. Everything re-skins instantly, native window chrome included, and code blocks can have their own syntax theme. Six fonts ship with the app and work offline: Space Mono (the default), JetBrains Mono, Overpass Mono, Fira Code, Georgia and Avenir Next. Want something else? Type any Google Fonts name and click **Download and use**.
 
 > **Try it:** <kbd>⌘</kbd><kbd>,</kbd> → **Themes**, then filter to light or dark.
 
@@ -232,11 +232,11 @@ The pin keeps the floating panel visible while switching apps. Otherwise it hide
 <details>
 <summary><strong>Settings and appearance</strong></summary>
 
-Click the gear in the top toolbar, press **Command–,**, or choose **Settings…** in the menu bar. **General → Global shortcut** has a shortcut recorder and **Reset** button. Formatting and note navigation share one bottom row. Notes save automatically; save failures show a persistent notice with a Retry action. There is no permanent save-status icon. At compact widths, Heading/Quote/Code are available under **Note actions (…) → Formatting…**. Search or filter the 30 bundled [Agent Paint](https://github.com/jzlosman/agent-paint) palettes by light/dark appearance. Choosing a palette updates the editor, explorer, controls and native Mac chrome immediately and survives relaunch. **Follow macOS** restores Banana Notes' system-following light/dark appearance.
+Click the gear in the top toolbar, press **Command–,**, or choose **Settings…** in the menu bar. **General → Global shortcut** has a shortcut recorder and **Reset** button. Formatting and note navigation share one bottom row. Notes save automatically; save failures show a persistent notice with a Retry action. There is no permanent save-status icon. At compact widths, Heading/Quote/Code are available under **Note actions (…) → Formatting…**. Search or filter the Banana Light and Banana Dark themes and 30 bundled [Agent Paint](https://github.com/jzlosman/agent-paint) palettes by light/dark appearance. Choosing a palette updates the editor, explorer, controls and native Mac chrome immediately and survives relaunch. **Follow macOS** restores Banana Notes' system-following light/dark appearance.
 
-The **Code** tab selects an independent syntax palette from the same 30 themes, or **Match app**. Fenced code is highlighted locally. Put the cursor inside a code block to choose its language. The **Window** tab provides note typography and persistent text sizing; ⌘+/⌘− and ⌘0 work without modifying the note.
+The **Code** tab selects an independent syntax palette from the same 32 themes, or **Match app**. Fenced code is highlighted locally. Put the cursor inside a code block to choose its language. The **Window** tab provides note typography and persistent text sizing; ⌘+/⌘− and ⌘0 work without modifying the note.
 
-Notes default to **SF Mono · Medium** for slightly heavier monospaced writing. **Settings → Window → Note text** groups Font, Weight and a 10–32 px Size dropdown in one row, followed by a labelled preview. It offers SF Mono, System, Avenir Next and Georgia, plus the weights each supports. Expand **Add a Google font**, enter any Google Fonts family name, and choose **Download and use**. Examples include IBM Plex Mono, DM Sans and Lora. Only this explicit action contacts Google; fonts are cached in the local data folder's `fonts/` directory and work offline afterward. No note content is sent. Font choices persist separately from notes, affect PNG export, and do not change the interface or code/source font.
+Notes default to **Space Mono · Regular**. **Settings → Window → Note text** groups Font, Weight and a 10–32 px Size dropdown in one row, followed by a labelled preview. It offers Space Mono, JetBrains Mono, Overpass Mono, Fira Code, Georgia and Avenir Next, plus the weights each supports. The four monospaced fonts are bundled under the SIL Open Font License, so they work offline. Expand **Add a Google font**, enter any Google Fonts family name, and choose **Download and use**. Examples include IBM Plex Mono, DM Sans and Lora. Only this explicit action contacts Google; fonts are cached in the local data folder's `fonts/` directory and work offline afterward. No note content is sent. Font choices persist separately from notes, affect PNG export, and do not change the interface or code/source font.
 
 The **Window** tab has separate **Active window opacity** and **Inactive window opacity** sliders (5–100%), plus **Background translucency** (glass, 0–100%). Opacity fades the entire window, including text; glass blends in macOS's native frosted desktop backdrop. Defaults are fully opaque with no glass, and the settings apply across themes. Unfocused opacity is visible when the note is pinned. **Reset window effects**, or **Reset Window Effects** in the menu bar, restores safe defaults without changing the theme or notes. Window preferences are saved separately under `windowStyle`; the browser preview simulates opacity but cannot render the native desktop backdrop.
 

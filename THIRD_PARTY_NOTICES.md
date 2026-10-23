@@ -8,6 +8,10 @@ The editor uses the MIT-licensed TipTap/ProseMirror packages, Marked, YAML, and 
 
 The web build collects license and notice files from every npm package in its dependency graph. The app includes these, with a name/version/license inventory, under `Contents/Resources/web/third-party/dependencies/` and `dependencies.json`. Dependency source and license metadata are pinned in `package-lock.json`; the packages themselves are installed from npm, not vendored here.
 
+## Bundled fonts
+
+Space Mono, JetBrains Mono, Overpass Mono and Fira Code are licensed under the SIL Open Font License 1.1. They are taken from pinned [Fontsource](https://fontsource.org) packages at build time (latin and latin-ext subsets only). Each font's license is included in the app under `Contents/Resources/web/third-party/`. The Banana Light and Banana Dark themes are original to Banana Notes.
+
 ## Palettes
 
 The bundled palette adaptations come from [Agent Paint](https://github.com/jzlosman/agent-paint). Its [source record](vendor/agent-paint/SOURCE.md), [MIT license](vendor/agent-paint/LICENSE), [upstream attribution](vendor/agent-paint/THIRD_PARTY_NOTICES.md), and [upstream license texts](vendor/agent-paint/licenses/README.md) are preserved. These notices and license texts are also included in the app.

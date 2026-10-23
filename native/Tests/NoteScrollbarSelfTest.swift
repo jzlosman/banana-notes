@@ -10,7 +10,7 @@ import WebKit
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = view
         defer { window.close() }
-        view.loadHTMLString("<html><head><style>\(css)</style></head><body><div class='editor-scroll' style='height:120px;width:180px'><div style='height:2000px'>Synthetic note</div></div><textarea class='source-editor' style='height:120px;width:180px'></textarea></body></html>", baseURL: nil)
+        view.loadHTMLString("<html><head><style>\(css)</style></head><body><div class='editor-scroll quiet-scroll' style='height:120px;width:180px'><div style='height:2000px'>Synthetic note</div></div><textarea class='source-editor quiet-scroll' style='height:120px;width:180px'></textarea></body></html>", baseURL: nil)
         var loaded = false
         for _ in 0..<100 {
             try await Task.sleep(nanoseconds: 50_000_000)
@@ -32,7 +32,7 @@ import WebKit
             for (const el of [document.querySelector('.editor-scroll'),source]) {
               el.style.scrollBehavior = 'auto'; el.scrollTop = 240;
               const color = getComputedStyle(el,'::-webkit-scrollbar-thumb').backgroundColor;
-              results.push({theme,focused,kind:el.className,alpha:alpha(color),highContrast:matchMedia('(prefers-contrast: more)').matches,scrollTop:el.scrollTop,width:el.clientWidth});
+              results.push({theme,focused,kind:el.classList[0],alpha:alpha(color),highContrast:matchMedia('(prefers-contrast: more)').matches,scrollTop:el.scrollTop,width:el.clientWidth});
             }
           }
         }

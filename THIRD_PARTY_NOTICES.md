@@ -10,7 +10,7 @@ The web build collects license and notice files from every npm package in its de
 
 ## Bundled fonts
 
-Space Mono, JetBrains Mono, Overpass Mono and Fira Code are licensed under the SIL Open Font License 1.1. They are taken from pinned [Fontsource](https://fontsource.org) packages at build time (latin and latin-ext subsets only). Each font's license is included in the app under `Contents/Resources/web/third-party/`. The Banana Light and Banana Dark themes are original to Banana Notes.
+Space Mono, JetBrains Mono, Overpass Mono and Fira Code are licensed under the SIL Open Font License 1.1. They are taken from pinned [Fontsource](https://fontsource.org) packages at build time (latin and latin-ext subsets only). Each font's license is included in the app under `Contents/Resources/web/third-party/font-licenses/`. The Banana Light and Banana Dark themes are original to Banana Notes.
 
 ## Palettes
 

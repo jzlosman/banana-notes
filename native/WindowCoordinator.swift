@@ -17,6 +17,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private let focusSource: (() -> Bool)?
     private var pinned: Bool
     private var presentingNativeUI = false
+    var onPinnedChange: ((Bool) -> Void)?
     var onError: ((String) -> Void)?
 
     init(stylePreferences: WindowStylePreferences, preferences: any PreferencesStore = UserDefaults.standard,
@@ -25,7 +26,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         self.preferences = preferences
         self.reduceMotionSource = reduceMotionSource ?? { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
         self.focusSource = focusSource
-        pinned = preferences.bool(forKey: "pinned")
+        pinned = WindowPreferencePolicy.pinned(from: preferences.object(forKey: "pinned"))
         super.init()
     }
 
@@ -79,6 +80,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         pinned = value
         preferences.set(value, forKey: "pinned")
         panel?.hidesOnDeactivate = false
+        onPinnedChange?(value)
     }
 
     func setPresentingNativeUI(_ value: Bool) { presentingNativeUI = value }

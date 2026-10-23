@@ -9,7 +9,7 @@ test('application commands queue until session readiness and await flush effects
   let flushed = false;
   const handler = createAppCommandHandler({
     isReady: () => ready, defer: command => deferred.push(command), newNote: () => {}, showExplorer: () => {},
-    selectNotebook: () => {}, showHelp: () => {}, showSettings: () => {}, focusChanged: () => {},
+    selectNotebook: () => {}, showHelp: () => {}, showSettings: () => {}, focusChanged: () => {}, pinChanged: () => {},
     changeWindowStyle: () => {}, changeFontSize: () => {}, copy: async () => {},
     flush: async () => { await Promise.resolve(); flushed = true; }, focusEditor: () => {}, move: () => {},
   });
@@ -19,4 +19,17 @@ test('application commands queue until session readiness and await flush effects
   const queued = deferred.splice(0);
   await Promise.all(queued.map(handler));
   assert.equal(flushed, true);
+});
+
+test('native pin changes update the UI from the authoritative state', async () => {
+  const received: boolean[] = [];
+  const handler = createAppCommandHandler({
+    isReady: () => true, defer: () => {}, newNote: () => {}, showExplorer: () => {},
+    selectNotebook: () => {}, showHelp: () => {}, showSettings: () => {}, focusChanged: () => {},
+    pinChanged: pinned => received.push(pinned), changeWindowStyle: () => {}, changeFontSize: () => {},
+    copy: async () => {}, flush: async () => {}, focusEditor: () => {}, move: () => {},
+  });
+  await handler({ type: 'pin-change', pinned: true });
+  await handler({ type: 'pin-change', pinned: false });
+  assert.deepEqual(received, [true, false]);
 });

@@ -22,8 +22,8 @@ test('in-note find shortcuts remain separate from Find notes', () => {
   };
   const dispose = installKeyboardShortcuts(actions);
   const press = (key: string, shiftKey = false) => dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, metaKey: true, shiftKey, bubbles: true, cancelable: true }));
-  press('f'); press('g'); press('g', true); press('p');
-  assert.deepEqual(calls, ['find-note', 'next', 'previous', 'find-notes']);
+  press('f'); press('g'); press('g', true); press('p'); press('p', true);
+  assert.deepEqual(calls, ['find-note', 'next', 'previous', 'find-notes'], 'Command–Shift–P is reserved for the native pin menu item');
   const recorder = dom.window.document.createElement('button'); recorder.className = 'hotkey-chord'; recorder.dataset.recording = 'true'; dom.window.document.body.append(recorder);
   const recorded = new dom.window.KeyboardEvent('keydown', { key: 'n', metaKey: true, bubbles: true, cancelable: true }); recorder.dispatchEvent(recorded);
   assert.deepEqual(calls, ['find-note', 'next', 'previous', 'find-notes']); assert.equal(recorded.defaultPrevented, false);

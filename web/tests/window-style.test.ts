@@ -6,9 +6,10 @@ import { WindowStyleSaveQueue } from '../src/application/window-style-save';
 const style = (focusedOpacity: number): WindowStyle => ({ focusedOpacity, unfocusedOpacity: 0.7, glass: 0.3 });
 
 test('resolves defaults per invalid field and clamps finite values', () => {
+  assert.deepEqual(DEFAULT_WINDOW_STYLE, { focusedOpacity: 1, unfocusedOpacity: 0.6, glass: 0 });
   assert.deepEqual(resolveWindowStyle(null), DEFAULT_WINDOW_STYLE);
   assert.deepEqual(resolveWindowStyle({ focusedOpacity: 0, unfocusedOpacity: '0.5', glass: NaN }), {
-    focusedOpacity: 0.05, unfocusedOpacity: 1, glass: 0,
+    focusedOpacity: 0.05, unfocusedOpacity: 0.6, glass: 0,
   });
   assert.deepEqual(resolveWindowStyle({ focusedOpacity: Infinity, unfocusedOpacity: -2, glass: 2 }), {
     focusedOpacity: 1, unfocusedOpacity: 0.05, glass: 1,

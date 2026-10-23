@@ -6,6 +6,7 @@ All notable changes to Banana Notes are documented here.
 
 ### Added
 
+- Toggle the floating window's pin state from anywhere in the app with ⌘⇧P or **Window → Pin Window**.
 - Configure the global shortcut in Settings → General, with a recorder and Reset button. New installs default to ⌃⇧Space; installs with an existing library and no saved shortcut retain the legacy ⌃⌥Space default.
 - Find text within the current note with ⌘F, then move between matches with Return / Shift–Return or ⌘G / ⇧⌘G.
 - Restore the last valid library backup from the recovery screen.
@@ -15,6 +16,7 @@ All notable changes to Banana Notes are documented here.
 
 ### Changed
 
+- Start new windows pinned by default; set inactive window opacity to 60% by default.
 - Preserve untouched Markdown blocks byte-for-byte. Unsupported syntax, including raw HTML, footnotes, reference links, and math, appears as labelled source blocks; editing a block in source mode can normalize it.
 - Enforce a 2 MB per-note limit and a 20,000-note library limit.
 - Write library updates durably with atomic replacement, and wait for pending saves before quitting.

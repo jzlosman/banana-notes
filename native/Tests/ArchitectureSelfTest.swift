@@ -9,7 +9,7 @@ struct ArchitectureSelfTest {
                          "HotkeyPreferences.swift", "LibraryDocument.swift", "LibraryStore.swift", "MarkdownExportService.swift",
                          "MenuAction.swift", "NativePorts.swift", "OllamaResponsePolicy.swift", "PanelMotionState.swift",
                          "PNGExportPolicy.swift", "SemanticBridgeCommand.swift", "WebCommandChannel.swift",
-                         "WebNavigationPolicy.swift", "WindowFocusState.swift"]
+                         "WebNavigationPolicy.swift", "WindowFocusState.swift", "WindowPreferencePolicy.swift"]
         for name in pureFiles {
             let source = try String(contentsOf: native.appendingPathComponent(name), encoding: .utf8)
             for forbidden in ["import AppKit", "import WebKit", "import Carbon"] {

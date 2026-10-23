@@ -9,6 +9,7 @@ export interface AppCommandActions {
   showHelp(): void;
   showSettings(): void;
   focusChanged(focused: boolean): void;
+  pinChanged(pinned: boolean): void;
   changeWindowStyle(style: Extract<AppCommand, { type: 'window-style' }>['style']): void;
   changeFontSize(adjustment: Extract<AppCommand, { type: 'font-size' }>['adjustment']): void;
   copy(format: Extract<AppCommand, { type: 'copy' }>['format'], whole: boolean): Promise<void>;
@@ -28,6 +29,7 @@ export function createAppCommandHandler(actions: AppCommandActions): AppCommandH
       case 'help': actions.showHelp(); break;
       case 'settings': actions.showSettings(); break;
       case 'focus-change': actions.focusChanged(command.focused); break;
+      case 'pin-change': actions.pinChanged(command.pinned); break;
       case 'window-style': actions.changeWindowStyle(command.style); break;
       case 'font-size': actions.changeFontSize(command.adjustment); break;
       case 'copy': await actions.copy(command.format, command.whole); break;

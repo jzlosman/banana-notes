@@ -184,7 +184,7 @@ export function renderWindowStyleSettings(options: {
   const effects = element('section', 'settings-group window-effects'); const heading = element('h2', '', 'Window effects'); heading.id = 'window-effects-heading'; effects.setAttribute('aria-labelledby', heading.id); effects.append(heading); settings.append(effects);
   for (const [field, label, hint] of [
     ['focusedOpacity', 'Active window opacity', 'Applies to the entire window, including text.'],
-    ['unfocusedOpacity', 'Inactive window opacity', 'Applies when the pinned window is inactive.'],
+    ['unfocusedOpacity', 'Inactive window opacity', 'Applies when the pinned window is inactive. Default: 60%.'],
     ['glass', 'Background translucency', 'Blends the desktop behind the window.'],
   ] as const) {
     const row = element('div', 'effect-setting'); const labels = element('div', 'effect-labels'); const text = element('label', '', label); text.htmlFor = `effect-${field}`;
@@ -198,7 +198,7 @@ export function renderWindowStyleSettings(options: {
   actions.append(button('Reset window effects', null, () => options.onChangeWindowStyle({ ...DEFAULT_WINDOW_STYLE }), 'text-button', 'Reset window effects'));
   const saveStatus = button('Retry saving window effects', null, () => options.windowStyleQueue.flush(), 'save-status effects-save-status', undefined, options.onError); saveStatus.setAttribute('aria-live', 'polite');
   saveStatus.textContent = options.windowStyleStatus; saveStatus.hidden = !options.windowStyleError; saveStatus.classList.toggle('save-error', options.windowStyleError);
-  actions.append(saveStatus); effects.append(actions, element('p', 'effects-recovery', 'Use the menu bar → Reset Window Effects to restore visibility.'));
+  actions.append(saveStatus); effects.append(actions, element('p', 'effects-recovery', 'Use the menu bar → Reset Window Effects to restore the default opacity and translucency.'));
   if (options.capabilities.windowStyle.previewOpacity(!!options.windowFocused, options.windowStyle) !== null) effects.append(element('p', 'effects-recovery', 'Background translucency is approximated in browser preview.'));
   return settings;
 }

@@ -4,10 +4,10 @@ import Foundation
 enum WebCommand: Equatable, Encodable {
     enum ClipboardFormat: String, Encodable { case markdown, formatted, html, text }
     case new, explorer, themes, help, show, older, newer, flush
-    case tag(String), focus(Bool), windowStyle(WindowStyle), copy(ClipboardFormat, whole: Bool)
+    case tag(String), focus(Bool), pin(Bool), windowStyle(WindowStyle), copy(ClipboardFormat, whole: Bool)
     case fontIncrease, fontDecrease, fontReset
 
-    private enum CodingKeys: String, CodingKey { case action, tag, focused, style, format, whole }
+    private enum CodingKeys: String, CodingKey { case action, tag, focused, pinned, style, format, whole }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -26,6 +26,9 @@ enum WebCommand: Equatable, Encodable {
         case .focus(let focused):
             try container.encode("focus", forKey: .action)
             try container.encode(focused, forKey: .focused)
+        case .pin(let pinned):
+            try container.encode("pin", forKey: .action)
+            try container.encode(pinned, forKey: .pinned)
         case .windowStyle(let style):
             try container.encode("windowStyle", forKey: .action)
             try container.encode(style.bridgeValue, forKey: .style)

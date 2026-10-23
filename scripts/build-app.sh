@@ -39,6 +39,7 @@ rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES/web"
 cp "$WEB_DIST/index.html" "$WEB_DIST/app.js" "$WEB_DIST/app.css" "$WEB_DIST/theme-catalog.json" "$RESOURCES/web/"
 cp -R "$WEB_DIST/third-party" "$RESOURCES/web/"
+cp -R "$WEB_DIST/fonts" "$RESOURCES/web/"
 if [[ -f "$WEB_DIST/app.js.map" ]]; then cp "$WEB_DIST/app.js.map" "$RESOURCES/web/"; fi
 
 COMMON_FLAGS=(-O -framework AppKit -framework WebKit -framework Carbon -framework NaturalLanguage)

@@ -81,7 +81,7 @@ const nativeLoadReply = {
   dataDirectory: '/tmp/data', themeID: 'system', themeWarning: null, focused: true,
   windowStyle: { focusedOpacity: 1, unfocusedOpacity: 1, glass: 0 }, fontSize: 15, ocrEnabled: false, featureWarning: null,
   imageOptions: {}, launchAtLogin: false, launchError: null, launchStatus: 'notRegistered', newNoteOnLaunch: false,
-  noteFonts: { selection: { fontID: 'sf-mono', weight: 500 }, fonts: [] }, syntaxThemeID: 'app',
+  noteFonts: { selection: { fontID: 'space-mono', weight: 400 }, fonts: [] }, syntaxThemeID: 'app',
 };
 
 test('native load reply shape, including JSON null for absent warnings, is accepted', async () => {

@@ -11,6 +11,7 @@ test('theme adapter maps every bundled palette to the entire editor surface', ()
     assert.equal(applyAppearance(root, theme.id), theme.id);
     assert.equal(root.style.getPropertyValue('--paper'), theme.colors.paper);
     assert.equal(root.style.getPropertyValue('--on-accent'), theme.colors.onAccent);
+    assert.equal(root.style.getPropertyValue('--selection'), theme.colors.selection);
     assert.equal(root.style.getPropertyValue('--selection-text'), theme.colors.selectionText);
     assert.equal(root.style.colorScheme, theme.appearance);
     assert.equal(root.dataset.theme, theme.id);

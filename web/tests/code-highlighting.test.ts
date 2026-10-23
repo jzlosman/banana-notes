@@ -17,12 +17,12 @@ test('bundled highlighter produces real token spans for TypeScript, JSON and Pyt
   }
 });
 test('theme changes affect only appearance; all bundled palettes are independent of app selection', () => {
-  assert.equal(syntaxThemeIDs.length, 31);
+  assert.equal(syntaxThemeIDs.length, 33);
   const editor = editorFor('```ts\nconst x = 1\n```'); const before = editor.getMarkdown();
   const root = document.createElement('div'); applyCodeAppearance(root, 'one-dark', 'github-light');
   assert.equal(root.dataset.syntaxTheme, 'one-dark'); assert.notEqual(root.style.getPropertyValue('--code-bg'), '');
   const picker = renderCodeSettings({ selectedID: 'one-dark', appThemeID: 'one-dark', onSelect: () => {} });
-  assert.equal(picker.querySelectorAll('[role=radio]').length, 31);
+  assert.equal(picker.querySelectorAll('[role=radio]').length, 33);
   assert.equal(picker.querySelector('[role=radio][aria-checked=true]')?.getAttribute('aria-checked'), 'true');
   assert.equal(editor.getMarkdown(), before); editor.destroy();
 });

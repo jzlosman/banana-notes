@@ -4,8 +4,10 @@ import { resolve } from 'node:path';
 
 const sourceRoot = process.argv[2];
 const sourcePath = sourceRoot ? resolve(sourceRoot, 'site/themes.json') : resolve('vendor/agent-paint/themes.json');
+const firstPartyPath = resolve('web/src/first-party-themes.json');
 const outputPath = resolve('web/src/theme-catalog.json');
 const hex = (value) => /^#[\da-f]{6}$/i.test(value);
+const colorRoles = ['paper', 'chrome', 'ink', 'muted', 'line', 'hover', 'accent', 'accentSoft', 'onAccent', 'ring', 'danger', 'dangerSoft', 'selection', 'selectionText'];
 const rgb = (value) => value.match(/[\da-f]{2}/gi).map((channel) => parseInt(channel, 16) / 255);
 const linear = (value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
 const luminance = (value) => rgb(value).map(linear).reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
@@ -33,9 +35,27 @@ function ensureContrast(color, surfaces, minimum) {
   return options.sort((a, b) => a.distance - b.distance)[0].value;
 }
 
+const firstPartySource = JSON.parse(await readFile(firstPartyPath, 'utf8'));
+if (firstPartySource.provenance?.name !== 'Banana Notes' || firstPartySource.provenance?.license !== 'MIT') {
+  throw new Error('First-party themes must retain Banana Notes / MIT provenance');
+}
+if (!Array.isArray(firstPartySource.themes) || firstPartySource.themes.length !== 2) {
+  throw new Error(`Expected exactly 2 first-party themes, got ${firstPartySource.themes?.length}`);
+}
+const firstParty = firstPartySource.themes.map((theme) => {
+  if (!theme.id || !theme.name || !['light', 'dark'].includes(theme.appearance) || !theme.colors ||
+      JSON.stringify(Object.keys(theme.colors).sort()) !== JSON.stringify([...colorRoles].sort())) {
+    throw new Error(`Invalid first-party theme definition: ${theme.id ?? 'unknown'}`);
+  }
+  for (const [key, value] of Object.entries(theme.colors)) {
+    if (!hex(value)) throw new Error(`${theme.id}.${key} is not a six-digit hex color: ${value}`);
+  }
+  return theme;
+});
+
 const upstream = JSON.parse(await readFile(sourcePath, 'utf8'));
 if (!Array.isArray(upstream) || upstream.length !== 30) throw new Error(`Expected exactly 30 upstream themes, got ${upstream?.length}`);
-const catalog = upstream.map((theme) => {
+const imported = upstream.map((theme) => {
   const p = theme.paseo;
   const paper = p.background.toLowerCase();
   const chrome = p.raised.toLowerCase();
@@ -65,5 +85,11 @@ const catalog = upstream.map((theme) => {
   for (const [key, value] of Object.entries(colors)) if (!hex(value)) throw new Error(`${theme.id}.${key} is not a six-digit hex color: ${value}`);
   return { id: theme.id, name: theme.name, appearance: theme.appearance, colors };
 });
+const ids = new Set();
+for (const theme of [...firstParty, ...imported]) {
+  if (ids.has(theme.id)) throw new Error(`Duplicate theme id: ${theme.id}`);
+  ids.add(theme.id);
+}
+const catalog = [...firstParty, ...imported];
 await writeFile(outputPath, `${JSON.stringify(catalog, null, 2)}\n`);
-console.log(`Wrote ${catalog.length} themes to ${outputPath} from ${sourcePath}`);
+console.log(`Wrote ${firstParty.length} first-party and ${imported.length} Agent Paint themes to ${outputPath}`);

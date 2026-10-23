@@ -66,7 +66,7 @@ struct NoteFontStore {
     private static let manifestName = "manifest.json"
 
     private struct Face: Codable {
-        let url: String
+        let url: String?
         let weight: String
         let unicodeRange: String?
         let file: String
@@ -76,39 +76,56 @@ struct NoteFontStore {
         let name: String
         let family: String
         let faces: [Face]
+        var weights: [Int]? = nil
+        var kind: String? = nil
     }
     private struct Manifest: Codable { var fonts: [Font] }
     private struct ParsedFace { let url: URL; let weight: String; let unicodeRange: String? }
 
     let directory: URL
+    private let bundledDirectory: URL
     private let defaults: any PreferencesStore
     private let client: FontHTTPClient
     private let fm = FileManager.default
     private var root: URL { directory.appendingPathComponent("fonts", isDirectory: true) }
     private var manifestURL: URL { root.appendingPathComponent(Self.manifestName) }
+    private var bundledManifestURL: URL { bundledDirectory.appendingPathComponent(Self.manifestName) }
 
-    init(directory: URL, defaults: any PreferencesStore = UserDefaults.standard, client: FontHTTPClient? = nil) {
+    init(directory: URL, defaults: any PreferencesStore = UserDefaults.standard, client: FontHTTPClient? = nil,
+         bundledFontsDirectory: URL? = nil) {
         self.directory = directory.standardizedFileURL
+        self.bundledDirectory = (bundledFontsDirectory ?? Bundle.main.resourceURL?.appendingPathComponent("web/fonts", isDirectory: true) ?? URL(fileURLWithPath: "/nonexistent/web/fonts", isDirectory: true)).standardizedFileURL
         self.defaults = defaults
         self.client = client ?? FontURLSessionClient()
     }
 
     var state: [String: Any] {
-        let selection = readSelection()
-        var result: [String: Any] = ["selection": selection, "fonts": Self.builtins.map { Self.bridgeFont($0) }]
-        do {
-            for font in try loadManifest().fonts.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
-                result["fonts"] = (result["fonts"] as! [[String: Any]]) + [Self.bridgeFont(font)]
-            }
-        } catch { result["warning"] = "Downloaded fonts are unavailable. Built-in fonts remain available." }
+        var warning: String?
+        let builtins: [Font]
+        do { builtins = try loadBundledManifest().fonts }
+        catch { builtins = Self.fallbackBuiltins; warning = "Bundled font files are unavailable. System fonts remain available." }
+        var downloaded: [Font] = []
+        do { downloaded = try loadManifest().fonts }
+        catch { warning = "Downloaded fonts are unavailable. Built-in fonts remain available." }
+        let visibleDownloads = downloaded.filter { Self.builtin(matching: $0.name, in: builtins) == nil }
+            .sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending })
+        var result: [String: Any] = ["selection": readSelection(), "fonts": (builtins + visibleDownloads).map { Self.bridgeFont($0) }]
+        if let warning { result["warning"] = warning }
         return result
     }
 
     func select(_ selection: NoteFontSelection) throws -> [String: Any] {
-        guard let font = knownFont(id: selection.fontID), Self.supportedWeights(font).contains(selection.weight) else {
-            throw NoteFontError(message: "Choose an available font and weight 400, 500, or 600.")
+        let font = selectionFont(id: selection.fontID)
+        guard (100...900).contains(selection.weight), let font else { throw NoteFontError(message: "Choose an available font and weight 400, 500, or 600.") }
+        let weight: Int
+        if font.id != selection.fontID { weight = Self.nearestWeight(selection.weight, in: Self.supportedWeights(font)) }
+        else {
+            guard Self.supportedWeights(font).contains(selection.weight) else {
+                throw NoteFontError(message: "Choose an available font and weight 400, 500, or 600.")
+            }
+            weight = selection.weight
         }
-        defaults.set(["fontID": selection.fontID, "weight": selection.weight], forKey: Self.selectionKey)
+        defaults.set(["fontID": font.id, "weight": weight], forKey: Self.selectionKey)
         return state
     }
 
@@ -120,7 +137,7 @@ struct NoteFontStore {
         do { cached = try loadManifest() }
         catch { throw NoteFontError(message: "The font cache is invalid. Built-in fonts remain available; reset the fonts folder in the data folder before downloading again.") }
         if let font = cached.fonts.first(where: { $0.id == id }), (try? validateCachedFiles(font)) != nil {
-            return ["fontState": state, "downloadedFontID": id]
+            return ["fontState": state, "downloadedFontID": resolvedDownloadID(for: font)]
         }
         let cssURL = Self.cssURL(family)
         let cssResponse = try await client.get(cssURL, maximumBytes: Self.maximumCSSBytes)
@@ -173,7 +190,7 @@ struct NoteFontStore {
                 if hadPrevious { try? fm.moveItem(at: backupDir, to: finalDir) }
                 throw error
             }
-            return ["fontState": state, "downloadedFontID": id]
+            return ["fontState": state, "downloadedFontID": resolvedDownloadID(for: font)]
         } catch {
             try? fm.removeItem(at: staging)
             throw error
@@ -181,12 +198,33 @@ struct NoteFontStore {
     }
 
     func resolveFontURL(_ url: URL) throws -> URL {
-        guard url.scheme == "foldnote-font", url.host == "cache", url.user == nil, url.password == nil, url.port == nil,
-              url.query == nil, url.fragment == nil,
-              url.path.range(of: "^/[0-9a-f]{64}\\.woff2$", options: .regularExpression) != nil else {
+        guard url.scheme == "foldnote-font", url.user == nil, url.password == nil, url.port == nil,
+              url.query == nil, url.fragment == nil else { throw NoteFontError(message: "Invalid font URL.") }
+        let filename = String(url.path.dropFirst())
+        if url.host == "bundled" {
+            guard url.path.range(of: "^/[A-Za-z0-9][A-Za-z0-9-]*\\.woff2$", options: .regularExpression) != nil else {
+                throw NoteFontError(message: "Invalid bundled font URL.")
+            }
+            let manifest = try loadBundledManifest()
+            guard manifest.fonts.contains(where: { $0.faces.contains(where: { $0.file == filename }) }) else {
+                throw NoteFontError(message: "Bundled font is unavailable.")
+            }
+            try verifyRealDirectory(bundledDirectory)
+            let file = bundledDirectory.appendingPathComponent(filename).standardizedFileURL
+            guard file.deletingLastPathComponent() == bundledDirectory.standardizedFileURL else { throw NoteFontError(message: "Invalid bundled font path.") }
+            let attrs = try fm.attributesOfItem(atPath: file.path)
+            let values = try file.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey])
+            guard attrs[.type] as? FileAttributeType == .typeRegular, (attrs[.size] as? NSNumber)?.intValue ?? Int.max <= Self.maximumFontBytes,
+                  values.isRegularFile == true, values.isSymbolicLink != true,
+                  file.resolvingSymlinksInPath().deletingLastPathComponent().standardizedFileURL == bundledDirectory.resolvingSymlinksInPath().standardizedFileURL else {
+                throw NoteFontError(message: "Bundled font is unavailable.")
+            }
+            try Self.validateWOFF2(Data(contentsOf: file, options: [.mappedIfSafe]))
+            return file
+        }
+        guard url.host == "cache", url.path.range(of: "^/[0-9a-f]{64}\\.woff2$", options: .regularExpression) != nil else {
             throw NoteFontError(message: "Invalid cached font URL.")
         }
-        let filename = String(url.path.dropFirst())
         let manifest = try loadManifest()
         for font in manifest.fonts {
             guard font.faces.contains(where: { $0.file == filename }) else { continue }
@@ -208,14 +246,16 @@ struct NoteFontStore {
 
     func exportCSS(fontSize: Int) -> String {
         let selected = readSelection()
-        let font = knownFont(id: selected["fontID"] as! String) ?? Self.builtins[0]
+        let font = knownFont(id: selected["fontID"] as! String) ?? Self.fallbackBuiltins[0]
         let size = min(72, max(8, fontSize))
         let faces = font.faces.map { face -> String in
-            var declaration = "@font-face{font-family:'\(font.family)';font-style:normal;font-weight:\(face.weight);src:url('foldnote-font://cache/\(face.file)') format('woff2');font-display:swap;"
+            let scheme = Self.isBundled(font.id) ? "bundled" : "cache"
+            var declaration = "@font-face{font-family:'\(font.family)';font-style:normal;font-weight:\(face.weight);src:url('foldnote-font://\(scheme)/\(face.file)') format('woff2');font-display:swap;"
             if let range = face.unicodeRange { declaration += "unicode-range:\(range);" }
             return declaration + "}"
         }
-        let family = font.id.hasPrefix("google-") ? "\(font.family),ui-monospace,Menlo,monospace" : font.family
+        let family = font.id.hasPrefix("google-") || Self.isBundled(font.id)
+            ? "'\(font.family)',ui-monospace,Menlo,monospace" : font.family
         return faces.joined() + ".content{font-family:\(family);font-weight:\(selected["weight"] as! Int);font-size:\(size)px;font-synthesis:weight style}.content strong,.content h1,.content h2,.content h3,.content h4,.content h5,.content h6{font-weight:700}"
     }
 
@@ -227,47 +267,126 @@ struct NoteFontStore {
         url.scheme?.lowercased() == "https" && url.host?.lowercased() == "fonts.gstatic.com" && url.user == nil && url.password == nil && url.port == nil && url.path.range(of: "^/s/[A-Za-z0-9._-]+/v[0-9]+/[A-Za-z0-9._-]+\\.woff2$", options: .regularExpression) != nil
     }
 
-    private static let builtins: [Font] = [
-        Font(id: "sf-mono", name: "SF Mono", family: "ui-monospace, \"SFMono-Regular\", Menlo, monospace", faces: []),
-        Font(id: "system", name: "System", family: "-apple-system, BlinkMacSystemFont, sans-serif", faces: []),
-        Font(id: "avenir", name: "Avenir Next", family: "\"Avenir Next\", -apple-system, sans-serif", faces: []),
-        Font(id: "georgia", name: "Georgia", family: "Georgia, serif", faces: [])
+    private static let fallbackBuiltins: [Font] = [
+        Font(id: "space-mono", name: "Space Mono", family: "Space Mono", faces: [], weights: [400], kind: "bundled"),
+        Font(id: "jetbrains-mono", name: "JetBrains Mono", family: "JetBrains Mono", faces: [], weights: [400, 500, 600], kind: "bundled"),
+        Font(id: "overpass-mono", name: "Overpass Mono", family: "Overpass Mono", faces: [], weights: [400, 500, 600], kind: "bundled"),
+        Font(id: "fira-code", name: "Fira Code", family: "Fira Code", faces: [], weights: [400, 500, 600], kind: "bundled"),
+        Font(id: "avenir", name: "Avenir Next", family: "\"Avenir Next\", -apple-system, sans-serif", faces: [], weights: [400, 500, 600], kind: "system"),
+        Font(id: "georgia", name: "Georgia", family: "Georgia, serif", faces: [], weights: [400], kind: "system")
     ]
+
+    private static func isBundled(_ id: String) -> Bool { ["space-mono", "jetbrains-mono", "overpass-mono", "fira-code"].contains(id) }
 
     private static func bridgeFont(_ font: Font) -> [String: Any] {
         let google = font.id.hasPrefix("google-")
-        let supported = Set(supportedWeights(font))
-        return ["id": font.id, "name": font.name, "kind": google ? "google" : "system", "family": font.family,
-                "weights": [400, 500, 600].filter { supported.contains($0) },
+        let kind = google ? "google" : (isBundled(font.id) ? "bundled" : "system")
+        return ["id": font.id, "name": font.name, "kind": kind, "family": font.family,
+                "weights": supportedWeights(font),
                 "faces": font.faces.map { face -> [String: Any] in
-                    var item: [String: Any] = ["url": "foldnote-font://cache/\(face.file)", "weight": face.weight]
+                    let scheme = isBundled(font.id) ? "bundled" : "cache"
+                    var item: [String: Any] = ["url": "foldnote-font://\(scheme)/\(face.file)", "weight": face.weight]
                     if let range = face.unicodeRange { item["unicodeRange"] = range }
                     return item
                 }]
     }
 
     private func readSelection() -> [String: Any] {
-        if let stored = defaults.dictionary(forKey: Self.selectionKey), let id = stored["fontID"] as? String,
-           let weight = stored["weight"] as? Int, let font = knownFont(id: id), Self.supportedWeights(font).contains(weight) {
-            return ["fontID": id, "weight": weight]
+        let fallback: [String: Any] = ["fontID": "space-mono", "weight": 400]
+        guard let stored = defaults.dictionary(forKey: Self.selectionKey), let id = stored["fontID"] as? String,
+              let requestedWeight = stored["weight"] as? Int, (100...900).contains(requestedWeight), let font = selectionFont(id: id) else {
+            defaults.set(fallback, forKey: Self.selectionKey)
+            return fallback
         }
-        return ["fontID": "sf-mono", "weight": 500]
+        let selection = ["fontID": font.id, "weight": Self.nearestWeight(requestedWeight, in: Self.supportedWeights(font))] as [String: Any]
+        if (stored["fontID"] as? String) != (selection["fontID"] as? String) || (stored["weight"] as? Int) != (selection["weight"] as? Int) {
+            defaults.set(selection, forKey: Self.selectionKey)
+        }
+        return selection
     }
 
-    private func knownFont(id: String) -> Font? {
-        if let builtin = Self.builtins.first(where: { $0.id == id }) { return builtin }
-        return (try? loadManifest().fonts.first { $0.id == id })
+    private func selectionFont(id: String) -> Font? {
+        let builtins = (try? loadBundledManifest().fonts) ?? Self.fallbackBuiltins
+        if let builtin = builtins.first(where: { $0.id == id }) { return builtin }
+        guard let downloaded = try? loadManifest().fonts.first(where: { $0.id == id }) else { return nil }
+        return Self.builtin(matching: downloaded.name, in: builtins) ?? downloaded
+    }
+
+    private func resolvedDownloadID(for font: Font) -> String {
+        let builtins = (try? loadBundledManifest().fonts) ?? Self.fallbackBuiltins
+        return Self.builtin(matching: font.name, in: builtins)?.id ?? font.id
+    }
+
+    private func knownFont(id: String) -> Font? { selectionFont(id: id) }
+
+    private static func builtin(matching name: String, in fonts: [Font]) -> Font? {
+        fonts.first { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).localizedCaseInsensitiveCompare(name.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame }
+    }
+
+    private static func nearestWeight(_ requested: Int, in weights: [Int]) -> Int {
+        weights.min(by: { abs($0 - requested) < abs($1 - requested) }) ?? 400
     }
 
     private static func supportedWeights(_ font: Font) -> [Int] {
-        if font.id == "georgia" { return [400] }
-        guard font.id.hasPrefix("google-") else { return [400, 500, 600] }
+        if let weights = font.weights { return Array(Set(weights.filter { [400, 500, 600].contains($0) })).sorted() }
+        guard font.id.hasPrefix("google-") else { return [] }
         return Set(font.faces.flatMap { face -> [Int] in
             let parts = face.weight.split(separator: " ").compactMap { Int($0) }
             guard let low = parts.first else { return [] }
             let high = parts.last ?? low
             return [400, 500, 600].filter { $0 >= low && $0 <= high }
         }).sorted()
+    }
+
+    private func loadBundledManifest() throws -> Manifest {
+        try verifyRealDirectory(bundledDirectory)
+        let values = try bundledManifestURL.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .fileSizeKey])
+        guard values.isSymbolicLink != true, values.isRegularFile == true, (values.fileSize ?? Int.max) <= 4 * 1024 * 1024 else {
+            throw NoteFontError(message: "Bundled font manifest is invalid.")
+        }
+        let data = try Data(contentsOf: bundledManifestURL)
+        guard data.count <= 4 * 1024 * 1024 else { throw NoteFontError(message: "Bundled font manifest is too large.") }
+        let manifest = try JSONDecoder().decode(Manifest.self, from: data)
+        let expected = Self.fallbackBuiltins
+        guard manifest.fonts.map(\.id) == expected.map(\.id), manifest.fonts.count == expected.count else {
+            throw NoteFontError(message: "Bundled font catalog does not match the built-in list.")
+        }
+        for (font, builtin) in zip(manifest.fonts, expected) {
+            guard font.name == builtin.name, font.family == builtin.family, font.weights == builtin.weights, font.kind == builtin.kind,
+                  font.faces.count <= 16 else { throw NoteFontError(message: "Bundled font metadata does not match the catalog.") }
+            if builtin.kind == "system" {
+                guard font.faces.isEmpty else { throw NoteFontError(message: "System font unexpectedly includes files.") }
+                continue
+            }
+            guard !font.faces.isEmpty, font.faces.allSatisfy({ face in
+                face.url == nil && Self.allowedBundledFilename(face.file, fontID: font.id) && Self.validBundledWeightDescriptor(face.weight) &&
+                (face.unicodeRange == nil || Self.validUnicodeRange(face.unicodeRange!))
+            }), Set(font.faces.map(\.file)).count == font.faces.count else {
+                throw NoteFontError(message: "Bundled font face metadata is invalid.")
+            }
+        }
+        return manifest
+    }
+
+    private static func allowedBundledFilename(_ filename: String, fontID: String) -> Bool {
+        let patterns: [String: String] = [
+            "space-mono": "^space-mono-latin(-ext)?-(400|700)-normal\\.woff2$",
+            "jetbrains-mono": "^jetbrains-mono-latin(-ext)?-wght-normal\\.woff2$",
+            "overpass-mono": "^overpass-mono-latin(-ext)?-wght-normal\\.woff2$",
+            "fira-code": "^fira-code-latin(-ext)?-wght-normal\\.woff2$"
+        ]
+        guard let pattern = patterns[fontID] else { return false }
+        return filename.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private static func validBundledWeightDescriptor(_ value: String) -> Bool {
+        guard value.range(of: "^[1-9]00(?:\\s+[1-9]00)?$", options: .regularExpression) != nil else { return false }
+        let weights = value.split(whereSeparator: { $0.isWhitespace }).compactMap { Int($0) }
+        return weights.count <= 2 && weights.first! <= weights.last!
+    }
+
+    private static func validUnicodeRange(_ value: String) -> Bool {
+        value.range(of: "^[Uu]\\+[0-9A-Fa-f?]{1,6}(?:-[0-9A-Fa-f]{1,6})?(?:\\s*,\\s*[Uu]\\+[0-9A-Fa-f?]{1,6}(?:-[0-9A-Fa-f]{1,6})?)*$", options: .regularExpression) != nil
     }
 
     private func loadManifest() throws -> Manifest {
@@ -280,12 +399,12 @@ struct NoteFontStore {
         guard data.count <= 4 * 1024 * 1024 else { throw NoteFontError(message: "Font cache manifest is too large.") }
         let manifest = try JSONDecoder().decode(Manifest.self, from: data)
         guard manifest.fonts.allSatisfy({ font in
-            font.id.range(of: "^google-[0-9a-f]{64}$", options: .regularExpression) != nil && Self.validFamily(font.name) &&
+            (font.kind == nil || font.kind == "google") && font.id.range(of: "^google-[0-9a-f]{64}$", options: .regularExpression) != nil && Self.validFamily(font.name) &&
             font.family == "foldnote-font-\(font.id.dropFirst(7))" && !font.faces.isEmpty && font.faces.count <= Self.maximumFaces && !Self.supportedWeights(font).isEmpty &&
             font.faces.allSatisfy { face in
                 face.file.range(of: "^[0-9a-f]{64}\\.woff2$", options: .regularExpression) != nil &&
                 Self.validWeightDescriptor(face.weight) &&
-                URL(string: face.url).map(Self.isAllowedFontURL) == true &&
+                face.url.flatMap(URL.init(string:)).map(Self.isAllowedFontURL) == true &&
                 (face.unicodeRange == nil || face.unicodeRange!.range(of: "^[Uu]\\+[0-9A-Fa-f?,-]+(?:\\s*,\\s*[Uu]\\+[0-9A-Fa-f?,-]+)*$", options: .regularExpression) != nil)
             }
         }) else {

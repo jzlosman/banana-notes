@@ -5,11 +5,11 @@ export { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection
 export type { NoteFontDefinition, NoteFontSelection, NoteFontState } from '../domain/note-font';
 
 const registeredFonts = new WeakMap<Document, Map<string, { signature: string; faces: FontFace[] }>>();
-const fontStack = (font: NoteFontDefinition) => font.kind === 'google' ? `"${font.family}", ui-monospace, Menlo, monospace` : font.family;
+const fontStack = (font: NoteFontDefinition) => font.kind !== 'system' ? `"${font.family}", ui-monospace, Menlo, monospace` : font.family;
 export async function applyNoteFont(root: HTMLElement, rawState: NoteFontState): Promise<void> {
   const state = resolveNoteFontState(rawState);
   const font = state.fonts.find(item => item.id === state.selection.fontID) ?? state.fonts[0];
-  if (font.kind === 'google') {
+  if (font.kind !== 'system' && font.faces.length) {
     const doc = root.ownerDocument;
     const Face = doc.defaultView?.FontFace ?? globalThis.FontFace;
     if (!Face || !doc.fonts) throw new Error('Downloaded fonts are not supported in this environment.');

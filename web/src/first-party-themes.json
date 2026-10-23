@@ -1,0 +1,50 @@
+{
+  "provenance": {
+    "name": "Banana Notes",
+    "license": "MIT"
+  },
+  "themes": [
+    {
+      "id": "banana-light",
+      "name": "Banana Light",
+      "appearance": "light",
+      "colors": {
+        "paper": "#fffdf4",
+        "chrome": "#faf5e2",
+        "ink": "#2a2720",
+        "muted": "#6e6651",
+        "line": "#ece3c6",
+        "hover": "#f4edd3",
+        "accent": "#7a5a00",
+        "accentSoft": "#fcefb4",
+        "onAccent": "#fffdf4",
+        "ring": "#7a5a00",
+        "danger": "#a3352b",
+        "dangerSoft": "#fbe7df",
+        "selection": "#f4d447",
+        "selectionText": "#2a2720"
+      }
+    },
+    {
+      "id": "banana-dark",
+      "name": "Banana Dark",
+      "appearance": "dark",
+      "colors": {
+        "paper": "#1c1a15",
+        "chrome": "#23211a",
+        "ink": "#f3edda",
+        "muted": "#b0a68a",
+        "line": "#38342a",
+        "hover": "#2c2920",
+        "accent": "#f4d447",
+        "accentSoft": "#3a3218",
+        "onAccent": "#1c1a15",
+        "ring": "#f4d447",
+        "danger": "#ff9b8a",
+        "dangerSoft": "#3d2420",
+        "selection": "#f4d447",
+        "selectionText": "#1c1a15"
+      }
+    }
+  ]
+}

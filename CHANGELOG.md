@@ -10,12 +10,15 @@ All notable changes to Banana Notes are documented here.
 - Find text within the current note with ⌘F, then move between matches with Return / Shift–Return or ⌘G / ⇧⌘G.
 - Restore the last valid library backup from the recovery screen.
 - Add the full-color Banana Notes logo and wordmark to PNG exports when the footer gutter has room.
+- Add Banana Light and Banana Dark themes, listed first after Follow macOS.
+- Bundle Space Mono, JetBrains Mono, Overpass Mono and Fira Code for offline use alongside Georgia and Avenir Next.
 
 ### Changed
 
 - Preserve untouched Markdown blocks byte-for-byte. Unsupported syntax, including raw HTML, footnotes, reference links, and math, appears as labelled source blocks; editing a block in source mode can normalize it.
 - Enforce a 2 MB per-note limit and a 20,000-note library limit.
 - Write library updates durably with atomic replacement, and wait for pending saves before quitting.
+- Make Space Mono Regular the default note font and remove SF Mono and System from the font list. Existing selections of removed fonts move to Space Mono; downloaded Google copies of bundled fonts are hidden and selections move to the bundled version.
 
 ### Fixed
 

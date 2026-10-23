@@ -1,0 +1,56 @@
+[
+  {
+    "id": "space-mono",
+    "name": "Space Mono",
+    "kind": "bundled",
+    "family": "Space Mono",
+    "weights": [400],
+    "packageName": "@fontsource/space-mono",
+    "cssFiles": ["latin-400.css", "latin-ext-400.css", "latin-700.css", "latin-ext-700.css"]
+  },
+  {
+    "id": "jetbrains-mono",
+    "name": "JetBrains Mono",
+    "kind": "bundled",
+    "family": "JetBrains Mono",
+    "weights": [400, 500, 600],
+    "packageName": "@fontsource-variable/jetbrains-mono",
+    "cssFiles": ["wght.css"]
+  },
+  {
+    "id": "overpass-mono",
+    "name": "Overpass Mono",
+    "kind": "bundled",
+    "family": "Overpass Mono",
+    "weights": [400, 500, 600],
+    "packageName": "@fontsource-variable/overpass-mono",
+    "cssFiles": ["wght.css"]
+  },
+  {
+    "id": "fira-code",
+    "name": "Fira Code",
+    "kind": "bundled",
+    "family": "Fira Code",
+    "weights": [400, 500, 600],
+    "packageName": "@fontsource-variable/fira-code",
+    "cssFiles": ["wght.css"]
+  },
+  {
+    "id": "avenir",
+    "name": "Avenir Next",
+    "kind": "system",
+    "family": "\"Avenir Next\", -apple-system, sans-serif",
+    "weights": [400, 500, 600],
+    "packageName": null,
+    "cssFiles": []
+  },
+  {
+    "id": "georgia",
+    "name": "Georgia",
+    "kind": "system",
+    "family": "Georgia, serif",
+    "weights": [400],
+    "packageName": null,
+    "cssFiles": []
+  }
+]

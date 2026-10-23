@@ -67,7 +67,25 @@ export class PreviewAdapter implements Capabilities {
     saveSyntaxTheme: async (syntaxThemeID: string) => { localStorage.setItem(keys.syntax, syntaxThemeID); },
   };
   readonly typography = {
-    load: async () => ({ noteFonts: resolveNoteFontState(readJSON(keys.noteFont, DEFAULT_NOTE_FONT_STATE)), fontSize: resolveFontSize(Number(localStorage.getItem(keys.fontSize) || DEFAULT_FONT_SIZE)) }),
+    load: async () => {
+      const saved = resolveNoteFontState(readJSON(keys.noteFont, DEFAULT_NOTE_FONT_STATE));
+      const manifest = (globalThis as typeof globalThis & { __BANANA_NOTE_FONT_MANIFEST__?: unknown }).__BANANA_NOTE_FONT_MANIFEST__;
+      let noteFonts = saved;
+      if (typeof manifest === 'object' && manifest !== null && !Array.isArray(manifest) && Array.isArray((manifest as { fonts?: unknown }).fonts)) {
+        const bundled = ((manifest as { fonts: unknown[] }).fonts).map(candidate => {
+          if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return candidate;
+          const font = candidate as Record<string, unknown>;
+          if (!Array.isArray(font.faces)) return font;
+          return { ...font, faces: font.faces.map(face => {
+            if (typeof face !== 'object' || face === null || Array.isArray(face)) return face;
+            const bundledFace = face as Record<string, unknown>;
+            return { ...bundledFace, url: typeof bundledFace.file === 'string' ? `fonts/${bundledFace.file}` : '' };
+          }) };
+        });
+        noteFonts = resolveNoteFontState({ selection: saved.selection, fonts: [...bundled, ...saved.fonts.filter(font => font.kind === 'google')] });
+      }
+      return { noteFonts, fontSize: resolveFontSize(Number(localStorage.getItem(keys.fontSize) || DEFAULT_FONT_SIZE)) };
+    },
     selectNoteFont: async (selection: NoteFontSelection) => {
       const current = resolveNoteFontState(readJSON(keys.noteFont, DEFAULT_NOTE_FONT_STATE));
       const next = resolveNoteFontState({ ...current, selection }); localStorage.setItem(keys.noteFont, JSON.stringify(next)); return next;

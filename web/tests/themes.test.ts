@@ -12,9 +12,34 @@ const contrast = (a: string, b: string) => {
   return (high + 0.05) / (low + 0.05);
 };
 
-test('catalog has all 30 upstream identities and valid semantic colors', () => {
-  assert.equal(themes.length, 30);
-  assert.equal(new Set(themes.map(({ id }) => id)).size, 30);
+const upstreamThemeIDs = [
+  'one-dark', 'one-light', 'ayu-dark', 'ayu-light', 'ayu-mirage', 'catppuccin-frappe', 'catppuccin-latte',
+  'catppuccin-macchiato', 'catppuccin-mocha', 'dracula', 'dracula-alucard', 'everforest-dark', 'everforest-light',
+  'github-dark', 'github-dark-dimmed', 'github-light', 'gruvbox-dark', 'gruvbox-light', 'kanagawa-wave', 'light-owl',
+  'night-owl', 'nord', 'rose-pine', 'rose-pine-dawn', 'rose-pine-moon', 'solarized-dark', 'solarized-light',
+  'tokyo-night-night', 'tokyo-night-day', 'tokyo-night-storm',
+];
+
+const bananaColors = {
+  'banana-light': {
+    paper: '#fffdf4', chrome: '#faf5e2', ink: '#2a2720', muted: '#6e6651', line: '#ece3c6', hover: '#f4edd3',
+    accent: '#7a5a00', accentSoft: '#fcefb4', onAccent: '#fffdf4', ring: '#7a5a00', danger: '#a3352b',
+    dangerSoft: '#fbe7df', selection: '#f4d447', selectionText: '#2a2720',
+  },
+  'banana-dark': {
+    paper: '#1c1a15', chrome: '#23211a', ink: '#f3edda', muted: '#b0a68a', line: '#38342a', hover: '#2c2920',
+    accent: '#f4d447', accentSoft: '#3a3218', onAccent: '#1c1a15', ring: '#f4d447', danger: '#ff9b8a',
+    dangerSoft: '#3d2420', selection: '#f4d447', selectionText: '#1c1a15',
+  },
+} as const;
+
+test('catalog starts with the two first-party themes and preserves all 30 Agent Paint identities', () => {
+  assert.equal(themes.length, 32);
+  assert.deepEqual(themes.slice(0, 2).map(({ id, name }) => [id, name]), [
+    ['banana-light', 'Banana Light'], ['banana-dark', 'Banana Dark'],
+  ]);
+  assert.deepEqual(themes.slice(2).map(({ id }) => id), upstreamThemeIDs);
+  assert.equal(new Set(themes.map(({ id }) => id)).size, 32);
   for (const theme of themes) {
     assert.ok(theme.id && theme.name);
     assert.ok(theme.appearance === 'light' || theme.appearance === 'dark');
@@ -23,6 +48,26 @@ test('catalog has all 30 upstream identities and valid semantic colors', () => {
       'muted', 'onAccent', 'paper', 'ring', 'selection', 'selectionText',
     ].sort());
     for (const [role, color] of Object.entries(theme.colors)) assert.match(color, hex, `${theme.id}.${role}`);
+  }
+});
+
+test('Banana themes retain the exact first-party palettes and required contrast', () => {
+  for (const [id, colors] of Object.entries(bananaColors)) {
+    const theme = themeByID(id)!;
+    assert.deepEqual(theme.colors, colors, `${id}: source colors must not be contrast-adjusted`);
+    assert.equal(theme.name, id === 'banana-light' ? 'Banana Light' : 'Banana Dark');
+    assert.equal(theme.appearance, id === 'banana-light' ? 'light' : 'dark');
+    for (const surface of [colors.paper, colors.chrome, colors.hover]) {
+      assert.ok(contrast(colors.ink, surface) >= 7, `${id}: ink on ${surface}`);
+      assert.ok(contrast(colors.muted, surface) >= 4.5, `${id}: muted on ${surface}`);
+    }
+    assert.ok(contrast(colors.muted, colors.accentSoft) >= 4.5, `${id}: muted on accentSoft`);
+    for (const surface of [colors.paper, colors.chrome, colors.hover, colors.accentSoft]) {
+      assert.ok(contrast(colors.accent, surface) >= 4.5, `${id}: accent on ${surface}`);
+      assert.ok(contrast(colors.ring, surface) >= 3, `${id}: ring on ${surface}`);
+    }
+    assert.ok(contrast(colors.onAccent, colors.accent) >= 4.5, `${id}: onAccent`);
+    assert.ok(contrast(colors.selectionText, colors.selection) >= 4.5, `${id}: selection text`);
   }
 });
 
@@ -37,8 +82,8 @@ test('adapted colors meet readable foreground/background contrast combinations',
   }
 });
 
-test('selection inverts each theme and stands out against both editor and control surfaces', () => {
-  for (const { id, colors: c } of themes) {
+test('Agent Paint selection colors invert each palette and stand out against editor and control surfaces', () => {
+  for (const { id, colors: c } of themes.slice(2)) {
     assert.equal(c.selection, c.ink, `${id}: highlight uses the theme's text color`);
     assert.equal(c.selectionText, c.paper, `${id}: selected text uses the theme's page color`);
     for (const surface of [c.paper, c.chrome, c.hover]) {

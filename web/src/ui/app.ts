@@ -726,7 +726,7 @@ function renderThemes(): void {
   installThemeGridKeyboard(grid);
   main.append(filters, gridPanel);
   const status = element('p', 'theme-status'); status.setAttribute('role', 'status'); main.append(status);
-  const credit = element('p', 'theme-credit'); credit.append(document.createTextNode('Palettes from '));
+  const credit = element('p', 'theme-credit'); credit.append(document.createTextNode('Additional palettes from '));
   const link = element('a', '', 'Agent Paint'); link.href = 'https://github.com/jzlosman/agent-paint'; link.target = '_blank'; link.rel = 'noopener noreferrer'; credit.append(link);
   main.append(credit); app.append(main); draw();
   input.oninput = () => { themeQuery = input.value; draw(); };

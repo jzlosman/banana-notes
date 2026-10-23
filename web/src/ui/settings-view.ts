@@ -175,7 +175,7 @@ export function renderWindowStyleSettings(options: {
   onChangeWindowStyle(style: WindowStyle): void;
   onError(error: unknown): void;
 }): HTMLElement {
-  const settings = element('section', 'window-settings'); settings.id = 'appearance-content'; settings.setAttribute('role', 'tabpanel'); settings.setAttribute('aria-labelledby', 'appearance-tab-window');
+  const settings = element('section', 'window-settings quiet-scroll side-scroll'); settings.id = 'appearance-content'; settings.setAttribute('role', 'tabpanel'); settings.setAttribute('aria-labelledby', 'appearance-tab-window');
   const sizeControl = element('select', 'note-font-control'); sizeControl.dataset.fontSize = ''; sizeControl.setAttribute('aria-label', 'Note text size'); sizeControl.title = 'Note text size · ⌘+/⌘− · Reset with ⌘0';
   for (let size = MIN_FONT_SIZE; size <= MAX_FONT_SIZE; size++) { const option = element('option', '', `${size} px`); option.value = String(size); sizeControl.append(option); }
   sizeControl.value = String(options.fontSize); sizeControl.onchange = () => options.onChangeFontSize(Number(sizeControl.value));

@@ -68,7 +68,7 @@ export function renderCodeSettings({ selectedID, appThemeID, onSelect }: { selec
   let filter = 'all', currentID = selectedID, saving = false;
   const buttons: HTMLButtonElement[] = [];
   const options = [{ id: 'app' as SyntaxThemeID, name: 'Match app', appearance: themeByID(appThemeID)?.appearance ?? (document.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'), themeID: appThemeID }, ...themes.map(({ id, name, appearance }) => ({ id: id as SyntaxThemeID, name, appearance, themeID: id }))];
-  const grid = document.createElement('div'); grid.className = 'code-theme-grid'; grid.setAttribute('role', 'radiogroup'); grid.setAttribute('aria-label', 'Code syntax theme');
+  const grid = document.createElement('div'); grid.className = 'code-theme-grid quiet-scroll side-scroll'; grid.setAttribute('role', 'radiogroup'); grid.setAttribute('aria-label', 'Code syntax theme');
   const refresh = () => {
     const query = search.value.trim().toLowerCase();
     buttons.forEach((button, index) => { const option = options[index]; const selected = option.id === currentID; button.hidden = !option.name.toLowerCase().includes(query) || (filter !== 'all' && option.appearance !== filter); button.classList.toggle('selected', selected); button.setAttribute('aria-checked', String(selected)); button.tabIndex = -1; button.disabled = saving; });

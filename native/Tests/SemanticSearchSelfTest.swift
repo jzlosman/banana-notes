@@ -1,4 +1,5 @@
 import Foundation
+@testable import BananaNotesCore
 import Darwin
 
 private struct FakeOllamaProcessInspector: OllamaProcessInspecting {

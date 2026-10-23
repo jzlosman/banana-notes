@@ -1,4 +1,5 @@
 import Foundation
+@testable import BananaNotesCore
 
 @main
 struct WebCommandChannelSelfTest {

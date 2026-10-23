@@ -1,4 +1,5 @@
 import AppKit
+@testable import BananaNotesCore
 import Vision
 
 @main struct OCRSelfTest {

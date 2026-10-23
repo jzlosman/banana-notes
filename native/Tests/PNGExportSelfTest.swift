@@ -1,19 +1,38 @@
 import AppKit
+import WebKit
 
 @main struct PNGExportSelfTest {
     @MainActor static func main() async throws {
-        let service = PNGExportService()
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let dataPath = ProcessInfo.processInfo.environment["BANANA_NOTES_DATA_DIR"]
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("BananaNotesPNGExport-\(UUID().uuidString)").path
+        let suite = "BananaNotesPNGExport-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let fonts = NoteFontStore(directory: URL(fileURLWithPath: dataPath, isDirectory: true), defaults: defaults,
+                                  bundledFontsDirectory: root.appendingPathComponent("web/dist/fonts", isDirectory: true))
+        let service = PNGExportService(configurationFactory: {
+            let configuration = WKWebViewConfiguration()
+            configuration.setURLSchemeHandler(FontSchemeHandler(store: fonts), forURLScheme: "foldnote-font")
+            return configuration
+        }, fontCSS: { fonts.exportCSS(fontSize: 15, addingFontIDs: ["space-mono"]) })
         let request = NoteImageRequest(html: "<h1>Synthetic note</h1><p>Visible synthetic note text.</p><pre><code>let answer = 42</code></pre>", title: "Synthetic note", backgroundStart: "#dce8ff", backgroundEnd: "#f8dff1", paper: "#ffffff", text: "#202534", accent: "#496de8", width: 760, padding: 48)
         let document = service.htmlDocument(request)
         precondition(!document.contains("<h1>Synthetic note</h1>") && document.contains("Visible synthetic note text."),
                      "a leading H1 equal to the card title should render once")
-        precondition(document.contains("class=\"signature\"") && document.contains("#F4D447") && document.contains("<span>Banana Notes</span>"),
-                     "marked export uses the full-color logo and wordmark")
+        precondition(document.contains("class=\"signature\"") && document.contains("#FBE122")
+            && document.contains("viewBox=\"5.5 7.25 33.5 33.5\"") && document.contains("stroke=\"#2E1D12\"")
+            && document.contains("class=\"banana\">banana</span>") && document.contains("class=\"notes\">notes</span>")
+            && document.contains("font-family:'Space Mono'") && document.contains("font-weight:700") && document.contains("font-weight:400"),
+                     "marked export uses the standalone mark and the two-weight lowercase Space Mono wordmark")
         let unmarked = service.htmlDocument(NoteImageRequest(html: request.html, title: request.title,
             backgroundStart: request.backgroundStart, backgroundEnd: request.backgroundEnd, paper: request.paper,
             text: request.text, accent: request.accent, width: request.width, padding: request.padding, showMark: false))
         precondition(!unmarked.contains("class=\"signature\""), "signature remains optional")
         let png = try await service.render(request: request)
+        if let previewPath = ProcessInfo.processInfo.environment["BANANA_NOTES_EXPORT_PREVIEW"] {
+            try png.write(to: URL(fileURLWithPath: previewPath), options: .atomic)
+        }
         precondition(Array(png.prefix(8)) == [137, 80, 78, 71, 13, 10, 26, 10], "output must have a PNG signature")
         guard let bitmap = NSBitmapImageRep(data: png) else { preconditionFailure("PNG could not be decoded") }
         precondition(bitmap.pixelsWide >= 660 && bitmap.pixelsHigh > 180 && bitmap.pixelsHigh < 6_000)

@@ -1,18 +1,24 @@
 import Foundation
 
-@main struct BananaMarkSelfTest {
+@main
+struct BananaMarkSelfTest {
     static func main() throws {
-        let asset = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("assets/banana-notes-logo.svg")
-        let svg = try String(contentsOf: asset, encoding: .utf8)
-        let regex = try NSRegularExpression(pattern: #"<path d="([^"]+)" fill="(#[0-9A-Fa-f]{6})"/>"#)
-        let ns = svg as NSString
-        let assetPaths = regex.matches(in: svg, range: NSRange(location: 0, length: ns.length))
-            .map { (ns.substring(with: $0.range(at: 1)), ns.substring(with: $0.range(at: 2))) }
-        precondition(assetPaths.count == BananaMark.logoPaths.count
-            && zip(assetPaths, BananaMark.logoPaths).allSatisfy { $0.0 == $1.d && $0.1 == $1.fill },
-            "BananaMark.logoPaths must match assets/banana-notes-logo.svg")
-        precondition(BananaMark.logoSVG(side: 18).contains("width=\"18.0\""))
-        print("Banana logo checks passed (export logo matches the approved asset)")
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let brandDirectory = root.appendingPathComponent("assets/brand", isDirectory: true)
+        let generated = try BananaBrandSVG.generatedFiles(repositoryRoot: root)
+        precondition(Set(generated.keys) == Set([
+            "app-icon.svg", "mark.svg", "mark-on-cocoa.svg", "logo.svg", "logo-dark.svg", "logo-on-cocoa.svg", "menu-bar.svg"
+        ]), "the brand generator owns the complete committed SVG set")
+        for (name, expected) in generated {
+            let file = brandDirectory.appendingPathComponent(name)
+            let actual = try String(contentsOf: file, encoding: .utf8)
+            precondition(actual == expected, "\(file.lastPathComponent) drifted from BananaMark geometry or the bundled Space Mono outlines")
+            precondition(actual.contains("role=\"img\"") && actual.contains("<title>Banana Notes</title>"),
+                         "\(file.lastPathComponent) must expose an accessible image title")
+        }
+        precondition(BananaMark.Color.banana == "#FBE122" && BananaMark.Color.peel == "#D9A00A"
+            && BananaMark.Color.espresso == "#2E1D12" && BananaMark.Color.cocoa == "#5A3A22",
+            "the pure brand palette must match the approved colours")
+        print("Banana brand checks passed (all committed SVGs match generated geometry and Space Mono outlines)")
     }
 }

@@ -26,7 +26,7 @@ final class NativeFeatures {
             configuration.setURLSchemeHandler(MediaSchemeHandler(store: attachments), forURLScheme: "foldnote-asset")
             configuration.setURLSchemeHandler(FontSchemeHandler(store: fonts), forURLScheme: "foldnote-font")
             return configuration
-        }, fontCSS: { fonts.exportCSS(fontSize: FontSizePreferences(defaults: defaults).size) })
+        }, fontCSS: { fonts.exportCSS(fontSize: FontSizePreferences(defaults: defaults).size, addingFontIDs: ["space-mono"]) })
     }
 
     var preferenceReply: [String: Any] {

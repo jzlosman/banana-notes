@@ -1,12 +1,19 @@
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-dark.svg">
+    <img src="assets/brand/logo.svg" alt="Banana Notes" width="320">
+  </picture>
+</p>
+
+<p align="center">
   <img src="docs/media/hero.png" alt="Banana Notes: notes that float. A floating note over a code editor.">
 </p>
 
 <p align="center">
-  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-1F1B2E?logo=apple&logoColor=white">
-  <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-FFD84D">
-  <img alt="Local-first, no account" src="https://img.shields.io/badge/local--first-no%20account-8FB996">
-  <img alt="Free and open source" src="https://img.shields.io/badge/free-open%20source-5B3A29">
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-5A3A22?logo=apple&amp;logoColor=white">
+  <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-FBE122?labelColor=2A1D14">
+  <img alt="Local-first, no account" src="https://img.shields.io/badge/local--first-no%20account-2E1D12">
+  <img alt="Free and open source" src="https://img.shields.io/badge/free-open%20source-D9A00A?labelColor=2A1D14">
 </p>
 
 <p align="center">
@@ -324,7 +331,7 @@ The README media in `docs/media/` were captured from a real build running agains
 - `native/AppDelegate.swift`: small lifecycle adapter; `native/NativeApplicationRuntime.swift` composes the window, bridge, hotkey, menu, and termination behavior.
 - `native/BridgeCommand.swift`: validates wire requests into typed commands and routes each to a capability handler. Effect ports are defined in `native/NativePorts.swift`; framework-independent policies are checked by `native/Tests/ArchitectureSelfTest.swift`.
 
-The logo lives in `assets/banana-notes-logo.svg`. Regenerate the app icon from the shared banana geometry with `bash scripts/build-icons.sh`. Branding is confined to the name, app/menu-bar icons, and documentation; the notepad's layout, writing surface, and 30 themes are unchanged.
+The generated brand files live in `assets/brand/`; see [BRAND.md](BRAND.md) for usage. Regenerate the brand SVGs and app icon from the shared banana geometry with `bash scripts/build-icons.sh`. Branding is confined to the name, app/menu-bar icons, and documentation; the notepad's layout, writing surface, and 30 themes are unchanged.
 
 </details>
 
@@ -337,6 +344,6 @@ The source remains available here; signed and notarized binary releases will be 
 ---
 
 <p align="center">
-  <img src="assets/banana-notes-logo.svg" alt="" width="40" height="40"><br>
+  <img src="assets/brand/mark.svg" alt="" width="40" height="40"><br>
   <sub>Banana Notes · <a href="LICENSE">MIT</a> · <a href="THIRD_PARTY_NOTICES.md">Third-party notices</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a></sub>
 </p>

@@ -244,15 +244,21 @@ struct NoteFontStore {
         throw NoteFontError(message: "Cached font is unavailable.")
     }
 
-    func exportCSS(fontSize: Int) -> String {
+    func exportCSS(fontSize: Int, addingFontIDs: [String] = []) -> String {
         let selected = readSelection()
         let font = knownFont(id: selected["fontID"] as! String) ?? Self.fallbackBuiltins[0]
         let size = min(72, max(8, fontSize))
-        let faces = font.faces.map { face -> String in
-            let scheme = Self.isBundled(font.id) ? "bundled" : "cache"
-            var declaration = "@font-face{font-family:'\(font.family)';font-style:normal;font-weight:\(face.weight);src:url('foldnote-font://\(scheme)/\(face.file)') format('woff2');font-display:swap;"
-            if let range = face.unicodeRange { declaration += "unicode-range:\(range);" }
-            return declaration + "}"
+        var fontFaces = [font]
+        for id in addingFontIDs where !fontFaces.contains(where: { $0.id == id }) {
+            if let additional = knownFont(id: id) { fontFaces.append(additional) }
+        }
+        let faces = fontFaces.flatMap { faceFont in
+            faceFont.faces.map { face -> String in
+                let scheme = Self.isBundled(faceFont.id) ? "bundled" : "cache"
+                var declaration = "@font-face{font-family:'\(faceFont.family)';font-style:normal;font-weight:\(face.weight);src:url('foldnote-font://\(scheme)/\(face.file)') format('woff2');font-display:swap;"
+                if let range = face.unicodeRange { declaration += "unicode-range:\(range);" }
+                return declaration + "}"
+            }
         }
         let family = font.id.hasPrefix("google-") || Self.isBundled(font.id)
             ? "'\(font.family)',ui-monospace,Menlo,monospace" : font.family

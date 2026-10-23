@@ -21,6 +21,7 @@ import { themes, themeByID, resolveThemeID, SYSTEM_THEME, type ThemeDefinition }
 import { applyAppearance } from './appearance';
 import { observeWindowDragRegion } from './window-drag';
 import { DEFAULT_WINDOW_STYLE, resolveWindowStyle, type WindowStyle } from '../domain/window-style';
+import { DEFAULT_PINNED } from '../domain/window-preferences';
 import { WindowStyleSaveQueue } from '../application/window-style-save';
 import { DEFAULT_FONT_SIZE, resolveFontSize, stepFontSize } from '../domain/font-size';
 import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, type NoteFontState, type NoteFontSelection } from '../domain/note-font';
@@ -105,7 +106,7 @@ let fontStatus = '';
 let fontError = false;
 let explorerMode: 'notes' | 'trash' = 'notes';
 let sourceMode = false;
-let pinned = false;
+let pinned = DEFAULT_PINNED;
 let query = '';
 let saveError = '';
 let saveFailureNotice: HTMLElement | undefined;
@@ -121,6 +122,22 @@ let disposeDragRegion: (() => void) | undefined;
 const commandsWaiting: AppCommand[] = [];
 let disposeCommands: (() => void) | undefined;
 
+function pinButtonLabel(isPinned: boolean, available: boolean): string {
+  const state = !available ? 'Pin · available in the Mac app'
+    : isPinned ? 'Unpin · hide when switching apps' : 'Pin · stay visible when switching apps';
+  return `${state} · ⌘⇧P`;
+}
+function updatePinButton(pin: HTMLButtonElement, isPinned: boolean, available: boolean): void {
+  pin.classList.toggle('active', isPinned);
+  pin.setAttribute('aria-pressed', String(isPinned));
+  pin.title = pinButtonLabel(isPinned, available);
+  pin.setAttribute('aria-label', pin.title);
+}
+function updatePinnedState(isPinned: boolean): void {
+  pinned = isPinned;
+  const pin = app.querySelector<HTMLButtonElement>('[data-pin-toggle]');
+  if (pin) updatePinButton(pin, isPinned, !!capabilities.window.pin);
+}
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag); el.className = className; if (text !== undefined) el.textContent = text; return el;
 }
@@ -209,13 +226,13 @@ function renderHeader(): void {
   const spacer = element('div', 'toolbar-drag'); spacer.setAttribute('aria-hidden', 'true');
   const actions = element('div', 'header-actions');
   const pinCapability = capabilities.window.pin;
-  const pin = button(pinCapability ? (pinned ? 'Unpin · hide when switching apps' : 'Pin · stay visible when switching apps') : 'Pin · available in the Mac app', Pin, async () => {
+  const pin = button(pinButtonLabel(pinned, !!pinCapability), Pin, async () => {
     if (!pinCapability) return;
-    pinned = await pinCapability.set(!pinned);
-    pin.classList.toggle('active', pinned); pin.setAttribute('aria-pressed', String(pinned));
-    pin.title = pinned ? 'Unpin · hide when switching apps' : 'Pin · stay visible when switching apps'; pin.setAttribute('aria-label', pin.title);
+    updatePinnedState(await pinCapability.set(!pinned));
   });
-  pin.classList.toggle('active', pinned); pin.setAttribute('aria-pressed', String(pinned)); pin.disabled = !pinCapability;
+  pin.dataset.pinToggle = '';
+  updatePinButton(pin, pinned, !!pinCapability);
+  pin.disabled = !pinCapability;
   actions.append(pin, button('Show notes · ⌘⇧E', BookOpen, flip), button('New note · ⌘N', Plus, newNote));
   if (view === 'note' && selected()) {
     const source = button(sourceMode ? 'Show formatted note · ⌘⇧M' : 'Edit Markdown source · ⌘⇧M', Code, () => { sourceMode = !sourceMode; render(); });
@@ -735,7 +752,7 @@ function renderHelp(): void {
   const main = element('main', 'help-side');
   main.append(element('h1', '', 'Keyboard shortcuts'));
   const shortcuts = element('dl', 'shortcuts');
-  for (const [label, key] of [['Show / hide Banana Notes', hotkeyDisplay], ['New note', '⌘N'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find in note', '⌘F'], ['Next / previous match', '↵ / ⇧↵ · ⌘G / ⇧⌘G'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy selected text', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Move open note / focused list note to Trash', '⌘Backspace (⌘⌫)']]) {
+  for (const [label, key] of [['Show / hide Banana Notes', hotkeyDisplay], ['New note', '⌘N'], ['Pin / unpin window', '⌘⇧P'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find in note', '⌘F'], ['Next / previous match', '↵ / ⇧↵ · ⌘G / ⇧⌘G'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy selected text', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Move open note / focused list note to Trash', '⌘Backspace (⌘⌫)']]) {
     shortcuts.append(element('dt', '', label), element('dd', '', key));
   }
   main.append(shortcuts);
@@ -840,6 +857,7 @@ const handleAppCommand = createAppCommandHandler({
   showHelp: () => { view = 'help'; render(); },
   showSettings: openThemes,
   focusChanged: focused => { const becameFocused = !windowFocused && focused; windowFocused = focused; applyWindowState(); if (becameFocused) indexCoordinator.schedule(library.notes, true); },
+  pinChanged: updatePinnedState,
   changeWindowStyle,
   changeFontSize: adjustment => changeFontSize(adjustment === 'reset' ? DEFAULT_FONT_SIZE : stepFontSize(fontSize, adjustment === 'increase' ? 1 : -1)),
   copy: (format, whole) => copyNote(format, whole),
@@ -919,7 +937,7 @@ async function start(): Promise<void> {
     });
     library = loaded || welcomeLibrary(ids.next(), clock.now(), hotkeyDisplay);
     const unpurgedLibrary = library; library = libraryCommands.purgeExpiredTrash(library);
-    librarySession = new LibrarySession(library); explorerState = createExplorerState(library); pinned = pinState;
+    librarySession = new LibrarySession(library); explorerState = createExplorerState(library); updatePinnedState(pinState);
     queue = new SaveQueue(capabilities.library, (status, error) => {
       if (status === 'error') { saveError = error instanceof Error ? error.message : 'Could not save changes'; showSaveFailure(); }
       else if (status === 'saved') { saveError = ''; saveFailureNotice?.remove(); saveFailureNotice = undefined; indexCoordinator?.schedule(librarySession.library.notes); }

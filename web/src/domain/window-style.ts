@@ -1,5 +1,5 @@
 export type WindowStyle = { focusedOpacity: number; unfocusedOpacity: number; glass: number };
-export const DEFAULT_WINDOW_STYLE: WindowStyle = { focusedOpacity: 1, unfocusedOpacity: 1, glass: 0 };
+export const DEFAULT_WINDOW_STYLE: WindowStyle = { focusedOpacity: 1, unfocusedOpacity: 0.6, glass: 0 };
 const bounded = (value: unknown, fallback: number, min: number, max: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 export function resolveWindowStyle(value: unknown): WindowStyle {

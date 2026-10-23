@@ -9,7 +9,9 @@ struct WindowStyleSelfTest {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let prefs = WindowStylePreferences(defaults: defaults)
-        precondition(prefs.style == .solid)
+        precondition(prefs.style == .standard)
+        precondition(prefs.style.opacity(isFocused: true) == 1)
+        precondition(prefs.style.opacity(isFocused: false) == 0.6)
         try prefs.save(WindowStyle(focusedOpacity: 0.8, unfocusedOpacity: 0.15, glass: 0.7))
         let reloaded = WindowStylePreferences(defaults: defaults)
         precondition(reloaded.style == prefs.style)
@@ -25,13 +27,13 @@ struct WindowStyleSelfTest {
         }
         precondition(prefs.style == reloaded.style, "rejected values must not replace saved choices")
         try prefs.reset()
-        precondition(prefs.style == .solid)
+        precondition(prefs.style == .standard)
         defaults.set(Data("bad json".utf8), forKey: "windowStyle")
-        precondition(WindowStylePreferences(defaults: defaults).style == .solid)
+        precondition(WindowStylePreferences(defaults: defaults).style == .standard)
 
         let content = WindowContentView(frame: NSRect(x: 0, y: 0, width: 540, height: 650), editor: NSView())
         let effect = content.subviews.compactMap { $0 as? NSVisualEffectView }.first!
-        precondition(effect.isHidden && effect.alphaValue == 0, "solid defaults must skip backdrop compositing")
+        precondition(effect.isHidden && effect.alphaValue == 0, "default opacity without glass must skip backdrop compositing")
         content.setGlassAmount(0.7)
         precondition(!effect.isHidden && abs(effect.alphaValue - 0.7) < 0.001)
         precondition(effect.blendingMode == .behindWindow && effect.material == .underWindowBackground)

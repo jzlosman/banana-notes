@@ -135,9 +135,11 @@ final class NativeApplicationRuntime {
                 #endif
             })
         menuActions = actions
-        menuController = NativeMenuBarController(hotkeyDisplay: hotkey.chord.display,
-            hotkeyAvailable: hotkey.available, updatesAvailable: updatesAvailable,
+        let menu = NativeMenuBarController(hotkeyDisplay: hotkey.chord.display,
+            hotkeyAvailable: hotkey.available, updatesAvailable: updatesAvailable, isPinned: window.isPinned,
             onAction: { [weak actions] in actions?.handle($0) })
+        menuController = menu
+        window.onPinnedChange = { [weak menu] isPinned in menu?.updatePinned(isPinned) }
     }
 
     private func handleDeepLink(_ url: URL) {

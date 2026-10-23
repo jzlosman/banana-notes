@@ -4,7 +4,7 @@ struct WindowStyle: Codable, Equatable {
     let focusedOpacity: Double
     let unfocusedOpacity: Double
     let glass: Double
-    static let solid = WindowStyle(focusedOpacity: 1, unfocusedOpacity: 1, glass: 0)
+    static let standard = WindowStyle(focusedOpacity: 1, unfocusedOpacity: 0.6, glass: 0)
 
     var bridgeValue: [String: Double] {
         ["focusedOpacity": focusedOpacity, "unfocusedOpacity": unfocusedOpacity, "glass": glass]
@@ -31,7 +31,7 @@ final class WindowStylePreferences {
         if let data = defaults.data(forKey: key), let decoded = try? JSONDecoder().decode(WindowStyle.self, from: data),
            (try? WindowStyle.validate(decoded)) != nil {
             style = decoded
-        } else { style = .solid }
+        } else { style = .standard }
     }
 
     func save(_ style: WindowStyle) throws {
@@ -41,5 +41,5 @@ final class WindowStylePreferences {
         self.style = style
     }
 
-    func reset() throws { try save(.solid) }
+    func reset() throws { try save(.standard) }
 }

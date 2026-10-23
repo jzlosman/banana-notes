@@ -31,6 +31,7 @@ export type AppCommand =
   | { type: 'help' }
   | { type: 'settings' }
   | { type: 'focus-change'; focused: boolean }
+  | { type: 'pin-change'; pinned: boolean }
   | { type: 'window-style'; style: WindowStyle }
   | { type: 'font-size'; adjustment: 'increase' | 'decrease' | 'reset' }
   | { type: 'copy'; format: ClipboardFormat; whole: boolean }

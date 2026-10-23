@@ -1,5 +1,6 @@
 import { validateLibrary, titleOf } from '../domain/library';
 import { resolveWindowStyle, DEFAULT_WINDOW_STYLE } from '../domain/window-style';
+import { resolvePinnedPreference } from '../domain/window-preferences';
 import { resolveFontSize, DEFAULT_FONT_SIZE } from '../domain/font-size';
 import { resolveNoteFontState, DEFAULT_NOTE_FONT_STATE } from '../domain/note-font';
 import { importAttachments, validateAttachmentRecord } from './attachments';
@@ -113,6 +114,7 @@ function decodeCommand(raw: unknown): AppCommand {
     case 'help': return { type: 'help' };
     case 'themes': return { type: 'settings' };
     case 'focus': return { type: 'focus-change', focused: command.focused === true };
+    case 'pin': return { type: 'pin-change', pinned: resolvePinnedPreference(command.pinned) };
     case 'windowStyle': return { type: 'window-style', style: resolveWindowStyle(command.style) };
     case 'fontIncrease': return { type: 'font-size', adjustment: 'increase' };
     case 'fontDecrease': return { type: 'font-size', adjustment: 'decrease' };
@@ -167,7 +169,7 @@ export class NativeBridge implements Capabilities {
       ready: async () => { await this.call('ready'); },
       hide: async () => { await this.call('hide'); },
       pin: {
-        load: async () => (await this.loaded()).pinned ?? false,
+        load: async () => resolvePinnedPreference((await this.loaded()).pinned),
         set: async pinned => (await this.call('pin', { pinned })).pinned ?? pinned,
       },
       dragRegion: { set: async rect => { await this.call('dragRegion', { rect }); } },

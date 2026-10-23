@@ -69,6 +69,8 @@ test('native command decoding maps the established wire command to a typed appli
   assert.deepEqual(received, { type: 'font-size', adjustment: 'increase' });
   await target.foldnoteCommand!({ action: 'flush' });
   assert.deepEqual(received, { type: 'flush' });
+  await target.foldnoteCommand!({ action: 'pin', pinned: true });
+  assert.deepEqual(received, { type: 'pin-change', pinned: true });
   await assert.rejects(target.foldnoteCommand!({ action: 'unknown' }), /Unknown application command/);
   dispose(); assert.equal(target.foldnoteCommand, undefined);
 });
@@ -79,7 +81,7 @@ const nativeLoadReply = {
   library: { version: 1, notes: [{ id: 'n', createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-01T12:00:00.000Z', markdown: '# Note' }], selectedID: 'n', activeTag: null },
   pinned: false, hotkey: '⌃⌥Space', hotkeyAvailable: true, hotkeyStatus: '⌃⌥Space toggles Banana Notes.',
   dataDirectory: '/tmp/data', themeID: 'system', themeWarning: null, focused: true,
-  windowStyle: { focusedOpacity: 1, unfocusedOpacity: 1, glass: 0 }, fontSize: 15, ocrEnabled: false, featureWarning: null,
+  windowStyle: { focusedOpacity: 1, unfocusedOpacity: 0.6, glass: 0 }, fontSize: 15, ocrEnabled: false, featureWarning: null,
   imageOptions: {}, launchAtLogin: false, launchError: null, launchStatus: 'notRegistered', newNoteOnLaunch: false,
   noteFonts: { selection: { fontID: 'space-mono', weight: 400 }, fonts: [] }, syntaxThemeID: 'app',
 };

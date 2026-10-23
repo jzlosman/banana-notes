@@ -162,6 +162,7 @@ The Help view shows your configured global shortcut; this table shows the new-in
 | Older / newer note | <kbd>⌘</kbd><kbd>[</kbd> / <kbd>⌘</kbd><kbd>]</kbd> |
 | Alternate navigation | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>←</kbd> / <kbd>⌘</kbd><kbd>⇧</kbd><kbd>→</kbd> |
 | Show notes | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>E</kbd> |
+| Pin / unpin window | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>P</kbd> |
 | Find in note | <kbd>⌘</kbd><kbd>F</kbd> |
 | Next / previous match | <kbd>Return</kbd> / <kbd>⇧</kbd><kbd>Return</kbd> · <kbd>⌘</kbd><kbd>G</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>G</kbd> |
 | Find notes | <kbd>⌘</kbd><kbd>P</kbd> |
@@ -191,7 +192,7 @@ No. There's no account, no cloud service and no telemetry.
 No. Search runs on-device with macOS's embeddings, or with Ollama on your own Mac if you choose it. Downloading a Google Font or an Ollama model only happens when you explicitly ask.
 
 **Will it get in my way?**
-It has no Dock icon and, unless pinned, tucks itself away when you click elsewhere. It opens at login only if you turn that on.
+It has no Dock icon and starts pinned so it stays visible while you switch apps; press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>P</kbd> to unpin it so it tucks away when you click elsewhere. It opens at login only if you turn that on.
 
 ## Reference
 
@@ -225,7 +226,7 @@ Install by copying `build/Banana Notes.app` into `~/Applications`. Open **Banana
 
 The pad is a borderless card: no app title or traffic-light buttons. Notebook controls sit at the top left, with pin, explorer, new-note and `<>` source controls on the top right. Tags sit just underneath. Drag the empty space between the left and right controls to move it. Escape, Command–W, the hotkey or the menu bar can hide it.
 
-The pin keeps the floating panel visible while switching apps. Otherwise it hides when focus leaves. A 500 ms grace period ignores brief macOS focus interruptions before dimming, hiding bottom controls, or auto-hiding an unpinned note. Returning focus cancels the pending change immediately. Window opacity transitions use a 200 ms fade (disabled with macOS Reduce Motion). The footer and formatting strip appear only while the notepad window is focused; the writing area expands when they disappear.
+The window starts pinned, so it stays visible while switching apps; <kbd>⌘</kbd><kbd>⇧</kbd><kbd>P</kbd> or **Window → Pin Window** toggles that behavior. An unpinned window hides when focus leaves. A 500 ms grace period ignores brief macOS focus interruptions before dimming, hiding bottom controls, or auto-hiding an unpinned note. Returning focus cancels the pending change immediately. Window opacity transitions use a 200 ms fade (disabled with macOS Reduce Motion). The footer and formatting strip appear only while the notepad window is focused; the writing area expands when they disappear.
 
 <a id="deep-links"></a>Deep links: `banananotes://show`, `banananotes://new`, `banananotes://explorer`, `banananotes://tag/work`, `banananotes://themes`. Existing `foldnote://` links remain supported.
 
@@ -240,7 +241,7 @@ The **Code** tab selects an independent syntax palette from the same 32 themes, 
 
 Notes default to **Space Mono · Regular**. **Settings → Window → Note text** groups Font, Weight and a 10–32 px Size dropdown in one row, followed by a labelled preview. It offers Space Mono, JetBrains Mono, Overpass Mono, Fira Code, Georgia and Avenir Next, plus the weights each supports. The four monospaced fonts are bundled under the SIL Open Font License, so they work offline. Expand **Add a Google font**, enter any Google Fonts family name, and choose **Download and use**. Examples include IBM Plex Mono, DM Sans and Lora. Only this explicit action contacts Google; fonts are cached in the local data folder's `fonts/` directory and work offline afterward. No note content is sent. Font choices persist separately from notes, affect PNG export, and do not change the interface or code/source font.
 
-The **Window** tab has separate **Active window opacity** and **Inactive window opacity** sliders (5–100%), plus **Background translucency** (glass, 0–100%). Opacity fades the entire window, including text; glass blends in macOS's native frosted desktop backdrop. Defaults are fully opaque with no glass, and the settings apply across themes. Unfocused opacity is visible when the note is pinned. **Reset window effects**, or **Reset Window Effects** in the menu bar, restores safe defaults without changing the theme or notes. Window preferences are saved separately under `windowStyle`; the browser preview simulates opacity but cannot render the native desktop backdrop.
+The **Window** tab has separate **Active window opacity** and **Inactive window opacity** sliders (5–100%), plus **Background translucency** (glass, 0–100%). Opacity fades the entire window, including text; glass blends in macOS's native frosted desktop backdrop. Defaults are fully opaque while focused, dim to 60% while inactive, and use no glass; settings apply across themes. Unfocused opacity is visible when the note is pinned. **Reset window effects**, or **Reset Window Effects** in the menu bar, restores those defaults without changing the theme or notes. Window preferences are saved separately under `windowStyle`; the browser preview simulates opacity but cannot render the native desktop backdrop.
 
 Theme selection is stored independently in the app's preferences (`appearanceTheme`), not in any note or frontmatter. Themes are bundled: there are no runtime requests, plugins, or external installation steps. Theme provenance and licenses are retained under `vendor/agent-paint/` and included in the app bundle. Regenerate the pinned catalog offline with `node scripts/import-agent-paint.mjs`, or pass a checked-out Agent Paint directory explicitly when updating the source. Banana Notes adapts functional text contrast without replacing palette backgrounds or theme identities.
 

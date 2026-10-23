@@ -3,9 +3,10 @@ import AppKit
 @MainActor
 final class NativeMenuBarController: NSObject {
     private let onAction: (MenuAction) -> Void
+    private var pinMenuItem: NSMenuItem?
     let statusItem: NSStatusItem
 
-    init(hotkeyDisplay: String, hotkeyAvailable: Bool, updatesAvailable: Bool = false,
+    init(hotkeyDisplay: String, hotkeyAvailable: Bool, updatesAvailable: Bool = false, isPinned: Bool,
          onAction: @escaping (MenuAction) -> Void) {
         self.onAction = onAction
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -13,7 +14,11 @@ final class NativeMenuBarController: NSObject {
         statusItem.button?.image = StatusItemIcon.make()
         statusItem.button?.imageScaling = .scaleNone
         statusItem.button?.imagePosition = .imageOnly
-        installMenus(hotkeyDisplay: hotkeyDisplay, hotkeyAvailable: hotkeyAvailable, updatesAvailable: updatesAvailable)
+        installMenus(hotkeyDisplay: hotkeyDisplay, hotkeyAvailable: hotkeyAvailable, updatesAvailable: updatesAvailable, isPinned: isPinned)
+    }
+
+    func updatePinned(_ isPinned: Bool) {
+        pinMenuItem?.state = isPinned ? .on : .off
     }
 
     func updateHotkey(display: String, registered: Bool) {
@@ -28,7 +33,7 @@ final class NativeMenuBarController: NSObject {
         }
     }
 
-    private func installMenus(hotkeyDisplay: String, hotkeyAvailable: Bool, updatesAvailable: Bool) {
+    private func installMenus(hotkeyDisplay: String, hotkeyAvailable: Bool, updatesAvailable: Bool, isPinned: Bool) {
         let menu = NSMenu()
         menu.addItem(item("Show / Hide Banana Notes", .togglePanel))
         menu.addItem(item("New Note", .newNote, key: "n"))
@@ -93,6 +98,11 @@ final class NativeMenuBarController: NSObject {
 
         let windowRoot = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
         let windowMenu = NSMenu(title: "Window")
+        let pin = item("Pin Window", .togglePin, key: "p")
+        pin.keyEquivalentModifierMask = [.command, .shift]
+        pin.state = isPinned ? .on : .off
+        pinMenuItem = pin
+        windowMenu.addItem(pin)
         windowMenu.addItem(item("Close Window", .hideAfterFlush, key: "w"))
         windowRoot.submenu = windowMenu
         mainMenu.addItem(windowRoot)

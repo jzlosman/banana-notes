@@ -31,6 +31,9 @@ final class MenuActionCoordinator {
                 channel.send(.windowStyle(windowStyle.style))
                 window.show()
             } catch { window.onError?(error.localizedDescription) }
+        case .togglePin:
+            window.setPinned(!window.isPinned)
+            channel.send(.pin(window.isPinned))
         case .openDataFolder:
             if !NSWorkspace.shared.open(dataDirectory) { window.onError?("The data folder could not be opened.") }
         case .checkForUpdates: checkForUpdates()

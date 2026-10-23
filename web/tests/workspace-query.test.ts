@@ -22,5 +22,5 @@ test('workspace query reads explicit capabilities and applies absence defaults w
   const snapshot = await loadWorkspace(capabilities);
   assert.deepEqual(calls.sort(), ['appearance', 'features', 'focused', 'hotkey', 'image', 'library', 'typography', 'windowStyle'].sort());
   assert.deepEqual(snapshot.startup, { launchAtLogin: false, launchStatus: 'notRegistered', launchError: null, newNoteOnLaunch: false });
-  assert.equal(snapshot.pinned, false); assert.equal(snapshot.focused, true); assert.equal(snapshot.library, null);
+  assert.equal(snapshot.pinned, true); assert.equal(snapshot.focused, true); assert.equal(snapshot.library, null);
 });

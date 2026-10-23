@@ -55,7 +55,7 @@ export function installKeyboardShortcuts(actions: KeyboardActions): () => void {
     else if (mod && key === 'n' && !event.shiftKey) run = actions.newNote;
     else if (mod && ((key === '[' && !event.shiftKey) || (event.shiftKey && key === 'arrowleft'))) run = actions.moveOlder;
     else if (mod && ((key === ']' && !event.shiftKey) || (event.shiftKey && key === 'arrowright'))) run = actions.moveNewer;
-    else if (mod && ((key === 'e' && event.shiftKey) || key === 'p')) run = () => { if (key === 'p') actions.showExplorer(); else actions.flipView(); };
+    else if (mod && ((key === 'e' && event.shiftKey) || (key === 'p' && !event.shiftKey))) run = () => { if (key === 'p') actions.showExplorer(); else actions.flipView(); };
     else if (mod && key === 'm' && event.shiftKey) run = actions.toggleSource;
     else if (mod && key === ',') run = actions.openSettings;
     else if (mod && key === 's') run = actions.save;

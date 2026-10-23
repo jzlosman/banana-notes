@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { PreviewAdapter } from '../src/adapters/preview';
+import { loadWorkspace } from '../src/application/workspace-query';
 import type { Library } from '../src/domain/library';
 
 test('preview adapter retains the established localStorage keys and models native-only capabilities as absent', async () => {
@@ -15,6 +16,9 @@ test('preview adapter retains the established localStorage keys and models nativ
   try {
     const adapter = new PreviewAdapter();
     assert.equal(await adapter.library.load(), null);
+    const workspace = await loadWorkspace(adapter);
+    assert.equal(workspace.pinned, true, 'browser preview uses the pinned-by-default preference state');
+    assert.equal(workspace.windowStyle.unfocusedOpacity, 0.6, 'browser preview inherits the inactive-opacity default');
     assert.equal(adapter.recovery, null); assert.equal(adapter.startup, null); assert.equal(adapter.attachments, null);
     assert.equal(adapter.ocr, null); assert.equal(adapter.pngExport, null); assert.equal(adapter.dataFolder, null);
     assert.equal(adapter.hotkey, null);

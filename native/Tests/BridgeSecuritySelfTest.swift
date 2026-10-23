@@ -1,4 +1,5 @@
 import Foundation
+@testable import BananaNotesCore
 
 @MainActor
 private final class RecordingBridgeHandler: BridgeHandler {

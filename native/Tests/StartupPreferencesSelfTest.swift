@@ -1,4 +1,5 @@
 import Foundation
+@testable import BananaNotesCore
 import ServiceManagement
 
 private final class LoginItemFake: LoginItemManaging {

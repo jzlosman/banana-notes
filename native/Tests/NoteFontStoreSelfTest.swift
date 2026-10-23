@@ -1,4 +1,5 @@
 import Foundation
+@testable import BananaNotesCore
 import CryptoKit
 
 private final class FakeFontHTTPClient: FontHTTPClient {

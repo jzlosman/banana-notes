@@ -22,7 +22,8 @@ export function closePopover(restoreFocus = false): boolean {
 export function openPopover(trigger: HTMLElement, content: HTMLElement, options: { label: string; point?: { x: number; y: number }; menu?: boolean; restoreFocus?: () => void }): void {
   closePopover();
   const doc = trigger.ownerDocument;
-  content.classList.add('action-popover');
+  const POPOVER_CLASSES = 'action-popover quiet-scroll';
+  content.classList.add(...POPOVER_CLASSES.split(' '));
   content.setAttribute('role', options.menu ? 'menu' : 'dialog');
   content.setAttribute('aria-label', options.label);
   trigger.setAttribute('aria-expanded', 'true');

@@ -1,5 +1,6 @@
 import AppKit
 import WebKit
+@testable import BananaNotesCore
 
 @main struct PNGExportSelfTest {
     @MainActor static func main() async throws {

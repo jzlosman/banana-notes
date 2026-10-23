@@ -24,6 +24,7 @@ All notable changes to Banana Notes are documented here.
 
 ### Fixed
 
+- Align quiet, theme-tinted scrollbars to the window edge across note, list, Settings, Help, project, and popover scrollers without shifting their content.
 - Copy selected visible text with ⌘C without adding Markdown escapes; Markdown copying remains available through Copy as.
 - Make note scrollbars less prominent and hide them while the note window is unfocused.
 - Keep keyboard focus on the relevant view after navigation and improve contrast for theme-derived focus rings and syntax colors.

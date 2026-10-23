@@ -52,6 +52,8 @@ import { findMatchesInText, noteFindMatches, selectNoteFindMatch, setNoteFind } 
 import { focusPrimaryView, trapFocusWithin } from './focus-management';
 import { installThemeGridKeyboard, updateThemeGridTabStop } from './theme-grid';
 import { plainInput } from './plain-input';
+import { addTagToOpenNote, removeTagFromOpenNote } from './note-tag-actions';
+import { renderNoteTagControls } from './note-tag-controls';
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let capabilities: Capabilities;
 let clock: Clock;
@@ -243,11 +245,40 @@ function renderHeader(): void {
   header.append(context, spacer, actions); app.append(header);
   if (capabilities.window.dragRegion) disposeDragRegion = observeWindowDragRegion(spacer, rect => { void capabilities.window.dragRegion!.set(rect).catch(showError); });
 }
+function noteTagEffects() {
+  return {
+    replaceLibrary,
+    setMarkdownPrefix: (next: string, markdown: string) => {
+      prefix = next;
+      const area = sourceMode ? app.querySelector<HTMLTextAreaElement>('.source-editor') : null;
+      if (!area) return;
+      const current = splitDocument(area.value);
+      const oldPrefix = current.frontmatter && !current.frontmatter.endsWith('\n') ? `${current.frontmatter}\n` : current.frontmatter;
+      const start = area.selectionStart, end = area.selectionEnd;
+      const mapOffset = (offset: number) => offset >= oldPrefix.length ? next.length + offset - oldPrefix.length : Math.min(offset, next.length);
+      area.value = markdown;
+      area.setSelectionRange(mapOffset(start), mapOffset(end));
+      if (activeEditorID) sourceSelections.set(activeEditorID, { start: area.selectionStart, end: area.selectionEnd });
+    },
+    persist,
+    refreshBadges: renderBadges,
+    focusEditor: () => editor ? editor.commands.focus() : app.querySelector<HTMLTextAreaElement>('.source-editor')?.focus(),
+    renderNote: render,
+  };
+}
+function removeNoteTag(noteID: string, tag: string): void {
+  try {
+    const result = removeTagFromOpenNote(libraryCommands, librarySession.library, noteID, tag, noteTagEffects());
+    if (result.kind === 'rejected') throw new Error(result.message);
+  } catch (error) { showError(error); }
+}
 function renderBadges(): void {
   if (!badgeElement) return;
-  badgeElement.replaceChildren();
-  const note = selected(); if (!note) return;
-  tagsOf(note.markdown).forEach(tag => badgeElement!.append(button(`Open #${tag} notebook overview`, null, () => openProject([tag]), 'tag-badge', `#${tag}`)));
+  const note = selected(); if (!note) { badgeElement.replaceChildren(); return; }
+  renderNoteTagControls(badgeElement, tagsOf(note.markdown), {
+    onOverview: tag => openProject([tag]),
+    onRemove: tag => removeNoteTag(note.id, tag),
+  });
   badgeElement.append(button('Add a tag to this note', Plus, tagInput, 'add-tag', 'Tag'));
 }
 function tagInput(): void {
@@ -259,10 +290,8 @@ function tagInput(): void {
     event.preventDefault();
     if (library.selectedID !== targetID) return;
     try {
-      const note = selected()!;
-      const result = libraryCommands.addTag(librarySession.library, note.id, input.value);
+      const result = addTagToOpenNote(libraryCommands, librarySession.library, targetID, input.value, noteTagEffects());
       if (result.kind === 'rejected') throw new Error(result.message);
-      replaceLibrary(result.library); persist(); render();
     } catch (error) { input.setCustomValidity((error as Error).message); input.reportValidity(); }
   };
   input.oninput = () => input.setCustomValidity('');
@@ -362,7 +391,7 @@ function renderNote(): void {
     const empty = element('div', 'empty-state'); empty.append(icon(BookOpen, 30), element('h1', '', library.activeTag ? `#${library.activeTag}` : 'No notes'), element('p', '', 'Create a note to get started.'), button('Create a note', Plus, newNote, 'primary-button', 'New note'));
     contentElement.append(empty); app.append(contentElement); return;
   }
-  badgeElement = element('div', 'note-tags'); renderBadges(); contentElement.append(badgeElement);
+  badgeElement = element('div', 'note-tags quiet-scroll'); renderBadges(); contentElement.append(badgeElement);
   findBar = undefined;
   if (findOpen) { findBar = renderNoteFindBar(); contentElement.append(findBar); }
   const markdown = oversizedDraft?.noteID === note.id ? oversizedDraft.markdown : note.markdown;
@@ -371,7 +400,7 @@ function renderNote(): void {
   if (parts.error) { sourceMode = true; contentElement.append(element('div', 'inline-warning', parts.error)); }
   if (sourceMode) {
     const label = element('div', 'source-label', 'Markdown source' );
-    const area = element('textarea', 'source-editor'); area.setAttribute('aria-label', 'Markdown source'); area.value = markdown; area.spellcheck = false;
+    const area = element('textarea', 'source-editor quiet-scroll'); area.setAttribute('aria-label', 'Markdown source'); area.value = markdown; area.spellcheck = false;
     const savedSourceSelection = sourceSelections.get(note.id); if (savedSourceSelection) area.setSelectionRange(Math.min(savedSourceSelection.start, area.value.length), Math.min(savedSourceSelection.end, area.value.length));
     const rememberSourceSelection = () => sourceSelections.set(note.id, { start: area.selectionStart, end: area.selectionEnd });
     area.addEventListener('select', rememberSourceSelection); area.addEventListener('keyup', rememberSourceSelection); area.addEventListener('click', rememberSourceSelection);
@@ -380,7 +409,7 @@ function renderNote(): void {
     app.append(contentElement); requestAnimationFrame(() => findOpen ? findBar?.querySelector<HTMLInputElement>('.note-find-input')?.focus() : area.focus());
     if (findOpen) updateNoteFind();
   } else {
-    const scroll = element('div', 'editor-scroll'); const mount = element('div', 'editor-mount'); scroll.append(mount); contentElement.append(scroll); app.append(contentElement);
+    const scroll = element('div', 'editor-scroll quiet-scroll'); const mount = element('div', 'editor-mount'); scroll.append(mount); contentElement.append(scroll); app.append(contentElement);
     editor = createMarkdownEditor(mount, parts.body, markdown => commitMarkdown(prefix + markdown), (_editor, anchor) => editNoteLink(anchor));
     const saved = editorSelections.get(note.id);
     if (saved) {
@@ -688,11 +717,11 @@ function renderThemes(): void {
     let panel: HTMLElement;
     if (appearanceTab === 'general') panel = renderGeneralSettings({ capabilities, startup: startupState, onStartupChanged: next => { startupState = next; }, hotkey: hotkeyState, onHotkeyChanged: next => { hotkeyState = next; hotkeyDisplay = next.display; }, ocrEnabled, onOCREnabled: enabled => { ocrEnabled = enabled; }, onError: showError });
     else if (appearanceTab === 'code') {
-      panel = element('section', 'settings-panel code-settings-panel'); panel.append(renderCodeSettings({ selectedID: syntaxThemeID, appThemeID: themeID, onSelect: chooseSyntaxTheme }));
+      panel = element('section', 'settings-panel code-settings-panel quiet-scroll side-scroll'); panel.append(renderCodeSettings({ selectedID: syntaxThemeID, appThemeID: themeID, onSelect: chooseSyntaxTheme }));
     } else if (appearanceTab === 'search') {
-      panel = element('section', 'settings-panel'); panel.append(renderSemanticSettings({ search: semanticSettingsPort(), getNotes: () => librarySession.library.notes, automaticIndex: () => ({ running: automaticIndexRunning, error: automaticIndexError }), registerRefresh: refresh => { refreshSemanticSettings = refresh; } }));
+      panel = element('section', 'settings-panel quiet-scroll side-scroll'); panel.append(renderSemanticSettings({ search: semanticSettingsPort(), getNotes: () => librarySession.library.notes, automaticIndex: () => ({ running: automaticIndexRunning, error: automaticIndexError }), registerRefresh: refresh => { refreshSemanticSettings = refresh; } }));
     } else {
-      panel = element('section', 'settings-panel image-settings-panel');
+      panel = element('section', 'settings-panel image-settings-panel quiet-scroll side-scroll');
       if (selected()) panel.append(renderNoteImageExportControls({ request: currentImageRequest(), canExport: !!capabilities.pngExport, onExport: async request => {
         imageOptions = { ...imageOptions, width: request.width, padding: request.padding, gradient: request.backgroundStart === '#f6d6b8' ? 'dawn' : request.backgroundStart === '#c4e7ed' ? 'ocean' : 'lavender' };
         try { await capabilities.imagePreferences.save({ ...imageOptions }); return await exportImageRequest(request); }
@@ -706,7 +735,7 @@ function renderThemes(): void {
   search.append(icon(Search), input); main.append(search);
   const filters = element('div', 'theme-filters'); filters.setAttribute('aria-label', 'Theme appearance');
   const gridPanel = element('div', 'theme-grid-panel'); gridPanel.id = 'appearance-content'; gridPanel.setAttribute('role', 'tabpanel'); gridPanel.setAttribute('aria-labelledby', 'appearance-tab-themes');
-  const grid = element('div', 'theme-grid'); grid.setAttribute('aria-label', 'Available themes'); grid.setAttribute('role', 'radiogroup'); gridPanel.append(grid);
+  const grid = element('div', 'theme-grid quiet-scroll side-scroll'); grid.setAttribute('aria-label', 'Available themes'); grid.setAttribute('role', 'radiogroup'); gridPanel.append(grid);
   const matches = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();
   const themeOption = (theme?: ThemeDefinition): HTMLButtonElement => {
     const id = theme?.id || SYSTEM_THEME;
@@ -749,7 +778,7 @@ function renderThemes(): void {
   input.oninput = () => { themeQuery = input.value; draw(); };
 }
 function renderHelp(): void {
-  const main = element('main', 'help-side');
+  const main = element('main', 'help-side quiet-scroll');
   main.append(element('h1', '', 'Keyboard shortcuts'));
   const shortcuts = element('dl', 'shortcuts');
   for (const [label, key] of [['Show / hide Banana Notes', hotkeyDisplay], ['New note', '⌘N'], ['Pin / unpin window', '⌘⇧P'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find in note', '⌘F'], ['Next / previous match', '↵ / ⇧↵ · ⌘G / ⇧⌘G'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy selected text', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Move open note / focused list note to Trash', '⌘Backspace (⌘⌫)']]) {

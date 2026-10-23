@@ -29,6 +29,11 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
 test('ordinary search puts notes first and keeps advanced filters and bulk operations out of view', () => harness((_dom, root) => {
   assert.equal(root.querySelectorAll('.library-entry').length, 3);
+  const currentRows = root.querySelectorAll<HTMLElement>('.library-entry[aria-current="true"]');
+  assert.equal(currentRows.length, 1);
+  assert.equal(currentRows[0].dataset.noteId, 'four');
+  assert.equal(currentRows[0].querySelector('.library-row-title')?.classList.contains('current'), true);
+  assert.equal(root.querySelector('.library-entry[data-note-id="two"]')?.hasAttribute('aria-current'), false);
   assert.equal(root.querySelector('[type="date"]'), null);
   assert.equal(root.querySelector('.library-select'), null);
   assert.equal(root.querySelector('.library-bulk')?.hasAttribute('hidden'), true);

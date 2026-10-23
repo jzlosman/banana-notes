@@ -309,6 +309,8 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
         }
         const note = item.note;
         const row = el('div', 'note-list-entry library-entry'); row.dataset.noteId = note.id; row.dataset.index = String(item.index); row.setAttribute('role', 'listitem');
+        const isCurrent = library.selectedID === note.id;
+        if (isCurrent) row.setAttribute('aria-current', 'true');
         row.setAttribute('aria-posinset', String(item.index + 1)); row.setAttribute('aria-setsize', String(results.length));
         if (state.selecting) {
           const check = el('input', 'library-select'); check.type = 'checkbox'; check.checked = state.selectedIDs.has(note.id); check.setAttribute('aria-label', `Select ${titleOf(note.markdown)}`);
@@ -316,7 +318,7 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
         }
         row.append(renderNoteSummary(note, {
           onOpen: state.mode === 'trash' ? undefined : () => options.onOpenNote(note.id),
-          current: library.selectedID === note.id, date: selectedDate(note), showTags: state.mode !== 'trash' && state.selectedTags.length === 0, explorer: true,
+          current: isCurrent, date: selectedDate(note), showTags: state.mode !== 'trash' && state.selectedTags.length === 0, explorer: true,
         }));
         if (state.mode === 'trash') row.append(el('span', 'library-expiry', expiryText(note, options.now)));
         const action = button(`Actions for ${titleOf(note.markdown)}`, () => openActionMenu(action, rowActions(note, action), { label: 'Note actions', onError: report }), Ellipsis, 'icon-button row-more'); action.setAttribute('aria-haspopup', 'menu'); row.append(action);

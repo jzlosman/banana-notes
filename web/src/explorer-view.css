@@ -34,13 +34,16 @@
 .note-day-heading { display: flex; align-items: flex-end; flex: 0 0 38px; height: 38px; padding: 14px 12px 6px; color: var(--muted); font-size: 12px; font-weight: 600; line-height: 16px; }
 .note-list-entry.library-entry { align-items: center; gap: 6px; min-height: 61px; border: 0; }
 .library-select { flex-shrink: 0; }
-.library-explorer[aria-label='Notes explorer'] .note-list-entry.library-entry { position: relative; }
+.library-explorer .note-list-entry.library-entry { position: relative; }
 .library-explorer[aria-label='Notes explorer'] .note-list-entry.library-entry > .row-more { position: absolute; top: 50%; right: 0; transform: translateY(-50%); }
 .library-explorer[aria-label='Notes explorer'] .library-row-title { padding-right: 44px; }
-.library-explorer .library-row-title { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; min-height: 61px; padding: 10px 12px; border-radius: 10px; background: transparent; text-align: left; }
+.library-explorer .library-row-title { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; min-height: 61px; padding: 10px 12px; border-radius: 6px; background: transparent; text-align: left; }
 .library-row-title:not(button) { cursor: default; }
-.library-explorer .library-row-title.current, .library-explorer .library-entry:hover .library-row-title, .library-explorer .library-entry:focus-within .library-row-title { background: var(--hover); }
-.library-explorer .library-row-title h2, .library-explorer .library-row-title:hover h2, .library-explorer .library-row-title.current h2 { color: var(--ink); }
+.library-note-list > .library-entry + .library-entry::before { position: absolute; top: 0; right: 12px; left: 12px; height: 1px; background: color-mix(in srgb, var(--line) 65%, transparent); content: ''; pointer-events: none; }
+.library-note-list > .library-entry:hover::before, .library-note-list > .library-entry:hover + .library-entry::before { opacity: 0; }
+.library-explorer .library-entry:hover .library-row-title, .library-explorer .library-entry:focus-within .library-row-title { background: color-mix(in srgb, var(--hover) 55%, transparent); }
+.library-explorer .library-row-title h2, .library-explorer .library-row-title:hover h2 { color: var(--ink); }
+.library-explorer .library-row-title.current h2 { color: var(--accent); }
 .library-explorer .note-row-top { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
 .library-explorer .note-task-ring { display: block; flex: 0 0 15px; width: 15px; height: 15px; overflow: visible; }
 .note-task-track, .note-task-progress { fill: none; stroke-width: 2; }

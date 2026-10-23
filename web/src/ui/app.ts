@@ -52,6 +52,8 @@ import { findMatchesInText, noteFindMatches, selectNoteFindMatch, setNoteFind } 
 import { focusPrimaryView, trapFocusWithin } from './focus-management';
 import { installThemeGridKeyboard, updateThemeGridTabStop } from './theme-grid';
 import { plainInput } from './plain-input';
+import { addTagToOpenNote, removeTagFromOpenNote } from './note-tag-actions';
+import { renderNoteTagControls } from './note-tag-controls';
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let capabilities: Capabilities;
 let clock: Clock;
@@ -243,11 +245,40 @@ function renderHeader(): void {
   header.append(context, spacer, actions); app.append(header);
   if (capabilities.window.dragRegion) disposeDragRegion = observeWindowDragRegion(spacer, rect => { void capabilities.window.dragRegion!.set(rect).catch(showError); });
 }
+function noteTagEffects() {
+  return {
+    replaceLibrary,
+    setMarkdownPrefix: (next: string, markdown: string) => {
+      prefix = next;
+      const area = sourceMode ? app.querySelector<HTMLTextAreaElement>('.source-editor') : null;
+      if (!area) return;
+      const current = splitDocument(area.value);
+      const oldPrefix = current.frontmatter && !current.frontmatter.endsWith('\n') ? `${current.frontmatter}\n` : current.frontmatter;
+      const start = area.selectionStart, end = area.selectionEnd;
+      const mapOffset = (offset: number) => offset >= oldPrefix.length ? next.length + offset - oldPrefix.length : Math.min(offset, next.length);
+      area.value = markdown;
+      area.setSelectionRange(mapOffset(start), mapOffset(end));
+      if (activeEditorID) sourceSelections.set(activeEditorID, { start: area.selectionStart, end: area.selectionEnd });
+    },
+    persist,
+    refreshBadges: renderBadges,
+    focusEditor: () => editor ? editor.commands.focus() : app.querySelector<HTMLTextAreaElement>('.source-editor')?.focus(),
+    renderNote: render,
+  };
+}
+function removeNoteTag(noteID: string, tag: string): void {
+  try {
+    const result = removeTagFromOpenNote(libraryCommands, librarySession.library, noteID, tag, noteTagEffects());
+    if (result.kind === 'rejected') throw new Error(result.message);
+  } catch (error) { showError(error); }
+}
 function renderBadges(): void {
   if (!badgeElement) return;
-  badgeElement.replaceChildren();
-  const note = selected(); if (!note) return;
-  tagsOf(note.markdown).forEach(tag => badgeElement!.append(button(`Open #${tag} notebook overview`, null, () => openProject([tag]), 'tag-badge', `#${tag}`)));
+  const note = selected(); if (!note) { badgeElement.replaceChildren(); return; }
+  renderNoteTagControls(badgeElement, tagsOf(note.markdown), {
+    onOverview: tag => openProject([tag]),
+    onRemove: tag => removeNoteTag(note.id, tag),
+  });
   badgeElement.append(button('Add a tag to this note', Plus, tagInput, 'add-tag', 'Tag'));
 }
 function tagInput(): void {
@@ -259,10 +290,8 @@ function tagInput(): void {
     event.preventDefault();
     if (library.selectedID !== targetID) return;
     try {
-      const note = selected()!;
-      const result = libraryCommands.addTag(librarySession.library, note.id, input.value);
+      const result = addTagToOpenNote(libraryCommands, librarySession.library, targetID, input.value, noteTagEffects());
       if (result.kind === 'rejected') throw new Error(result.message);
-      replaceLibrary(result.library); persist(); render();
     } catch (error) { input.setCustomValidity((error as Error).message); input.reportValidity(); }
   };
   input.oninput = () => input.setCustomValidity('');

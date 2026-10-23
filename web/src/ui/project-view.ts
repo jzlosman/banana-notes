@@ -1,5 +1,6 @@
 import { type Note } from '../domain/library';
-import { createElement, Ellipsis, ExternalLink, ScanText } from 'lucide';
+import { Ellipsis, ExternalLink, ScanText } from 'lucide';
+import { renderIcon } from './icon';
 import { openActionMenu, type MenuItem } from './action-menu';
 import { renderNoteSummary } from './note-summary';
 import { projectContent, type ProjectLink, type ProjectMedia, type ProjectTask } from '../domain/project-content';
@@ -93,7 +94,7 @@ export function renderProjectView(options: ProjectViewOptions): HTMLElement {
         if (options.onOCR && media.kind === 'image') actions.push({ label: 'Recognize text', icon: ScanText, run: () => options.onOCR!(media) });
         if (actions.length) {
           const more = el('button', 'icon-button row-more'); more.type = 'button'; more.title = 'Media actions'; more.setAttribute('aria-label', `Actions for ${media.label}`); more.setAttribute('aria-haspopup', 'menu');
-          more.append(createElement([Ellipsis[0], { ...Ellipsis[1], width: 15, height: 15, 'stroke-width': 1.7, 'aria-hidden': 'true' }, Ellipsis[2]]));
+          more.append(renderIcon(Ellipsis, 15));
           const open = (point?: { x: number; y: number }) => openActionMenu(more, actions, { label: 'Media actions', point, onError: error => options.onError?.(error instanceof Error ? error : new Error(String(error))) });
           more.onclick = () => open(); li.oncontextmenu = event => { if ((event.target as HTMLElement).closest('audio,video')) return; event.preventDefault(); open({ x: event.clientX, y: event.clientY }); }; li.append(more);
         }

@@ -1,4 +1,5 @@
-import { createElement, Check } from 'lucide';
+import { Check } from 'lucide';
+import { renderIcon } from './icon';
 import { documentClipboardPayload } from './clipboard';
 
 export type NoteImageGradient = 'dawn' | 'lavender' | 'ocean';
@@ -62,7 +63,7 @@ export function renderNoteImageExportControls({ onExport, request, canExport = t
       const saved = await onExport({ ...request, ...gradientsFor(select.value as NoteImageGradient), width: Number(width.value) });
       if (saved === false) { exportButton.textContent = 'Save PNG…'; return; }
       const status = root.querySelector<HTMLElement>('.note-image-export-status')!;
-      status.textContent = 'Saved'; exportButton.replaceChildren(createElement([Check[0], { ...Check[1], width: 16, height: 16, 'stroke-width': 1.7, 'aria-hidden': 'true' }, Check[2]]), document.createTextNode('Saved'));
+      status.textContent = 'Saved'; exportButton.replaceChildren(renderIcon(Check, 16), document.createTextNode('Saved'));
       if (savedTimer !== undefined) window.clearTimeout(savedTimer);
       savedTimer = window.setTimeout(() => { exportButton.textContent = 'Save PNG…'; status.textContent = ''; savedTimer = undefined; }, 1500);
     } catch { /* The host reports export errors through its standard notice surface. */ }

@@ -1,4 +1,5 @@
-import { createElement, Search, ArrowLeft, Trash2, Ellipsis, SlidersHorizontal, CheckSquare, X, Archive, Hash, RotateCcw, ChevronDown, LayoutList, type IconNode } from 'lucide';
+import { Search, ArrowLeft, Trash2, Ellipsis, SlidersHorizontal, CheckSquare, X, Archive, Hash, RotateCcw, ChevronDown, LayoutList, type IconNode } from 'lucide';
+import { renderIcon } from './icon';
 import { groupNotesByLocalDay, queryNotes, recentNotebookTags, selectedTags, titleOf, trashExpiresAt, type Library, type Note } from '../domain/library';
 import { closePopover, openActionMenu, openPopover, type MenuItem } from './action-menu';
 import { renderNoteSummary } from './note-summary';
@@ -41,7 +42,7 @@ export interface ExplorerViewOptions {
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.className = className; if (text !== undefined) node.textContent = text; return node;
 };
-const icon = (node: IconNode, size = 15) => createElement([node[0], { ...node[1], width: size, height: size, 'stroke-width': 1.7, 'aria-hidden': 'true' }, node[2]]);
+const icon = (node: IconNode, size = 15) => renderIcon(node, size);
 const button = (label: string, run: () => void, glyph?: IconNode, className = 'icon-button'): HTMLButtonElement => {
   const node = el('button', className); node.type = 'button'; node.title = label; node.setAttribute('aria-label', label); node.onclick = run;
   if (glyph) node.append(icon(glyph)); return node;

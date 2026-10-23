@@ -1,4 +1,5 @@
-import { ChevronDown, createElement } from 'lucide';
+import { ChevronDown } from 'lucide';
+import { renderIcon } from './icon';
 import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection, type NoteFontDefinition, type NoteFontSelection, type NoteFontState } from '../domain/note-font';
 import { plainInput } from './plain-input';
 export { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, resolveNoteFontSelection } from '../domain/note-font';
@@ -57,7 +58,7 @@ export function renderNoteFontSettings(options: SettingsOptions): HTMLElement {
   const fields = document.createElement('div'); fields.className = 'note-font-fields';
   const selectControl = (control: HTMLSelectElement): HTMLElement => {
     const wrapper = document.createElement('span'); wrapper.className = 'note-font-select';
-    const chevron = createElement([ChevronDown[0], { ...ChevronDown[1], width: 14, height: 14, 'stroke-width': 1.7, 'aria-hidden': 'true' }, ChevronDown[2]]);
+    const chevron = renderIcon(ChevronDown, 14);
     wrapper.append(control, chevron); return wrapper;
   };
 

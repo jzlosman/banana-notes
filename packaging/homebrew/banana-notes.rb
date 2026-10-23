@@ -13,6 +13,13 @@ cask "banana-notes" do
 
   zap trash: [
     "~/Library/Application Support/Foldnote",
+    "~/Library/Preferences/com.jzlosman.banana-notes.plist",
     "~/Library/Preferences/dev.local.foldnote.plist",
+    "~/Library/Saved Application State/com.jzlosman.banana-notes.savedState",
+    "~/Library/Saved Application State/dev.local.foldnote.savedState",
+    "~/Library/Caches/com.jzlosman.banana-notes",
+    "~/Library/Caches/dev.local.foldnote",
+    "~/Library/WebKit/com.jzlosman.banana-notes",
+    "~/Library/WebKit/dev.local.foldnote",
   ]
 end

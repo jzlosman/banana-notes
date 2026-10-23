@@ -16,6 +16,7 @@ All notable changes to Banana Notes are documented here.
 
 ### Changed
 
+- New bundle identifier `com.jzlosman.banana-notes`; existing preferences migrate automatically.
 - Start new windows pinned by default; set inactive window opacity to 60% by default.
 - Preserve untouched Markdown blocks byte-for-byte. Unsupported syntax, including raw HTML, footnotes, reference links, and math, appears as labelled source blocks; editing a block in source mode can normalize it.
 - Enforce a 2 MB per-note limit and a 20,000-note library limit.

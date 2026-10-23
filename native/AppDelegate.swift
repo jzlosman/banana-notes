@@ -14,6 +14,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let migration = UserDefaultsPreferenceMigration().migrate(
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? PreferenceMigrationPolicy.currentBundleIdentifier)
+        if migration.shouldRegisterLaunchAtLogin {
+            // Registration follows migration so SMAppService binds the user's old opt-in to this bundle identity.
+            do { try StartupPreferences().configureLaunchAtLogin(true) }
+            catch { /* StartupPreferences persists launchAtLoginError for the existing Settings status path. */ }
+        }
         let runtime = NativeApplicationRuntime(appURL: appURL, webDirectory: webDirectory)
         self.runtime = runtime
         runtime.start(launchURLs: launchURLs)

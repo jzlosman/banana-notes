@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-let bundleID = Bundle.main.bundleIdentifier ?? "dev.local.foldnote"
+let bundleID = Bundle.main.bundleIdentifier ?? "com.jzlosman.banana-notes"
 let currentPID = ProcessInfo.processInfo.processIdentifier
 if let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
     .first(where: { $0.processIdentifier != currentPID && !$0.isTerminated }) {

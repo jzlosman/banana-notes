@@ -4,7 +4,14 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
-## [0.2.1] - 2026-10-23
+## [0.2.2] - 2026-10-23
+
+### Fixed
+
+- Show task lists and other blocks that end a note without a final line break. Previously they could disappear from the editor when a note was reopened (for example after adding a tag), and typing in that state could save the note without them.
+- If the editor ever can't show all of a note, it opens the note as Markdown with a notice instead of hiding content.
+
+## [0.2.1] - 2026-10-23 (not published)
 
 ### Added
 

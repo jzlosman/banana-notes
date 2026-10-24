@@ -1,6 +1,6 @@
 {
   "name": "banana-notes",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "A local-first macOS floating Markdown notepad.",
   "license": "MIT",

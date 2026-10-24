@@ -5,6 +5,22 @@ import { CompactLinkView } from './compact-link-view';
 import { NoteFindExtension } from './note-find';
 import { handleEditorClipboardCopy, handleEditorClipboardCut, handleEditorClipboardPaste } from './clipboard';
 import { installMarkdownSource } from './editor/markdown-source';
+import { richTextContainsMarkdownWords } from '../domain/markdown-visibility';
+
+export function visibleEditorText(editor: Editor): string {
+  return editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n', node => {
+    if (node.type.name === 'rawMarkdownBlock') return String(node.attrs.source ?? '');
+    if (node.type.name === 'image') return String(node.attrs.alt ?? '');
+    return '';
+  });
+}
+
+export type MarkdownEditorGuard = { kind: 'rich'; editor: Editor } | { kind: 'source' };
+export function guardMarkdownEditor(source: string, editor: Editor): MarkdownEditorGuard {
+  if (richTextContainsMarkdownWords(source, visibleEditorText(editor))) return { kind: 'rich', editor };
+  editor.destroy();
+  return { kind: 'source' };
+}
 
 export function createMarkdownEditor(element: HTMLElement, markdown: string, onChange: (markdown: string) => void, onEditLink?: (editor: Editor, anchor: HTMLElement) => void): Editor {
   let editor!: Editor;

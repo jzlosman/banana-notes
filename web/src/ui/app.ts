@@ -15,7 +15,8 @@ import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Pin, Search, ArrowLeft, BookOpen, Code, CircleHelp, X, Hash, Download, Bold, Italic, Heading2, List, Link, ListTodo, Quote, Braces, Check, FolderOpen, Settings, Trash2, RotateCcw, Clipboard, Paperclip, Camera, ScanText, Ellipsis, Archive, type IconNode } from 'lucide';
 import { renderIcon } from './icon';
 import type { Editor } from '@tiptap/core';
-import { createMarkdownEditor } from './editor';
+import { createMarkdownEditor, guardMarkdownEditor } from './editor';
+import { markdownParserInput } from './editor/markdown-parse';
 import { type Library, type Note, noteNavigation, splitDocument, tagsOf, titleOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime } from '../domain/library';
 import { SaveQueue } from '../application/persistence';
 import { themes, themeByID, resolveThemeID, SYSTEM_THEME, type ThemeDefinition } from '../domain/themes';
@@ -109,6 +110,7 @@ let fontStatus = '';
 let fontError = false;
 let explorerMode: 'notes' | 'trash' = 'notes';
 let sourceMode = false;
+let contentLossNoteID: string | undefined;
 let pinned = DEFAULT_PINNED;
 let query = '';
 let saveError = '';
@@ -385,6 +387,13 @@ function closeNoteFind(): void {
   if (editor) { setNoteFind(editor, ''); editor.commands.focus(); }
   else if (sourceMode) app.querySelector<HTMLTextAreaElement>('.source-editor')?.focus();
 }
+function reflectSourceModeButton(): void {
+  const source = app.querySelector<HTMLButtonElement>('[aria-label="Edit Markdown source · ⌘⇧M"], [aria-label="Show formatted note · ⌘⇧M"]');
+  if (!source) return;
+  const label = sourceMode ? 'Show formatted note · ⌘⇧M' : 'Edit Markdown source · ⌘⇧M';
+  source.title = label; source.setAttribute('aria-label', label); source.setAttribute('aria-pressed', String(sourceMode));
+  source.classList.toggle('active', sourceMode);
+}
 function renderNote(): void {
   const note = selected();
   contentElement = element('main', 'note-side');
@@ -398,7 +407,23 @@ function renderNote(): void {
   const markdown = oversizedDraft?.noteID === note.id ? oversizedDraft.markdown : note.markdown;
   const parts = splitDocument(markdown); prefix = parts.frontmatter; activeEditorID = note.id;
   if (prefix && !prefix.endsWith('\n')) prefix += '\n';
-  if (parts.error) { sourceMode = true; contentElement.append(element('div', 'inline-warning', parts.error)); }
+  if (parts.error) { sourceMode = true; reflectSourceModeButton(); }
+  let editorMount: HTMLElement | undefined;
+  if (!sourceMode) {
+    editorMount = element('div', 'editor-mount');
+    const candidate = createMarkdownEditor(editorMount, parts.body, markdown => commitMarkdown(prefix + markdown), (_editor, anchor) => editNoteLink(anchor));
+    const guarded = guardMarkdownEditor(parts.body, candidate);
+    if (guarded.kind === 'source') {
+      editorMount = undefined;
+      sourceMode = true; contentLossNoteID = note.id;
+      reflectSourceModeButton();
+    } else {
+      editor = guarded.editor;
+      if (contentLossNoteID === note.id) contentLossNoteID = undefined;
+    }
+  }
+  if (parts.error) contentElement.append(element('div', 'inline-warning', parts.error));
+  if (sourceMode && contentLossNoteID === note.id) contentElement.append(element('div', 'inline-warning', "Some of this note couldn't be shown in the editor. Showing Markdown."));
   if (sourceMode) {
     const label = element('div', 'source-label', 'Markdown source' );
     const area = element('textarea', 'source-editor quiet-scroll'); area.setAttribute('aria-label', 'Markdown source'); area.value = markdown; area.spellcheck = false;
@@ -410,19 +435,19 @@ function renderNote(): void {
     app.append(contentElement); requestAnimationFrame(() => findOpen ? findBar?.querySelector<HTMLInputElement>('.note-find-input')?.focus() : area.focus());
     if (findOpen) updateNoteFind();
   } else {
-    const scroll = element('div', 'editor-scroll quiet-scroll'); const mount = element('div', 'editor-mount'); scroll.append(mount); contentElement.append(scroll); app.append(contentElement);
-    editor = createMarkdownEditor(mount, parts.body, markdown => commitMarkdown(prefix + markdown), (_editor, anchor) => editNoteLink(anchor));
+    const noteEditor = editor!;
+    const scroll = element('div', 'editor-scroll quiet-scroll'); scroll.append(editorMount!); contentElement.append(scroll); app.append(contentElement);
     const saved = editorSelections.get(note.id);
     if (saved) {
-      const end = editor.state.doc.content.size;
+      const end = noteEditor.state.doc.content.size;
       const from = Math.min(end, Math.min(saved.anchor, saved.head)), to = Math.min(end, Math.max(saved.anchor, saved.head));
-      try { editor.commands.setTextSelection({ from, to }); } catch { editor.commands.setTextSelection(0); }
+      try { noteEditor.commands.setTextSelection({ from, to }); } catch { noteEditor.commands.setTextSelection(0); }
     }
-    editor.on('selectionUpdate', () => {
+    noteEditor.on('selectionUpdate', () => {
       if (editor && activeEditorID) editorSelections.set(activeEditorID, { anchor: editor.state.selection.anchor, head: editor.state.selection.head });
       refreshCodeTools();
     });
-    editor.on('update', () => { refreshCodeTools(); if (findOpen) updateNoteFind(false); }); refreshCodeTools();
+    noteEditor.on('update', () => { refreshCodeTools(); if (findOpen) updateNoteFind(false); }); refreshCodeTools();
     if (findOpen) updateNoteFind();
     requestAnimationFrame(() => findOpen ? findBar?.querySelector<HTMLInputElement>('.note-find-input')?.focus() : editor?.commands.focus());
   }
@@ -543,7 +568,7 @@ async function chooseSyntaxTheme(id: SyntaxThemeID): Promise<void> {
 function insertIntoNote(id: string, markdown: string): void {
   const note = library.notes.find(note => note.id === id && !note.trashedAt);
   if (!note) throw new Error('The target note is no longer active. Restore it before inserting content.');
-  if (view === 'note' && activeEditorID === id && editor) editor.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run();
+  if (view === 'note' && activeEditorID === id && editor) editor.chain().focus().insertContent(markdownParserInput(markdown), { contentType: 'markdown' }).run();
   else if (view === 'note' && activeEditorID === id && sourceMode) {
     const area = app.querySelector<HTMLTextAreaElement>('.source-editor')!; area.setRangeText(markdown, area.selectionStart, area.selectionEnd, 'end'); commitMarkdown(area.value); area.focus();
   } else {

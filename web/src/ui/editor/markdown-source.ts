@@ -1,6 +1,7 @@
 import { Node, type Editor, type JSONContent } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { Tokens } from 'marked';
+import { markdownParserInput } from './markdown-parse';
 
 /** A source-only block is intentionally atomic: editing it means switching to Markdown source mode. */
 export const RawMarkdownBlock = Node.create({
@@ -68,11 +69,13 @@ function signature(node: JSONContent): string { return JSON.stringify(node); }
 
 function sourceBlocks(editor: Editor, source: string): { prefix: string; blocks: { token: string; rawSource: string; source: string }[]; lineEnding: MarkdownSource['lineEnding'] } {
   const normalized = normalizeLineEndings(source);
-  const tokens = editor.markdown!.instance.lexer(normalized.markdown);
+  const parserInput = markdownParserInput(normalized.markdown);
+  if (parserInput.length > normalized.markdown.length) normalized.originalOffset.push(source.length);
+  const tokens = editor.markdown!.instance.lexer(parserInput);
   const starts: { token: Tokens.Generic; start: number; end: number }[] = [];
   let cursor = 0;
   for (const token of tokens) {
-    const start = normalized.markdown.indexOf(token.raw, cursor);
+    const start = parserInput.indexOf(token.raw, cursor);
     if (start < 0) continue;
     const end = start + token.raw.length;
     starts.push({ token: token as Tokens.Generic, start, end });
@@ -82,9 +85,9 @@ function sourceBlocks(editor: Editor, source: string): { prefix: string; blocks:
   const lineEnding: MarkdownSource['lineEnding'] = source.includes('\r\n') ? '\r\n' : source.includes('\r') ? '\r' : '\n';
   if (!meaningful.length) return { prefix: source, blocks: [], lineEnding };
   const blocks = meaningful.map((item, index) => {
-    const nextStart = meaningful[index + 1]?.start ?? normalized.markdown.length;
+    const nextStart = meaningful[index + 1]?.start ?? parserInput.length;
     return {
-      token: normalized.markdown.slice(item.start, item.end),
+      token: parserInput.slice(item.start, item.end),
       rawSource: source.slice(normalized.originalOffset[item.start], normalized.originalOffset[item.end]),
       source: source.slice(normalized.originalOffset[item.start], normalized.originalOffset[nextStart]),
     };
@@ -107,10 +110,9 @@ export function installMarkdownSource(editor: Editor, source: string): void {
 
   for (const block of parsed.blocks) {
     let nodes: JSONContent[] = [];
-    const token = editor.markdown!.instance.lexer(block.token)[0];
+    const token = editor.markdown!.instance.lexer(markdownParserInput(block.token))[0];
     if (token && !unsupported(token, block.token)) {
-      const parseInput = block.token.replace(/\n+$/, '');
-      const result = editor.markdown!.parse(parseInput);
+      const result = editor.markdown!.parse(markdownParserInput(block.token.replace(/\n+$/, '')));
       nodes = (result.content ?? []).flatMap(node => normalizedNode(editor, node));
     }
     if (nodes.length !== 1) nodes = [rawNode(block.rawSource)];
@@ -218,7 +220,10 @@ function serializePreservingSource(editor: Editor, source: MarkdownSource): stri
     const next = pieces[index + 1];
     if (!next) return piece.body + documentEnding;
     const adjacentOriginals = piece.preserved && next.preserved && piece.sourceIndex !== undefined && next.sourceIndex === piece.sourceIndex + 1;
-    // Any join that is not an untouched original pair needs a blank line so blocks never merge on reload.
-    return piece.body + (adjacentOriginals || lineEndingCount(piece.ending) >= 2 ? piece.ending : blankLine);
+    const nextLeadingEndings = next.body.match(/^(?:\r\n|\r|\n)+/)?.[0] ?? '';
+    const missingEndings = Math.max(0, 2 - lineEndingCount(piece.ending) - lineEndingCount(nextLeadingEndings));
+    // A lexer token can own its leading blank line instead of the previous block's trailing one.
+    // Reuse that separator before synthesizing anything, preserving source bytes around edits.
+    return piece.body + (adjacentOriginals ? piece.ending : piece.ending + source.lineEnding.repeat(missingEndings));
   }).join('');
 }

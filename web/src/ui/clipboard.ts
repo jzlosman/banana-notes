@@ -2,6 +2,7 @@ import { Editor, type JSONContent } from '@tiptap/core';
 import { DOMSerializer, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { splitDocument } from '../domain/library';
 import { markdownExtensions } from './editor-schema';
+import { markdownParserInput } from './editor/markdown-parse';
 import type { ClipboardFormat } from '../application/ports';
 export type { ClipboardFormat } from '../application/ports';
 export interface ClipboardPayload { text: string; html?: string; markdown?: string }
@@ -53,7 +54,7 @@ export function documentClipboardPayload(markdown: string, format: ClipboardForm
   if (format === 'markdown') return { text: markdown, markdown };
   const body = splitDocument(markdown).body;
   const host = document.createElement('div');
-  const editor = new Editor({ element: host, extensions: markdownExtensions(), content: body, contentType: 'markdown' });
+  const editor = new Editor({ element: host, extensions: markdownExtensions(), content: markdownParserInput(body), contentType: 'markdown' });
   try {
     const doc = editor.state.doc;
     const renderedMarkdown = editor.getMarkdown();
@@ -95,6 +96,6 @@ export function handleEditorClipboardPaste(editor: Editor, event: ClipboardEvent
   const markdown = event.clipboardData?.getData('text/markdown');
   if (!markdown) return false;
   event.preventDefault();
-  editor.commands.insertContent(markdown, { contentType: 'markdown' });
+  editor.commands.insertContent(markdownParserInput(markdown), { contentType: 'markdown' });
   return true;
 }

@@ -5,44 +5,39 @@ import Foundation
 struct BugReportPolicySelfTest {
     static func main() {
         let diagnostics = BugReportDiagnostics(
-            appVersion: "0.2.2",
-            build: "42",
-            macOSVersion: "Version 15.3 (Build 24D60)",
+            appVersion: "0.2.4",
+            build: "8",
+            macOSVersion: "15.3 (24D60)",
             macArchitecture: "arm64",
             themeName: "Rosé Pine Dawn")
-        precondition(BugReportPolicy.bugReportEmail == nil, "email reporting stays disabled until configured")
 
-        let githubOnly = BugReportPolicy.destinations(for: diagnostics)
-        precondition(githubOnly.count == 1, "nil email exposes only the GitHub route")
-        guard case let .github(issueURL) = githubOnly[0],
-              let issue = URLComponents(url: issueURL, resolvingAgainstBaseURL: false) else {
-            preconditionFailure("the GitHub report URL must be available")
+        let reportURL = BugReportPolicy.reportURL(for: diagnostics)
+        guard let form = URLComponents(url: reportURL, resolvingAgainstBaseURL: false) else {
+            preconditionFailure("the Tally report URL must be available")
         }
-        let fields = Dictionary(uniqueKeysWithValues: (issue.queryItems ?? []).compactMap { item in
+        precondition(form.scheme == "https" && form.host == "tally.so" && form.path == "/r/Nqq6rl")
+        let items = form.queryItems ?? []
+        precondition(items.count == 4, "only the four approved hidden fields are sent")
+        precondition(Set(items.map(\.name)) == ["version", "macos", "mac", "theme"],
+                     "the report URL contains only the approved diagnostics")
+        let fields = Dictionary(uniqueKeysWithValues: items.compactMap { item in
             item.value.map { (item.name, $0) }
         })
-        precondition(Set(fields.keys) == ["template", "app-version", "app-build", "macos-version", "mac", "theme"],
-                     "only the form template and approved diagnostics are sent")
-        precondition(fields["template"] == "bug_report.yml")
-        precondition(fields["app-version"] == diagnostics.appVersion && fields["app-build"] == diagnostics.build)
-        precondition(fields["macos-version"] == diagnostics.macOSVersion && fields["mac"] == diagnostics.macArchitecture)
+        precondition(fields["version"] == "0.2.4 (8)")
+        precondition(fields["macos"] == diagnostics.macOSVersion)
+        precondition(fields["mac"] == diagnostics.macArchitecture)
         precondition(fields["theme"] == diagnostics.themeName)
-        precondition(issueURL.absoluteString.utf8.count < BugReportPolicy.maximumIssueURLBytes)
 
-        let withEmail = BugReportPolicy.destinations(for: diagnostics, email: "bugs@example.com")
-        precondition(withEmail.count == 2, "a configured email exposes GitHub and email routes")
-        guard case let .github(emailChoiceIssue) = withEmail[0], emailChoiceIssue == issueURL,
-              case let .email(emailURL) = withEmail[1],
-              let email = URLComponents(url: emailURL, resolvingAgainstBaseURL: false) else {
-            preconditionFailure("configured email must add a mailto route without replacing GitHub")
+        let encodedURL = reportURL.absoluteString
+        precondition(encodedURL.contains("version=0.2.4%20(8)"))
+        precondition(encodedURL.contains("macos=15.3%20(24D60)"))
+        precondition(encodedURL.contains("theme=Ros%C3%A9%20Pine%20Dawn"))
+        precondition(!encodedURL.contains("Rosé") && !encodedURL.contains(" "))
+        for privateNoteData in ["private note content", "private-note-title", "#private-tag", "/Users/example/notes.md"] {
+            precondition(!encodedURL.contains(privateNoteData), "note content, titles, tags, and paths are never included")
         }
-        let emailBody = email.queryItems?.first(where: { $0.name == "body" })?.value ?? ""
-        for value in [diagnostics.appVersion, diagnostics.build, diagnostics.macOSVersion,
-                      diagnostics.macArchitecture, diagnostics.themeName] {
-            precondition(emailBody.contains(value), "email includes the same approved diagnostics")
-        }
-        precondition(email.scheme == "mailto" && email.path == "bugs@example.com")
-        print("Prefilled report URL: \(issueURL.absoluteString)")
-        print("Native bug-report policy checks passed (GitHub-only default, optional email, diagnostic allowlist)")
+
+        print("Prefilled report URL: \(reportURL.absoluteString)")
+        print("Native bug-report policy checks passed (Tally destination, encoded diagnostic allowlist)")
     }
 }

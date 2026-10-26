@@ -11,35 +11,7 @@ final class BugReportController {
     }
 
     func reportBug() {
-        let destinations = BugReportPolicy.destinations(for: diagnostics())
-        guard let github = destinations.first else { return }
-        guard destinations.count > 1, case let .email(emailURL) = destinations[1] else {
-            open(github)
-            return
-        }
-
-        let alert = NSAlert()
-        alert.messageText = "Report a Bug"
-        alert.informativeText = "Choose how you'd like to report this problem."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "GitHub Issue")
-        alert.addButton(withTitle: "Email")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: open(github)
-        case .alertSecondButtonReturn: NSWorkspace.shared.open(emailURL)
-        default: break
-        }
-    }
-
-    func openGitHubIssue() {
-        open(.github(BugReportPolicy.issueURL(for: diagnostics())))
-    }
-
-    private func open(_ destination: BugReportDestination) {
-        switch destination {
-        case let .github(url), let .email(url): NSWorkspace.shared.open(url)
-        }
+        NSWorkspace.shared.open(BugReportPolicy.reportURL(for: diagnostics()))
     }
 }
 
@@ -49,9 +21,21 @@ enum BugReportDiagnosticsAdapter {
         return BugReportDiagnostics(
             appVersion: info["CFBundleShortVersionString"] as? String ?? "Unknown",
             build: info["CFBundleVersion"] as? String ?? "Unknown",
-            macOSVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+            macOSVersion: macOSVersion,
             macArchitecture: macArchitecture,
             themeName: themeName)
+    }
+
+    private static var macOSVersion: String {
+        let process = ProcessInfo.processInfo
+        let version = process.operatingSystemVersion
+        let number = version.patchVersion == 0
+            ? "\(version.majorVersion).\(version.minorVersion)"
+            : "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+        let raw = process.operatingSystemVersionString
+        guard let range = raw.range(of: #"\(Build [^)]+\)"#, options: .regularExpression) else { return number }
+        let build = raw[range].replacingOccurrences(of: "(Build ", with: "(")
+        return "\(number) \(build)"
     }
 
     private static var macArchitecture: String {
@@ -133,6 +117,7 @@ final class CrashReportPromptAdapter {
 
         let alert = NSAlert()
         alert.messageText = "Banana Notes quit unexpectedly last time. Report the problem?"
+        alert.informativeText = "Describe what happened in the form; the crash file is shown in Finder in case we ask for it."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Report…")
         alert.addButton(withTitle: "Not Now")
@@ -145,7 +130,7 @@ final class CrashReportPromptAdapter {
         preferences.set(dontAskAgain.state == .on, forKey: Self.dontAskAgainKey)
         guard response == .alertFirstButtonReturn else { return }
 
-        bugReports.openGitHubIssue()
+        bugReports.reportBug()
         if let fileURL = reports.url(for: report) {
             NSWorkspace.shared.activateFileViewerSelecting([fileURL])
         }

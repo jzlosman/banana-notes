@@ -197,7 +197,7 @@ No. There's no account, no cloud service and no telemetry.
 No. Search runs on-device with macOS's embeddings, or with Ollama on your own Mac if you choose it. Downloading a Google Font or an Ollama model only happens when you explicitly ask.
 
 **Found a bug?**
-Choose **Help → Report a Bug…** in the app, or [open a GitHub issue](https://github.com/jzlosman/banana-notes/issues). Nothing is sent automatically; you review the prefilled details before posting.
+Choose **Help → Report a Bug…** in the app to open a short form (no account needed), or [open a GitHub issue](https://github.com/jzlosman/banana-notes/issues).
 
 **Will it get in my way?**
 It has no Dock icon and starts pinned so it stays visible while you switch apps; press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>P</kbd> to unpin it so it tucks away when you click elsewhere. It opens at login only if you turn that on.

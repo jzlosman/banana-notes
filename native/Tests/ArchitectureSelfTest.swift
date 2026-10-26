@@ -24,6 +24,7 @@ struct ArchitectureSelfTest {
         let features = try String(contentsOf: native.appendingPathComponent("NativeFeatures.swift"), encoding: .utf8)
         let ports = try String(contentsOf: native.appendingPathComponent("NativePorts.swift"), encoding: .utf8)
         let reportingAdapters = try String(contentsOf: native.appendingPathComponent("BugReportAndCrashReportAdapters.swift"), encoding: .utf8)
+        let reportPolicy = try String(contentsOf: native.appendingPathComponent("BugReportPolicy.swift"), encoding: .utf8)
         let bridge = try String(contentsOf: native.appendingPathComponent("BridgeCommand.swift"), encoding: .utf8)
         precondition(application.split(separator: "\n").count < 200, "AppDelegate must stay a small lifecycle adapter")
         let migrationStart = application.range(of: "UserDefaultsPreferenceMigration().migrate")!.lowerBound
@@ -37,6 +38,13 @@ struct ArchitectureSelfTest {
         precondition(ports.contains("protocol CrashReportRepository"), "crash-report file access must use a native port")
         precondition(reportingAdapters.contains("NSWorkspace.shared.activateFileViewerSelecting"),
                      "Finder access belongs to the native adapter")
+        precondition(reportingAdapters.contains("BugReportPolicy.reportURL(for: diagnostics())"),
+                     "all report entry points open the one Tally form through the native adapter")
+        precondition(!reportingAdapters.contains("issues/new") && !reportingAdapters.contains("mailto:"),
+                     "report adapters have no GitHub issue or email destination")
+        precondition(!reportPolicy.contains("issues/new") && !reportPolicy.contains("mailto:")
+                     && !reportPolicy.contains("bugReportEmail"),
+                     "the pure report policy builds only the Tally destination")
         precondition(features.contains("any AttachmentRepository"), "feature adapters must depend on the attachment port")
         precondition(features.contains("any PreferencesStore"), "feature adapters must depend on the preference port")
         precondition(!features.contains("FeatureBridgeCapability") && !features.contains("handleFeatureBridge"),

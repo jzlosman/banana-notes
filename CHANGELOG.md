@@ -4,6 +4,10 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- In-app bug reports open the short Tally form without requiring a GitHub account. The crash prompt opens the same form and shows the crash file in Finder in case it is requested.
+
 ## [0.2.4] - 2026-10-26
 
 ### Fixed

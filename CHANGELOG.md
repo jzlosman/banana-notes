@@ -4,11 +4,17 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-26
+
+### Changed
+
+- **Help → Report a Bug…**, the menu-bar item and the crash prompt now open a short form that needs no account. App version, macOS version, Mac and theme are filled in; note content is never included.
+
 ### Changed
 
 - In-app bug reports open the short Tally form without requiring a GitHub account. The crash prompt opens the same form and shows the crash file in Finder in case it is requested.
 
-## [0.2.4] - 2026-10-26
+## [0.2.4] - 2026-10-26 (not published; included in 0.2.5)
 
 ### Fixed
 

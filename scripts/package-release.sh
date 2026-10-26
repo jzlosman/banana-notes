@@ -64,11 +64,27 @@ submit_for_notarization() {
   fi
 }
 
+# Stapling and validation fetch the ticket from Apple's CDN, which occasionally drops the
+# connection after notarization has already succeeded. Retry those network steps only.
+staple_with_retry() {
+  local action="$1" file="$2" attempt
+  local args=("$action")
+  [[ "$action" == validate ]] && args+=(-v)
+  for attempt in 1 2 3 4; do
+    if xcrun stapler "${args[@]}" "$file"; then return 0; fi
+    [[ "$attempt" == 4 ]] && break
+    echo "stapler $action failed (attempt $attempt); retrying in $((attempt * 15))s..." >&2
+    sleep $((attempt * 15))
+  done
+  echo "stapler $action failed after 4 attempts: $file" >&2
+  return 1
+}
+
 NOTARY_ZIP="$TEMP/Banana-Notes-${VERSION}-notary.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$NOTARY_ZIP"
 submit_for_notarization "$NOTARY_ZIP"
-xcrun stapler staple "$APP"
-xcrun stapler validate -v "$APP"
+staple_with_retry staple "$APP"
+staple_with_retry validate "$APP"
 
 rm -f "$DMG" "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
@@ -79,8 +95,8 @@ ln -s /Applications "$STAGING/Applications"
 hdiutil create -volname "Banana Notes $VERSION" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
 codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DMG"
 submit_for_notarization "$DMG"
-xcrun stapler staple "$DMG"
-xcrun stapler validate -v "$DMG"
+staple_with_retry staple "$DMG"
+staple_with_retry validate "$DMG"
 spctl -a -vv -t install "$DMG"
 spctl -a -vv -t execute "$APP"
 

@@ -17,6 +17,7 @@ import { renderIcon } from './icon';
 import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor, guardMarkdownEditor } from './editor';
 import { markdownParserInput } from './editor/markdown-parse';
+import { bindMarkdownSourceTextarea, type MarkdownSourceTextarea } from './editor/markdown-source-edit';
 import { type Library, type Note, noteNavigation, splitDocument, tagsOf, titleOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime } from '../domain/library';
 import { SaveQueue } from '../application/persistence';
 import { themes, themeByID, resolveThemeID, SYSTEM_THEME, type ThemeDefinition } from '../domain/themes';
@@ -110,6 +111,7 @@ let fontStatus = '';
 let fontError = false;
 let explorerMode: 'notes' | 'trash' = 'notes';
 let sourceMode = false;
+let markdownSourceTextarea: MarkdownSourceTextarea | undefined;
 let contentLossNoteID: string | undefined;
 let pinned = DEFAULT_PINNED;
 let query = '';
@@ -260,6 +262,7 @@ function noteTagEffects() {
       const start = area.selectionStart, end = area.selectionEnd;
       const mapOffset = (offset: number) => offset >= oldPrefix.length ? next.length + offset - oldPrefix.length : Math.min(offset, next.length);
       area.value = markdown;
+      markdownSourceTextarea?.sync(markdown);
       area.setSelectionRange(mapOffset(start), mapOffset(end));
       if (activeEditorID) sourceSelections.set(activeEditorID, { start: area.selectionStart, end: area.selectionEnd });
     },
@@ -430,7 +433,9 @@ function renderNote(): void {
     const savedSourceSelection = sourceSelections.get(note.id); if (savedSourceSelection) area.setSelectionRange(Math.min(savedSourceSelection.start, area.value.length), Math.min(savedSourceSelection.end, area.value.length));
     const rememberSourceSelection = () => sourceSelections.set(note.id, { start: area.selectionStart, end: area.selectionEnd });
     area.addEventListener('select', rememberSourceSelection); area.addEventListener('keyup', rememberSourceSelection); area.addEventListener('click', rememberSourceSelection);
-    area.oninput = () => { rememberSourceSelection(); commitMarkdown(area.value); if (findOpen) updateNoteFind(false); };
+    markdownSourceTextarea = bindMarkdownSourceTextarea(area, markdown, source => {
+      rememberSourceSelection(); commitMarkdown(source); if (findOpen) updateNoteFind(false);
+    });
     contentElement.append(label, area);
     app.append(contentElement); requestAnimationFrame(() => findOpen ? findBar?.querySelector<HTMLInputElement>('.note-find-input')?.focus() : area.focus());
     if (findOpen) updateNoteFind();
@@ -887,7 +892,7 @@ function render(): void {
   disposeDragRegion?.(); disposeDragRegion = undefined;
   const source = app.querySelector<HTMLTextAreaElement>('.source-editor');
   if (source && selected()) sourceSelections.set(selected()!.id, { start: source.selectionStart, end: source.selectionEnd });
-  disposeEditor(); badgeElement = undefined; counterElement = undefined;
+  disposeEditor(); markdownSourceTextarea = undefined; badgeElement = undefined; counterElement = undefined;
   app.replaceChildren(); app.className = `app-shell view-${view}`; app.setAttribute('aria-busy', 'false');
   if (viewChanged && previousView) {
     app.dataset.transition = previousView === 'note' && view === 'explorer' ? 'to-notes'

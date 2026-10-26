@@ -14,8 +14,10 @@ struct WindowMenuSelfTest {
         var sent: [WebCommand] = []
         let channel = WebCommandChannel(send: { sent.append($0) }, flush: { $0(.success(())) })
         channel.markReady()
+        var reportRequested = false
         let actions = MenuActionCoordinator(window: window, channel: channel, windowStyle: style,
-                                            dataDirectory: FileManager.default.temporaryDirectory)
+                                            dataDirectory: FileManager.default.temporaryDirectory,
+                                            reportBug: { reportRequested = true })
         let menu = NativeMenuBarController(hotkeyDisplay: "⌃⇧Space", hotkeyAvailable: true,
                                            isPinned: window.isPinned, onAction: { actions.handle($0) })
         window.onPinnedChange = { [weak menu] in menu?.updatePinned($0) }
@@ -38,6 +40,16 @@ struct WindowMenuSelfTest {
         try bridge.handle(.pin(true)) { body, _ in reply = body }
         precondition(window.isPinned && pin.state == .on, "toolbar pin changes update the native menu checkmark")
         precondition((reply as? [String: Any])?["pinned"] as? Bool == true)
-        print("Native pin menu checks passed (Command–Shift–P, menu and bridge state synchronization)")
+
+        let helpMenu = NSApp.mainMenu?.items.first(where: { $0.title == "Help" })?.submenu
+        guard let helpReport = helpMenu?.items.first(where: { $0.title == "Report a Bug…" }),
+              let statusReport = menu.statusItem.menu?.items.first(where: { $0.title == "Report a Bug…" }) else {
+            preconditionFailure("Help and the menu-bar status menu must both expose Report a Bug…")
+        }
+        precondition(helpReport.representedObject as? MenuAction == .reportBug)
+        precondition(statusReport.representedObject as? MenuAction == .reportBug)
+        precondition(NSApp.sendAction(helpReport.action!, to: helpReport.target, from: helpReport))
+        precondition(reportRequested, "the Report a Bug menu action is routed through the application coordinator")
+        print("Native menu checks passed (pin state and Report a Bug in Help and the status menu)")
     }
 }

@@ -82,10 +82,10 @@ unset SPARKLE_PRIVATE_KEY_FILE
 
 Running the workflow manually with **workflow_dispatch** is a dry run: it runs checks and builds but skips notarization, release-asset upload, and draft creation.
 
-## Homebrew cask
+## Homebrew cask template
 
-After approving a release, update `packaging/homebrew/banana-notes.rb` (or a future tap copy): set `version` to the release version and replace the SHA placeholder with the DMG hash from `SHA256SUMS`. The URL derives the tag and filename from `version`. This repository does not publish a tap.
+`packaging/homebrew/banana-notes.rb` is a template for a possible future tap, not a published cask. Do not advertise Homebrew installation or uninstallation commands. If a tap is created later, set the template's `version` to the release version and replace its SHA placeholder with the DMG hash from `SHA256SUMS`; the URL derives the tag and filename from `version`.
 
 ## Uninstalling and keeping data
 
-Removing `Banana Notes.app` does not remove notes or preferences. Notes and attachments remain under `~/Library/Application Support/Foldnote`; the folder intentionally keeps its old name for compatibility. Preferences use `~/Library/Preferences/com.jzlosman.banana-notes.plist`; existing settings migrate automatically on first launch and the source domain is retained as a fallback. Back up or export notes before deleting these paths. The Homebrew cask's `zap` stanza removes the Foldnote data folder, preferences, and app caches, so use `brew uninstall --zap banana-notes` only when you intend to erase that data.
+Removing `Banana Notes.app` does not remove notes or preferences. Notes and attachments remain under `~/Library/Application Support/Foldnote`; the folder intentionally keeps its old name for compatibility. Preferences use `~/Library/Preferences/com.jzlosman.banana-notes.plist`; existing settings migrate automatically on first launch and the source domain is retained as a fallback. Back up or export notes before deleting these paths.

@@ -43,6 +43,8 @@ final class NativeMenuBarController: NSObject {
         menu.addItem(item("Reset Window Effects", .resetWindowEffects))
         menu.addItem(item("Shortcuts", .showHelp))
         menu.addItem(.separator())
+        menu.addItem(item("Report a Bug…", .reportBug))
+        menu.addItem(.separator())
         menu.addItem(item("Open Data Folder", .openDataFolder))
         menu.addItem(.separator())
         menu.addItem(item("Quit Banana Notes", .quit, key: "q"))
@@ -106,6 +108,15 @@ final class NativeMenuBarController: NSObject {
         windowMenu.addItem(item("Close Window", .hideAfterFlush, key: "w"))
         windowRoot.submenu = windowMenu
         mainMenu.addItem(windowRoot)
+
+        let helpRoot = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        let helpMenu = NSMenu(title: "Help")
+        helpMenu.addItem(item("Shortcuts", .showHelp))
+        helpMenu.addItem(.separator())
+        helpMenu.addItem(item("Report a Bug…", .reportBug))
+        helpRoot.submenu = helpMenu
+        NSApp.helpMenu = helpMenu
+        mainMenu.addItem(helpRoot)
         NSApp.mainMenu = mainMenu
     }
 

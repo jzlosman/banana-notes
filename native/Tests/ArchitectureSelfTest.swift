@@ -7,8 +7,9 @@ struct ArchitectureSelfTest {
         let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let native = tests.deletingLastPathComponent()
         let pureFiles = ["AppDeepLink.swift", "BridgeCommand.swift", "BridgePayloads.swift", "BridgeSecurityPolicy.swift",
-                         "HotkeyPreferences.swift", "LibraryDocument.swift", "LibraryStore.swift", "MarkdownExportService.swift",
-                         "MenuAction.swift", "NativePorts.swift", "OllamaResponsePolicy.swift", "PanelMotionState.swift",
+                         "BugReportPolicy.swift", "CrashReportPolicy.swift", "HotkeyPreferences.swift", "LibraryDocument.swift",
+                         "LibraryStore.swift", "MarkdownExportService.swift", "MenuAction.swift", "NativePorts.swift",
+                         "OllamaResponsePolicy.swift", "PanelMotionState.swift",
                          "PNGExportPolicy.swift", "PreferenceMigration.swift", "SemanticBridgeCommand.swift", "WebCommandChannel.swift",
                          "WebNavigationPolicy.swift", "WindowFocusState.swift", "WindowPreferencePolicy.swift"]
         for name in pureFiles {
@@ -21,6 +22,8 @@ struct ArchitectureSelfTest {
         let application = try String(contentsOf: native.appendingPathComponent("AppDelegate.swift"), encoding: .utf8)
         let runtime = try String(contentsOf: native.appendingPathComponent("NativeApplicationRuntime.swift"), encoding: .utf8)
         let features = try String(contentsOf: native.appendingPathComponent("NativeFeatures.swift"), encoding: .utf8)
+        let ports = try String(contentsOf: native.appendingPathComponent("NativePorts.swift"), encoding: .utf8)
+        let reportingAdapters = try String(contentsOf: native.appendingPathComponent("BugReportAndCrashReportAdapters.swift"), encoding: .utf8)
         let bridge = try String(contentsOf: native.appendingPathComponent("BridgeCommand.swift"), encoding: .utf8)
         precondition(application.split(separator: "\n").count < 200, "AppDelegate must stay a small lifecycle adapter")
         let migrationStart = application.range(of: "UserDefaultsPreferenceMigration().migrate")!.lowerBound
@@ -29,6 +32,11 @@ struct ArchitectureSelfTest {
         precondition(application.contains("StartupPreferences().configureLaunchAtLogin(true)"),
                      "a migrated launch-at-login opt-in must register for the new bundle identity")
         precondition(runtime.contains("BridgeRouter(handlers: makeBridgeHandlers())"), "composition root must own capability wiring")
+        precondition(runtime.contains("CrashReportPromptAdapter") && runtime.contains("BugReportController"),
+                     "the composition root wires report menus and launch prompts")
+        precondition(ports.contains("protocol CrashReportRepository"), "crash-report file access must use a native port")
+        precondition(reportingAdapters.contains("NSWorkspace.shared.activateFileViewerSelecting"),
+                     "Finder access belongs to the native adapter")
         precondition(features.contains("any AttachmentRepository"), "feature adapters must depend on the attachment port")
         precondition(features.contains("any PreferencesStore"), "feature adapters must depend on the preference port")
         precondition(!features.contains("FeatureBridgeCapability") && !features.contains("handleFeatureBridge"),

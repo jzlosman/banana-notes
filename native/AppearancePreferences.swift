@@ -4,6 +4,7 @@ struct CatalogTheme: Decodable {
     enum Appearance: String, Decodable { case light, dark }
     struct Colors: Decodable { let paper: String }
     let id: String
+    let name: String?
     let appearance: Appearance
     let colors: Colors
 }

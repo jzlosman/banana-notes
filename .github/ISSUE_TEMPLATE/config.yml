@@ -3,3 +3,6 @@ contact_links:
   - name: Security policy
     url: https://github.com/jzlosman/banana-notes/security/policy
     about: Please read the security policy before reporting a vulnerability.
+  - name: Report a problem without a GitHub account
+    url: https://tally.so/r/Nqq6rl
+    about: Use this short form to report a problem.

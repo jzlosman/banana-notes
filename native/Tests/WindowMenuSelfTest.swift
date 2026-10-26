@@ -14,10 +14,10 @@ struct WindowMenuSelfTest {
         var sent: [WebCommand] = []
         let channel = WebCommandChannel(send: { sent.append($0) }, flush: { $0(.success(())) })
         channel.markReady()
-        var reportRequested = false
+        var reportRequests = 0
         let actions = MenuActionCoordinator(window: window, channel: channel, windowStyle: style,
                                             dataDirectory: FileManager.default.temporaryDirectory,
-                                            reportBug: { reportRequested = true })
+                                            reportBug: { reportRequests += 1 })
         let menu = NativeMenuBarController(hotkeyDisplay: "⌃⇧Space", hotkeyAvailable: true,
                                            isPinned: window.isPinned, onAction: { actions.handle($0) })
         window.onPinnedChange = { [weak menu] in menu?.updatePinned($0) }
@@ -49,7 +49,9 @@ struct WindowMenuSelfTest {
         precondition(helpReport.representedObject as? MenuAction == .reportBug)
         precondition(statusReport.representedObject as? MenuAction == .reportBug)
         precondition(NSApp.sendAction(helpReport.action!, to: helpReport.target, from: helpReport))
-        precondition(reportRequested, "the Report a Bug menu action is routed through the application coordinator")
+        precondition(NSApp.sendAction(statusReport.action!, to: statusReport.target, from: statusReport))
+        precondition(reportRequests == 2,
+                     "Help and the menu-bar item route through the same report-form action")
         print("Native menu checks passed (pin state and Report a Bug in Help and the status menu)")
     }
 }

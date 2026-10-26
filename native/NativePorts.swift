@@ -26,6 +26,11 @@ protocol AttachmentRepository {
     func collectGarbage(referencedMarkdown: [String], now: Date, grace: TimeInterval) throws -> Int
 }
 
+protocol CrashReportRepository {
+    func reports() throws -> [CrashReportDescriptor]
+    func url(for report: CrashReportDescriptor) -> URL?
+}
+
 public protocol PreferencesStore: AnyObject {
     func object(forKey defaultName: String) -> Any?
     func string(forKey defaultName: String) -> String?

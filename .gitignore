@@ -4,6 +4,7 @@ node_modules/
 /web/dist/
 /site/site.css
 /site/vendor/
+/site/index.html
 /assets/AppIcon.iconset/
 *.app/
 *.log

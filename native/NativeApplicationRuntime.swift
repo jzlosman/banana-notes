@@ -23,6 +23,8 @@ final class NativeApplicationRuntime {
     private var hotkey: HotkeyCoordinator!
     private var menuController: NativeMenuBarController?
     private var menuActions: MenuActionCoordinator?
+    private var bugReportController: BugReportController?
+    private var crashReportPrompt: CrashReportPromptAdapter?
     private var termination: ApplicationTerminationCoordinator?
     #if canImport(Sparkle)
     private var updater: UpdateController?
@@ -65,6 +67,7 @@ final class NativeApplicationRuntime {
             channel.send(.new)
         }
         launchURLs.forEach(handleDeepLink)
+        crashReportPrompt?.promptIfNeeded(bundleIdentifier: Bundle.main.bundleIdentifier)
     }
 
     func reopen() { window?.show() }
@@ -128,12 +131,21 @@ final class NativeApplicationRuntime {
         #else
         let updatesAvailable = false
         #endif
+        let appearance = self.appearance!
+        let reportController = BugReportController(diagnostics: { [appearance] in
+            let themeName = appearance.selectedTheme?.name
+                ?? (appearance.selectedID == AppearancePreferences.systemID ? "Follow macOS" : appearance.selectedID)
+            return BugReportDiagnosticsAdapter.current(themeName: themeName)
+        })
+        bugReportController = reportController
+        crashReportPrompt = CrashReportPromptAdapter(
+            preferences: preferences, reports: CrashReportDirectoryAdapter(), bugReports: reportController)
         let actions = MenuActionCoordinator(window: window, channel: channel, windowStyle: stylePreferences,
             dataDirectory: store.directory, checkForUpdates: { [weak self] in
                 #if canImport(Sparkle)
                 self?.updater?.checkForUpdates()
                 #endif
-            })
+            }, reportBug: { [weak reportController] in reportController?.reportBug() })
         menuActions = actions
         let menu = NativeMenuBarController(hotkeyDisplay: hotkey.chord.display,
             hotkeyAvailable: hotkey.available, updatesAvailable: updatesAvailable, isPinned: window.isPinned,

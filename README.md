@@ -196,6 +196,9 @@ No. There's no account, no cloud service and no telemetry.
 **Does search send my notes anywhere?**
 No. Search runs on-device with macOS's embeddings, or with Ollama on your own Mac if you choose it. Downloading a Google Font or an Ollama model only happens when you explicitly ask.
 
+**Found a bug?**
+Choose **Help → Report a Bug…** in the app, or [open a GitHub issue](https://github.com/jzlosman/banana-notes/issues). Nothing is sent automatically; you review the prefilled details before posting.
+
 **Will it get in my way?**
 It has no Dock icon and starts pinned so it stays visible while you switch apps; press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>P</kbd> to unpin it so it tucks away when you click elsewhere. It opens at login only if you turn that on.
 
@@ -300,7 +303,7 @@ Banana Notes was previously called Foldnote. Native data remains in `~/Library/A
 
 Content is Markdown in a versioned JSON envelope, with a 2 MB per-note limit and a 20,000-note library limit. Saves are serialized, atomically replaced, and flushed to storage; `library.json.bak` keeps the previous last-good snapshot. Banana Notes waits for pending saves before quitting. Save failures remain visible and retryable. Corrupt startup data is not replaced: the recovery screen offers **Restore last backup** when a valid backup is available. The menu-bar banana menu's **Shortcuts** item opens Help, where **Export all notes as Markdown files** exports `.md` copies; **Open local data folder** opens the originals. No cloud service, account, remote editor resources, or telemetry.
 
-To uninstall, quit Banana Notes and remove **Banana Notes.app**. To remove its data too, delete `~/Library/Application Support/Foldnote/` and run `defaults delete com.jzlosman.banana-notes` and `defaults delete dev.local.foldnote` to remove both preference domains. The Homebrew cask's `zap` stanza removes the data folder, preferences, and app caches; `brew uninstall --zap banana-notes` erases them. The browser preview uses separate localStorage and does not access the Mac app's library. `BANANA_NOTES_DATA_DIR=/absolute/path` isolates native testing. `BANANA_NOTES_DEBUG=1 npm run build` enables the optional WebKit inspector; release builds do not. The former `FOLDNOTE_DATA_DIR`, `FOLDNOTE_DEBUG`, and `FOLDNOTE_ICON` environment variables remain compatibility aliases; the corresponding `BANANA_NOTES_*` variables take precedence.
+To uninstall, quit Banana Notes and remove **Banana Notes.app**. To remove its data too, delete `~/Library/Application Support/Foldnote/` and run `defaults delete com.jzlosman.banana-notes` and `defaults delete dev.local.foldnote` to remove both preference domains. The browser preview uses separate localStorage and does not access the Mac app's library. `BANANA_NOTES_DATA_DIR=/absolute/path` isolates native testing. `BANANA_NOTES_DEBUG=1 npm run build` enables the optional WebKit inspector; release builds do not. The former `FOLDNOTE_DATA_DIR`, `FOLDNOTE_DEBUG`, and `FOLDNOTE_ICON` environment variables remain compatibility aliases; the corresponding `BANANA_NOTES_*` variables take precedence.
 
 </details>
 

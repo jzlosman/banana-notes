@@ -7,14 +7,16 @@ final class MenuActionCoordinator {
     private let windowStyle: WindowStylePreferences
     private let dataDirectory: URL
     private let checkForUpdates: () -> Void
+    private let reportBug: () -> Void
 
     init(window: WindowCoordinator, channel: WebCommandChannel, windowStyle: WindowStylePreferences,
-         dataDirectory: URL, checkForUpdates: @escaping () -> Void = {}) {
+         dataDirectory: URL, checkForUpdates: @escaping () -> Void = {}, reportBug: @escaping () -> Void = {}) {
         self.window = window
         self.channel = channel
         self.windowStyle = windowStyle
         self.dataDirectory = dataDirectory
         self.checkForUpdates = checkForUpdates
+        self.reportBug = reportBug
     }
 
     func handle(_ action: MenuAction) {
@@ -37,6 +39,7 @@ final class MenuActionCoordinator {
         case .openDataFolder:
             if !NSWorkspace.shared.open(dataDirectory) { window.onError?("The data folder could not be opened.") }
         case .checkForUpdates: checkForUpdates()
+        case .reportBug: reportBug()
         case .quit: NSApp.terminate(nil)
         case .showAbout: showAbout()
         case .hideAfterFlush: window.hideAfterFlush()

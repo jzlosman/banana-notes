@@ -1,21 +1,23 @@
 name: Feature request
-description: Suggest a feature or improvement.
-title: "[Feature]: "
+description: Suggest an improvement to Banana Notes.
+title: "Feature request"
 body:
-  - type: markdown
-    attributes:
-      value: Describe the problem or use case. Keep personal note content and sensitive information out of the report.
   - type: textarea
     id: problem
     attributes:
-      label: Problem or use case
-      description: What are you trying to do, and what is difficult or missing?
+      label: What problem would this solve?
+      description: Describe the situation or need behind your request.
     validations:
       required: true
   - type: textarea
-    id: proposal
+    id: proposed-solution
     attributes:
-      label: Proposed behavior
-      description: Describe the change you would find useful.
+      label: What would you like to happen?
+      description: Describe a solution or behavior you would find useful.
     validations:
       required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Share any other approaches you have considered.

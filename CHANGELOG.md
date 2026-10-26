@@ -4,7 +4,13 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
-## [0.2.3] - 2026-10-26
+## [0.2.4] - 2026-10-26
+
+### Fixed
+
+- The arrow keys work normally at the start of a task item: → moves into the text, and ↑/↓ move to the line above or below instead of jumping to the start or end.
+
+## [0.2.3] - 2026-10-26 (not published; included in 0.2.4)
 
 ### Added
 

@@ -28,6 +28,8 @@ Quit the verification app before removing its temporary directory. It has a sepa
 
 ## Architecture
 
+For the task-item caret’s local WebKit matrix, install the browser once with `npx playwright install webkit`, then run `npm run test:task-caret-webkit`. It uses synthetic browser-preview notes and is kept separate from the default test suite because it requires a separate WebKit browser installation and launches that browser.
+
 The web app separates deterministic rules in `web/src/domain/`, use cases and ports in `web/src/application/`, effect adapters in `web/src/adapters/`, and interface code in `web/src/ui/`; `web/src/main.ts` composes the capabilities, and `web/tests/architecture.test.ts` checks the dependency boundaries.
 
 On macOS, `AppDelegate.swift` handles lifecycle callbacks and `NativeApplicationRuntime.swift` composes the window, hotkey, bridge, menu, and termination services. `BridgeCommandDecoder` turns wire actions into typed `BridgeCommand` values; `BridgeRouter` dispatches each to a capability handler. `NativePorts.swift` defines effect ports, while framework-independent policy code is checked by `ArchitectureSelfTest`.

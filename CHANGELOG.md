@@ -4,6 +4,18 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-26
+
+### Added
+
+- **Help → Report a Bug…** (also in the menu-bar menu) opens a prefilled GitHub issue with your app version, macOS version, Mac and theme. Note content is never included.
+- After an unexpected quit, Banana Notes offers once to report it and shows the crash report in Finder so you can review and attach it yourself. Nothing is sent automatically.
+
+### Fixed
+
+- Editing a note in Markdown mode no longer rewrites untouched Windows (CRLF) line endings.
+- Notes with escaped underscores (for example `alpha\_beta`) no longer open in Markdown mode by mistake.
+
 ## [0.2.2] - 2026-10-23
 
 ### Fixed

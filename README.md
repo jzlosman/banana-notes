@@ -27,10 +27,8 @@
 **Banana Notes is a tiny floating notepad for your Mac.** It sits over whatever you're doing, fades when you look away, and comes back with one shortcut. Markdown renders as you type, notes save themselves, and tags pull every note, task and file for a topic into one view. No account, no cloud, no files to name.
 
 <p align="center">
-  
 
-https://github.com/user-attachments/assets/dd0c236c-d060-4b48-9ee4-58ee2be8375f
-
+https://github.com/user-attachments/assets/c5dfa4db-5e3d-41b5-93e6-eabe29bb2bad
 
 </p>
 

@@ -9,7 +9,7 @@ function positiveInteger(name, fallback) {
 
 const totalRuns = positiveInteger('MARKDOWN_PBT_RUNS', 300);
 const batchSize = positiveInteger('MARKDOWN_PBT_BATCH_RUNS', 1000);
-const vitest = fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url));
+const tsx = fileURLToPath(new URL('../node_modules/tsx/dist/cli.mjs', import.meta.url));
 let completed = 0;
 
 while (completed < totalRuns) {
@@ -19,7 +19,7 @@ while (completed < totalRuns) {
   console.log(`Markdown property batch ${batch}/${batches}: ${runs} runs per property`);
 
   const code = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [vitest, 'run', 'web/tests/markdown-roundtrip.spec.ts', '--environment', 'jsdom'], {
+    const child = spawn(process.execPath, [tsx, '--test', 'web/tests/markdown-roundtrip.test.ts'], {
       cwd: process.cwd(),
       env: { ...process.env, MARKDOWN_PBT_RUNS: String(runs) },
       stdio: 'inherit',

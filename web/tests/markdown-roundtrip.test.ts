@@ -1,16 +1,39 @@
 import * as fc from 'fast-check';
-import { afterEach, expect, test } from 'vitest';
-import { attachmentMarkdown } from '../src/domain/managed-media';
-import type { Editor } from '@tiptap/core';
-import { splitDocument, type Library } from '../src/domain/library';
-import { LibraryCommands } from '../src/application/library-commands';
-import { SaveQueue } from '../src/application/persistence';
-import { markdownVisibleText, richTextContainsMarkdownWords } from '../src/domain/markdown-visibility';
-import { createMarkdownEditor, guardMarkdownEditor, visibleEditorText } from '../src/ui/editor';
-import { documentClipboardPayload } from '../src/ui/clipboard';
-import { bindMarkdownSourceTextarea } from '../src/ui/editor/markdown-source-edit';
+import { afterEach, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
 
-const RUNS = Number.parseInt(process.env.MARKDOWN_PBT_RUNS ?? '300', 10);
+const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost' });
+for (const key of ['window', 'document', 'navigator', 'Node', 'HTMLElement', 'Element', 'MutationObserver', 'DOMParser', 'getComputedStyle', 'Event', 'KeyboardEvent', 'MouseEvent', 'ClipboardEvent'] as const) {
+  if (key in dom.window) Object.defineProperty(globalThis, key, { value: (dom.window as any)[key], configurable: true, writable: true });
+}
+globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as any;
+globalThis.cancelAnimationFrame = id => clearTimeout(id);
+
+import type { Editor } from '@tiptap/core';
+import type { Library } from '../src/domain/library';
+
+const [
+  { attachmentMarkdown },
+  { splitDocument },
+  { LibraryCommands },
+  { SaveQueue },
+  { markdownVisibleText, richTextContainsMarkdownWords },
+  { createMarkdownEditor, guardMarkdownEditor, visibleEditorText },
+  { documentClipboardPayload },
+  { bindMarkdownSourceTextarea },
+] = await Promise.all([
+  import('../src/domain/managed-media'),
+  import('../src/domain/library'),
+  import('../src/application/library-commands'),
+  import('../src/application/persistence'),
+  import('../src/domain/markdown-visibility'),
+  import('../src/ui/editor'),
+  import('../src/ui/clipboard'),
+  import('../src/ui/editor/markdown-source-edit'),
+]);
+
+const RUNS = Number(process.env.MARKDOWN_PBT_RUNS ?? '300');
 if (!Number.isSafeInteger(RUNS) || RUNS < 1) throw new Error('MARKDOWN_PBT_RUNS must be a positive integer');
 
 const wordArb = fc.constantFrom(
@@ -168,30 +191,30 @@ const noOpProperty = fc.property(markdownArb, markdown => {
   const writes: string[] = [];
   const { frontmatter, body, guard } = loadThroughEditor(markdown, saved => writes.push(saved));
   if (guard.kind === 'rich') {
-    expect(guard.editor.getMarkdown()).toBe(body);
+    assert.equal(guard.editor.getMarkdown(), body);
     destroyEditor(guard.editor);
   } else {
-    expect(writes).toEqual([]);
+    assert.deepEqual(writes, []);
   }
-  expect(writes).toEqual([]);
-  expect(frontmatter + body).toBe(markdown);
+  assert.deepEqual(writes, []);
+  assert.equal(frontmatter + body, markdown);
 });
 
-test('open/close without edits is byte-identical or does not save', () => {
-  fc.assert(noOpProperty, { numRuns: RUNS, endOnFailure: true });
-}, 120_000);
+test('open/close without edits is byte-identical or does not save', { timeout: 120_000 }, () => {
+  fc.assert(noOpProperty, { numRuns: RUNS });
+});
 
-test('every generated note is visible in rich text or routed to Markdown source', () => {
+test('every generated note is visible in rich text or routed to Markdown source', { timeout: 120_000 }, () => {
   fc.assert(fc.property(markdownArb, markdown => {
     const { body, guard } = loadThroughEditor(markdown);
     if (guard.kind === 'rich') {
-      expect(richTextContainsMarkdownWords(body, visibleEditorText(guard.editor))).toBe(true);
+      assert.ok(richTextContainsMarkdownWords(body, visibleEditorText(guard.editor)));
       destroyEditor(guard.editor);
     } else {
-      expect(guard).toEqual({ kind: 'source' });
+      assert.deepEqual(guard, { kind: 'source' });
     }
-  }), { numRuns: RUNS, endOnFailure: true });
-}, 120_000);
+  }), { numRuns: RUNS });
+});
 
 const localityBlockArb = fc.oneof(
   headingArb, paragraphArb, listArb, quoteArb, indentedCodeArb, tableArb,
@@ -212,11 +235,11 @@ const editableDocumentArb = fc.tuple(
   return { note: `${frontmatter}${frontmatter ? ending : ''}${body}` };
 });
 
-test('editing the final paragraph changes only that source block and retains all original words', async () => {
+test('editing the final paragraph changes only that source block and retains all original words', { timeout: 120_000 }, async () => {
   await fc.assert(fc.asyncProperty(editableDocumentArb, async ({ note }) => {
     const { body } = splitDocument(note);
     const targetOffset = body.lastIndexOf('PBT_EDIT_TARGET');
-    expect(targetOffset).toBeGreaterThanOrEqual(0);
+    assert.ok(targetOffset >= 0);
     const now = '2026-10-23T12:00:00.000Z';
     const commands = new LibraryCommands({ now: () => now }, { next: () => 'unused' });
     let library: Library = { version: 1, activeTag: null, selectedID: 'pbt-note', notes: [{ id: 'pbt-note', markdown: note, createdAt: now, updatedAt: now }] };
@@ -241,15 +264,15 @@ test('editing the final paragraph changes only that source block and retains all
     }
     await queue.flush();
     const saved = persisted.at(-1);
-    expect(saved).toBeDefined();
+    assert.notEqual(saved, undefined);
     const savedBody = splitDocument(saved!).body;
-    expect(savedBody.slice(0, targetOffset)).toBe(body.slice(0, targetOffset));
-    expect(savedBody).toMatch(/PBT\\?_INSERTED/);
-    expect(richTextContainsMarkdownWords(body, markdownVisibleText(savedBody))).toBe(true);
-    expect(richTextContainsMarkdownWords('PBT_INSERTED', markdownVisibleText(savedBody))).toBe(true);
+    assert.equal(savedBody.slice(0, targetOffset), body.slice(0, targetOffset));
+    assert.match(savedBody, /PBT\\?_INSERTED/);
+    assert.ok(richTextContainsMarkdownWords(body, markdownVisibleText(savedBody)));
+    assert.ok(richTextContainsMarkdownWords('PBT_INSERTED', markdownVisibleText(savedBody)));
     if (guard.kind === 'rich') destroyEditor(guard.editor);
-  }), { numRuns: RUNS, endOnFailure: true });
-}, 120_000);
+  }), { numRuns: RUNS });
+});
 
 const tagOperationNoteArb = fc.tuple(
   frontmatterArb,
@@ -261,7 +284,7 @@ const tagOperationNoteArb = fc.tuple(
   return `${frontmatter}${frontmatter ? ending : ''}${body}`.replace(/\r\n|\r|\n/g, ending);
 });
 const TAG = 'pbtmarker';
-test('adding and removing a tag is idempotent and preserves every other visible word', () => {
+test('adding and removing a tag is idempotent and preserves every other visible word', { timeout: 120_000 }, () => {
   fc.assert(fc.property(tagOperationNoteArb, fc.boolean(), (markdown, inline) => {
     const taggedInput = inline ? `${markdown}${markdown ? '\n\n' : ''}Tagged note #${TAG}` : markdown;
     const originalBody = splitDocument(taggedInput).body;
@@ -273,30 +296,28 @@ test('adding and removing a tag is idempotent and preserves every other visible 
     if (addedResult.kind !== 'applied') throw new Error(addedResult.message);
     const added = addedResult.library.notes[0].markdown;
     const repeatedAdd = commands.addTag(addedResult.library, 'pbt-note', TAG);
-    expect(repeatedAdd.kind).toBe('applied');
-    if (repeatedAdd.kind !== 'applied') throw new Error(repeatedAdd.message);
+    assert.equal(repeatedAdd.kind, 'applied');
     const addedBody = splitDocument(added).body;
-    expect(repeatedAdd.library.notes[0].markdown).toBe(added);
-    expect(addedBody).toBe(originalBody);
-    expect(withoutWord(visibleWordCounts(markdownVisibleText(addedBody)), TAG)).toEqual(originalWords);
+    assert.equal(repeatedAdd.library.notes[0].markdown, added);
+    assert.equal(addedBody, originalBody);
+    assert.deepEqual(withoutWord(visibleWordCounts(markdownVisibleText(addedBody)), TAG), originalWords);
 
     const removedResult = commands.removeTag(repeatedAdd.library, 'pbt-note', TAG);
     if (removedResult.kind !== 'applied') throw new Error(removedResult.message);
     const removed = removedResult.library.notes[0].markdown;
     const repeatedRemove = commands.removeTag(removedResult.library, 'pbt-note', TAG);
-    expect(repeatedRemove.kind).toBe('applied');
-    if (repeatedRemove.kind !== 'applied') throw new Error(repeatedRemove.message);
-    expect(repeatedRemove.library.notes[0].markdown).toBe(removed);
-    expect(withoutWord(visibleWordCounts(markdownVisibleText(splitDocument(removed).body)), TAG)).toEqual(originalWords);
-    if (!inline) expect(splitDocument(removed).body).toBe(originalBody);
-  }), { numRuns: RUNS, endOnFailure: true });
-}, 120_000);
+    assert.equal(repeatedRemove.kind, 'applied');
+    assert.equal(repeatedRemove.library.notes[0].markdown, removed);
+    assert.deepEqual(withoutWord(visibleWordCounts(markdownVisibleText(splitDocument(removed).body)), TAG), originalWords);
+    if (!inline) assert.equal(splitDocument(removed).body, originalBody);
+  }), { numRuns: RUNS });
+});
 
-test('copying a whole note as Markdown returns its exact original source', () => {
+test('copying a whole note as Markdown returns its exact original source', { timeout: 30_000 }, () => {
   fc.assert(fc.property(markdownArb, markdown => {
-    expect(documentClipboardPayload(markdown, 'markdown')).toEqual({ text: markdown, markdown });
-  }), { numRuns: RUNS, endOnFailure: true });
-}, 30_000);
+    assert.deepEqual(documentClipboardPayload(markdown, 'markdown'), { text: markdown, markdown });
+  }), { numRuns: RUNS });
+});
 
 test('shrunk source-mode edit preserves every untouched CRLF source byte', () => {
   const source = FIXTURES.find(fixture => fixture.name === 'shrunk CRLF source-mode edit counterexample')!.markdown;
@@ -306,26 +327,26 @@ test('shrunk source-mode edit preserves every untouched CRLF source byte', () =>
   area.setSelectionRange(area.value.length, area.value.length);
   area.setRangeText(' PBT_INSERTED', area.value.length, area.value.length, 'end');
   area.dispatchEvent(new Event('input', { bubbles: true }));
-  expect(saved).toBe(`${source} PBT_INSERTED`);
+  assert.equal(saved, `${source} PBT_INSERTED`);
 });
 
 test('serializer-escaped underscores remain visible and editable after a round trip', () => {
   const writes: string[] = [];
   const first = mountEditor('PBT_EDIT_TARGET', markdown => writes.push(markdown));
-  expect(guardMarkdownEditor('PBT_EDIT_TARGET', first).kind).toBe('rich');
+  assert.equal(guardMarkdownEditor('PBT_EDIT_TARGET', first).kind, 'rich');
   first.commands.setTextSelection(first.state.doc.content.size - 1);
   first.commands.insertContent(' PBT_INSERTED');
   const saved = writes.at(-1)!;
   destroyEditor(first);
-  expect(saved).toBe('PBT\\_EDIT\\_TARGET PBT\\_INSERTED');
+  assert.equal(saved, 'PBT\\_EDIT\\_TARGET PBT\\_INSERTED');
 
   const reloaded = mountEditor(saved);
   const guard = guardMarkdownEditor(saved, reloaded);
-  expect(markdownVisibleText(saved)).toBe('PBT_EDIT_TARGET PBT_INSERTED');
-  expect(richTextContainsMarkdownWords('PBT_EDIT_TARGET', markdownVisibleText(saved))).toBe(true);
-  expect(guard.kind).toBe('rich');
+  assert.equal(markdownVisibleText(saved), 'PBT_EDIT_TARGET PBT_INSERTED');
+  assert.ok(richTextContainsMarkdownWords('PBT_EDIT_TARGET', markdownVisibleText(saved)));
+  assert.equal(guard.kind, 'rich');
   if (guard.kind === 'rich') {
-    expect(visibleEditorText(guard.editor)).toBe('PBT_EDIT_TARGET PBT_INSERTED');
+    assert.equal(visibleEditorText(guard.editor), 'PBT_EDIT_TARGET PBT_INSERTED');
     destroyEditor(guard.editor);
   }
 });
@@ -335,11 +356,11 @@ for (const fixture of FIXTURES) {
     const writes: string[] = [];
     const { frontmatter, body, guard } = loadThroughEditor(fixture.markdown, saved => writes.push(saved));
     if (guard.kind === 'rich') {
-      expect(guard.editor.getMarkdown()).toBe(body);
-      expect(richTextContainsMarkdownWords(body, visibleEditorText(guard.editor))).toBe(true);
+      assert.equal(guard.editor.getMarkdown(), body);
+      assert.ok(richTextContainsMarkdownWords(body, visibleEditorText(guard.editor)));
       destroyEditor(guard.editor);
     }
-    expect(writes).toEqual([]);
-    expect(frontmatter + body).toBe(fixture.markdown);
+    assert.deepEqual(writes, []);
+    assert.equal(frontmatter + body, fixture.markdown);
   });
 }

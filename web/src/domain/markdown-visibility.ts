@@ -13,6 +13,7 @@ type RichTextToken = {
   rows?: RichTextToken[][];
 };
 
+const inlineContainers = new Set(['paragraph', 'heading', 'text', 'strong', 'em', 'del', 'link']);
 function tokenText(tokens: RichTextToken[]): string[] {
   const text: string[] = [];
   for (let index = 0; index < tokens.length; index++) {
@@ -30,6 +31,9 @@ function tokenText(tokens: RichTextToken[]): string[] {
       case 'checkbox':
       case 'hr':
         break;
+      case 'br':
+        text.push('\n');
+        break;
       case 'code':
       case 'codespan':
       case 'image':
@@ -41,15 +45,17 @@ function tokenText(tokens: RichTextToken[]): string[] {
         text.push(token.raw ?? token.text ?? '');
         break;
       case 'list':
-        text.push(...tokenText(token.items ?? []));
+        text.push(...(token.items ?? []).map(item => tokenText([item]).join(' ')));
         break;
       case 'table':
-        text.push(...[...(token.header ?? []), ...(token.rows ?? []).flat()].flatMap(cell =>
-          cell.tokens?.length ? tokenText(cell.tokens) : [cell.text ?? '']));
+        text.push(...[...(token.header ?? []), ...(token.rows ?? []).flat()].map(cell =>
+          cell.tokens?.length ? tokenText(cell.tokens).join('') : cell.text ?? ''));
         break;
       default:
-        if (token.tokens?.length) text.push(...tokenText(token.tokens));
-        else if (typeof token.text === 'string') text.push(token.text);
+        if (token.tokens?.length) {
+          const children = tokenText(token.tokens);
+          text.push(inlineContainers.has(token.type) ? children.join('') : children.join(' '));
+        } else if (typeof token.text === 'string') text.push(token.text);
         break;
     }
   }

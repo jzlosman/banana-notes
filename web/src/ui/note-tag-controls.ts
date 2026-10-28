@@ -1,6 +1,11 @@
+import { installTagPinMenu } from './tag-pin-menu';
+
 export interface NoteTagControlActions {
   onOverview(tag: string): void;
   onRemove(tag: string): void;
+  isPinned?(tag: string): boolean;
+  onPinToggle?(tag: string): void;
+  onError?(error: unknown): void;
 }
 
 /** Render independent, keyboard-reachable overview and removal actions for each note tag. */
@@ -16,6 +21,9 @@ export function renderNoteTagControls(root: HTMLElement, tags: readonly string[]
     overview.title = `Open #${tag} notebook overview`;
     overview.textContent = `#${tag}`;
     overview.addEventListener('click', () => actions.onOverview(tag));
+    if (actions.isPinned && actions.onPinToggle) installTagPinMenu(overview, tag, {
+      isPinned: actions.isPinned, togglePin: actions.onPinToggle, onError: actions.onError ?? (() => {}),
+    });
 
     const remove = root.ownerDocument.createElement('button');
     remove.type = 'button'; remove.className = 'tag-remove';

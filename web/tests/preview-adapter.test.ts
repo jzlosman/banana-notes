@@ -25,6 +25,9 @@ test('preview adapter retains the established localStorage keys and models nativ
     const library: Library = { version: 1, notes: [{ id: 'n', markdown: 'Preview note', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }], selectedID: 'n', activeTag: null };
     await adapter.library.save(library);
     assert.equal(dom.window.localStorage.getItem('foldnote-preview-v1') !== null, true);
+    await adapter.scopePreferences.save({ pinnedTags: ['Work', 'work'], bookmarks: { all: 'n' } });
+    assert.deepEqual(await adapter.scopePreferences.load(), { pinnedTags: ['work'], bookmarks: { all: 'n' } });
+    assert.equal(dom.window.localStorage.getItem('foldnote-preview-scope-preferences-v1') !== null, true);
     await adapter.appearance.saveTheme('system');
     assert.equal(dom.window.localStorage.getItem('foldnote-preview-theme-v1'), 'system');
   } finally {

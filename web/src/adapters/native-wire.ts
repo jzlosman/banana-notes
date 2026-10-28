@@ -1,10 +1,11 @@
 import type { Library } from '../domain/library';
 import type { WindowStyle } from '../domain/window-style';
 import type { NoteFontState, NoteFontSelection } from '../domain/note-font';
+import type { ScopePreferences } from '../domain/scope-preferences';
 
 /** Wire-only actions; application and UI code must use capability interfaces instead. */
 export type NativeAction =
-  | 'load' | 'save' | 'ready' | 'pin' | 'dragRegion' | 'hide' | 'focus'
+  | 'load' | 'save' | 'scopePreferences' | 'ready' | 'pin' | 'dragRegion' | 'hide' | 'focus'
   | 'libraryRecovery' | 'restoreBackup' | 'hotkeyPreferences'
   | 'theme' | 'syntaxTheme' | 'windowStyle' | 'fontSize' | 'noteFonts' | 'noteFont' | 'downloadNoteFont' | 'cancelFontDownload'
   | 'clipboard' | 'importAttachment' | 'pickAttachments' | 'openAttachment' | 'ocrAttachment' | 'pickOCRImage'
@@ -12,7 +13,7 @@ export type NativeAction =
   | 'semanticStatus' | 'semanticIndex' | 'semanticSearch' | 'semanticEnable' | 'semanticClear' | 'semanticCancel' | 'semanticStartRuntime' | 'semanticDownload';
 
 export interface NativeReply {
-  library?: Library | null; error?: string | null; pinned?: boolean; hotkeyAvailable?: boolean; hotkey?: string;
+  library?: Library | null; scopePreferences?: unknown; error?: string | null; pinned?: boolean; hotkeyAvailable?: boolean; hotkey?: string;
   dataDirectory?: string; saved?: boolean; themeID?: string; themeWarning?: string | null; focused?: boolean;
   windowStyle?: WindowStyle; fontSize?: number; copied?: boolean; ocrEnabled?: boolean; syntaxThemeID?: string;
   launchAtLogin?: boolean; launchStatus?: string; launchError?: string | null; newNoteOnLaunch?: boolean;
@@ -24,7 +25,7 @@ export interface NativeReply {
 }
 
 export interface NativePayloadMap {
-  load: undefined; save: { library: Library }; ready: undefined; pin: { pinned: boolean };
+  load: undefined; save: { library: Library }; scopePreferences: { preferences?: ScopePreferences } | undefined; ready: undefined; pin: { pinned: boolean };
   dragRegion: { rect: { x: number; y: number; width: number; height: number } }; hide: undefined; focus: undefined;
   libraryRecovery: undefined; restoreBackup: undefined; hotkeyPreferences: { shortcut?: { keyCode: number; modifiers: number } } | undefined;
   theme: { themeID: string }; syntaxTheme: { syntaxThemeID: string }; windowStyle: { style: WindowStyle }; fontSize: { fontSize: number };

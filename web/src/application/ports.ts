@@ -1,4 +1,5 @@
 import type { Library, Note } from '../domain/library';
+import type { ScopePreferences } from '../domain/scope-preferences';
 import type { WindowStyle } from '../domain/window-style';
 import type { NoteFontSelection, NoteFontState } from '../domain/note-font';
 import type { AttachmentRecord } from '../domain/managed-media';
@@ -7,6 +8,10 @@ import type { SemanticConfiguration, SemanticHit, SemanticNoteSnapshot, Semantic
 export interface LibraryRepository {
   load(): Promise<Library | null>;
   save(library: Library): Promise<void>;
+}
+export interface ScopePreferencesRepository {
+  load(): Promise<ScopePreferences>;
+  save(value: ScopePreferences): Promise<void>;
 }
 export interface LibraryRecoveryState { startupError: string | null; backupAvailable: boolean; backupUpdatedAt?: string; backupNoteCount?: number }
 export interface LibraryRecovery {
@@ -124,6 +129,7 @@ export interface SemanticSearchPort {
 export interface AdapterPresentation { savedLabel: string }
 export interface Capabilities {
   library: LibraryRepository;
+  scopePreferences: ScopePreferencesRepository;
   recovery: LibraryRecovery | null;
   window: WindowControl;
   appearance: AppearancePreferences;

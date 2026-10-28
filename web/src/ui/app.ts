@@ -18,13 +18,15 @@ import type { Editor } from '@tiptap/core';
 import { createMarkdownEditor, guardMarkdownEditor } from './editor';
 import { markdownParserInput } from './editor/markdown-parse';
 import { bindMarkdownSourceTextarea, type MarkdownSourceTextarea } from './editor/markdown-source-edit';
-import { type Library, type Note, noteNavigation, splitDocument, tagsOf, titleOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime } from '../domain/library';
+import { type Library, type Note, noteNavigation, splitDocument, tagsOf, titleOf, welcomeLibrary, trashedNotes, selectedTags, queryNotes, effectiveTrashPurgeTime, pruneScopeBookmarks } from '../domain/library';
 import { SaveQueue } from '../application/persistence';
 import { themes, themeByID, resolveThemeID, SYSTEM_THEME, type ThemeDefinition } from '../domain/themes';
 import { applyAppearance } from './appearance';
 import { observeWindowDragRegion } from './window-drag';
 import { DEFAULT_WINDOW_STYLE, resolveWindowStyle, type WindowStyle } from '../domain/window-style';
 import { DEFAULT_PINNED } from '../domain/window-preferences';
+import { EMPTY_SCOPE_PREFERENCES, normalizeScopePreferences, type ScopePreferences } from '../domain/scope-preferences';
+import { normalizeTag } from '../domain/tags';
 import { WindowStyleSaveQueue } from '../application/window-style-save';
 import { DEFAULT_FONT_SIZE, resolveFontSize, stepFontSize } from '../domain/font-size';
 import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState, type NoteFontState, type NoteFontSelection } from '../domain/note-font';
@@ -47,6 +49,7 @@ import { searchNotes } from '../application/note-search';
 import { semanticSearch } from '../application/semantic-query';
 import { buildNoteImageRequest, renderNoteImageExportControls, type NoteImageOptions, type NoteImageRequest } from './note-image';
 import { LibraryCommands } from '../application/library-commands';
+import { ScopeCommands } from '../application/scope-commands';
 import { ProjectCommands } from '../application/project-commands';
 import { LibrarySession } from '../application/session';
 import { loadWorkspace } from '../application/workspace-query';
@@ -57,12 +60,17 @@ import { installThemeGridKeyboard, updateThemeGridTabStop } from './theme-grid';
 import { plainInput } from './plain-input';
 import { addTagToOpenNote, removeTagFromOpenNote } from './note-tag-actions';
 import { renderNoteTagControls } from './note-tag-controls';
+import { createScopeBar, type ScopeBarController, type ScopeBarOptions } from './scope-bar';
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let capabilities: Capabilities;
 let clock: Clock;
 let ids: IdGenerator;
 let libraryCommands: LibraryCommands;
+let scopeCommands: ScopeCommands;
 let projectCommands: ProjectCommands;
+let scopePreferences: ScopePreferences = EMPTY_SCOPE_PREFERENCES;
+let scopePreferenceQueue: PreferenceSaveQueue<ScopePreferences>;
+let scopeBar: ScopeBarController | undefined;
 let library: Library;
 let librarySession: LibrarySession;
 let editor: Editor | undefined;
@@ -155,7 +163,65 @@ function button(label: string, node: IconNode | null, run: () => void | Promise<
   el.onclick = () => { try { Promise.resolve(run()).catch(showError); } catch (error) { showError(error); } }; return el;
 }
 function selected(): Note | undefined { return library.notes.find(note => note.id === library.selectedID && !note.trashedAt); }
-function replaceLibrary(next: Library): void { library = librarySession.replace(next); }
+function isTagPinned(tag: string): boolean { return scopePreferences.pinnedTags.includes(normalizeTag(tag)); }
+function replaceLibrary(next: Library): void {
+  if (librarySession) {
+    const updatedPreferences = scopeCommands.rememberSelection(librarySession.library, next, scopePreferences);
+    if (JSON.stringify(updatedPreferences.bookmarks) !== JSON.stringify(scopePreferences.bookmarks)) {
+      scopePreferences = updatedPreferences; scopePreferenceQueue?.enqueue(scopePreferences);
+    } else scopePreferences = updatedPreferences;
+  }
+  library = librarySession.replace(next);
+}
+function scopeBarOptions(): ScopeBarOptions {
+  return {
+    pinnedTags: scopePreferences.pinnedTags, activeTags: selectedTags(library), inTrash: view === 'explorer' && explorerState?.mode === 'trash',
+    onAll: activateAllScope, onTag: activateTagScope, onClear: () => notebook(null),
+    onTogglePin: togglePinnedTag, onMovePin: movePinnedTagBy,
+    isPinned: tag => scopePreferences.pinnedTags.includes(normalizeTag(tag)), onError: showError,
+  };
+}
+function updateScopePreferences(next: ScopePreferences): void {
+  const normalized = normalizeScopePreferences(next);
+  if (JSON.stringify(normalized) === JSON.stringify(scopePreferences)) return;
+  scopePreferences = normalized; scopePreferenceQueue?.enqueue(scopePreferences); scopeBar?.update(scopeBarOptions());
+}
+function selectScope(tags: string[]): void {
+  const result = scopeCommands.select(librarySession.library, tags, scopePreferences);
+  updateScopePreferences(result.preferences);
+  replaceLibrary(result.library); persist(); scopeBar?.update(scopeBarOptions());
+}
+function showExplorerForScope(): void {
+  explorerMode = 'notes'; explorerState.mode = 'notes'; explorerState.selectedTags = selectedTags(library); explorerState.query = '';
+  view = 'explorer'; render();
+}
+function activateAllScope(active: boolean): void {
+  if (view === 'explorer' && explorerState.mode === 'trash') { showExplorerForScope(); return; }
+  if (active) { showExplorerForScope(); return; }
+  selectScope([]); query = ''; view = 'note'; render();
+}
+function activateTagScope(tag: string, active: boolean): void {
+  if (active) { showExplorerForScope(); return; }
+  selectScope([tag]); query = ''; view = 'note'; render();
+}
+function togglePinnedTag(tag: string): void {
+  const pinnedTag = normalizeTag(tag);
+  updateScopePreferences(scopePreferences.pinnedTags.includes(pinnedTag)
+    ? scopeCommands.unpin(scopePreferences, pinnedTag) : scopeCommands.pin(scopePreferences, pinnedTag));
+}
+function movePinnedTagBy(tag: string, delta: number): void {
+  updateScopePreferences(scopeCommands.move(scopePreferences, normalizeTag(tag), delta));
+}
+function goToScopeShortcut(position: number): void {
+  if (position === 1) {
+    if (selectedTags(library).length) selectScope([]);
+  } else {
+    const tag = scopePreferences.pinnedTags[position - 2];
+    if (!tag) return;
+    if (selectedTags(library).length !== 1 || selectedTags(library)[0] !== tag) selectScope([tag]);
+  }
+  query = ''; explorerMode = 'notes'; explorerState.mode = 'notes'; view = 'note'; render();
+}
 function persist(): void { queue.enqueue(librarySession.library); }
 function showSaveFailure(): void {
   if (!saveError) return;
@@ -212,7 +278,7 @@ function move(delta: number): void {
   replaceLibrary(next); persist(); view = 'note'; render();
 }
 function notebook(tag: string | null, stayExplorer = false): void {
-  replaceLibrary(libraryCommands.selectNotebook(librarySession.library, tag)); persist(); query = '';
+  selectScope(tag ? [tag] : []); query = '';
   explorerMode = 'notes'; if (explorerState) { explorerState.mode = 'notes'; explorerState.selectedTags = selectedTags(library); explorerState.query = ''; }
   view = stayExplorer ? 'explorer' : 'note'; render();
 }
@@ -225,10 +291,7 @@ function renderHeader(): void {
   if (view === 'themes' || view === 'help') {
     context.append(button('Back to note', ArrowLeft, () => goNote(), 'text-button', 'Back to note'));
   } else {
-    const scope = button('Choose notebook', BookOpen, () => { explorerState.mode = 'notes'; view = 'explorer'; render(); }, 'scope-button');
-    scope.append(element('span', 'scope-label', view === 'explorer' && explorerState.mode === 'trash' ? 'Trash' : selectedTags(library).length ? selectedTags(library).map(tag => `#${tag}`).join(' · ') : 'All notes'));
-    context.append(scope);
-    if (selectedTags(library).length) context.append(button('Leave notebook · show all notes', X, () => notebook(null), 'clear-scope'));
+    scopeBar = createScopeBar(context, scopeBarOptions());
   }
   const spacer = element('div', 'toolbar-drag'); spacer.setAttribute('aria-hidden', 'true');
   const actions = element('div', 'header-actions');
@@ -284,6 +347,7 @@ function renderBadges(): void {
   renderNoteTagControls(badgeElement, tagsOf(note.markdown), {
     onOverview: tag => openProject([tag]),
     onRemove: tag => removeNoteTag(note.id, tag),
+    isPinned: isTagPinned, onPinToggle: togglePinnedTag, onError: showError,
   });
   badgeElement.append(button('Add a tag to this note', Plus, tagInput, 'add-tag', 'Tag'));
 }
@@ -472,12 +536,12 @@ function renderExplorer(): void {
   const changed = (next: Library, message: string) => { replaceLibrary(next); explorerState.selectedIDs.clear(); persist(); render(); notify(message); };
   app.append(renderExplorerView({ library, state: explorerState, now: effectiveTrashPurgeTime(library, clock.now()),
     onOpenNote: id => goNote(id), onModeChange: () => { renderHeaderScope(); announceView(); },
-    onScopeChange: tags => { replaceLibrary(libraryCommands.selectNotebooks(librarySession.library, tags)); persist(); renderHeaderScope(); },
+    onScopeChange: tags => { selectScope(tags); renderHeaderScope(); },
     onTrash: ids => { changed(libraryCommands.trashMany(librarySession.library, ids), `${ids.length} ${ids.length === 1 ? 'note' : 'notes'} moved to Trash · recoverable for 30 days`); notify('Moved to Trash · recoverable for 30 days', false, { label: 'Undo', run: () => changed(libraryCommands.restoreMany(librarySession.library, ids), 'Notes restored') }); },
     onRestore: ids => changed(libraryCommands.restoreMany(librarySession.library, ids), 'Notes restored'),
     onArchive: ids => { try { changed(libraryCommands.archiveMany(librarySession.library, ids), 'Notes archived' ); } catch (error) { showError(error); } },
     onTag: (ids, tag) => { try { changed(libraryCommands.tagMany(librarySession.library, ids, tag), `Added #${tag.replace(/^#/, '')}`); } catch (error) { showError(error); } },
-    onOverview: tags => openProject(tags),
+    onOverview: tags => openProject(tags), isPinned: isTagPinned, onPinToggle: togglePinnedTag,
     onSearch: async (text, candidates) => {
       const sequence = ++semanticSequence; await new Promise(resolve => setTimeout(resolve, 250));
       return searchNotes(text, candidates, {
@@ -489,13 +553,10 @@ function renderExplorer(): void {
   }));
 }
 function renderHeaderScope(): void {
-  const label = app.querySelector('.scope-label'); if (label) label.textContent = explorerState.mode === 'trash' ? 'Trash' : selectedTags(library).length ? selectedTags(library).map(tag => `#${tag}`).join(' · ') : 'All notes';
-  const context = app.querySelector('.toolbar-context'); context?.querySelector('.clear-scope')?.remove();
-  if (explorerState.mode !== 'trash' && selectedTags(library).length) context?.append(button('Leave notebook · show all notes', X, () => notebook(null), 'clear-scope'));
-  renderCounter();
+  scopeBar?.update(scopeBarOptions()); renderCounter();
 }
 function openProject(tags = selectedTags(library)): void {
-  replaceLibrary(libraryCommands.selectNotebooks(librarySession.library, tags)); explorerState.selectedTags = selectedTags(library); persist(); view = 'project'; render();
+  selectScope(tags); explorerState.selectedTags = selectedTags(library); view = 'project'; render();
 }
 function renderProject(): void {
   const main = element('main', 'project-side'); main.append(element('h1', 'project-title', selectedTags(library).length ? selectedTags(library).map(tag => `#${tag}`).join(' · ') : 'All notes'));
@@ -812,12 +873,12 @@ function renderHelp(): void {
   const main = element('main', 'help-side quiet-scroll');
   main.append(element('h1', '', 'Keyboard shortcuts'));
   const shortcuts = element('dl', 'shortcuts');
-  for (const [label, key] of [['Show / hide Banana Notes', hotkeyDisplay], ['New note', '⌘N'], ['Pin / unpin window', '⌘⇧P'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find in note', '⌘F'], ['Next / previous match', '↵ / ⇧↵ · ⌘G / ⇧⌘G'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy selected text', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Move open note / focused list note to Trash', '⌘Backspace (⌘⌫)']]) {
+  for (const [label, key] of [['Show / hide Banana Notes', hotkeyDisplay], ['New note', '⌘N'], ['Pin / unpin window', '⌘⇧P'], ['All / pinned tag scopes', '⌘1–⌘9'], ['Older / newer note', '⌘[  /  ⌘]'], ['Alternate navigation', '⌘⇧←  /  ⌘⇧→'], ['Show notes', '⌘⇧E'], ['Find in note', '⌘F'], ['Next / previous match', '↵ / ⇧↵ · ⌘G / ⇧⌘G'], ['Find notes', '⌘P'], ['Markdown source / frontmatter', '⌘⇧M'], ['Settings', '⌘,'], ['Hide window', 'Esc'], ['Bold / italic', '⌘B  /  ⌘I'], ['Add / edit link', '⌘K'], ['Bigger / smaller note text', '⌘+  /  ⌘−'], ['Reset note text size', '⌘0'], ['Copy selected text', '⌘C'], ['Copy formatted text', '⌘⌥C'], ['Move open note / focused list note to Trash', '⌘Backspace (⌘⌫)']]) {
     shortcuts.append(element('dt', '', label), element('dd', '', key));
   }
   main.append(shortcuts);
   main.append(element('h2', '', 'Markdown'), element('p', '', 'Supports headings, bold, italic, links, block quotes, code, tables, lists, and checkboxes. Press Return twice to end a list. Select text and press ⌘K to make a link. Click a link or press ⌘K inside it to edit its text or address. ⌘-click opens the destination. Long raw URLs display with a middle ellipsis; their full address remains in Markdown.'));
-  main.append(element('h2', '', 'Notebooks and tags'), element('p', '', 'Add a #project tag in the note, use Add tag, or set tags: [project] in YAML frontmatter. Click a tag to open its notebook. Select All notes to clear the notebook scope.'));
+  main.append(element('h2', '', 'Notebooks and tags'), element('p', '', 'Add a #project tag in the note, use Add tag, or set tags: [project] in YAML frontmatter. Pin a tag from its context menu; ⌘1 selects All and ⌘2–⌘9 switch to pinned tags. Select All to clear the notebook scope.'));
   main.append(element('h2', '', 'Copy formats'), element('p', '', '⌘C copies the selected text without Markdown escapes. Pasting within Banana Notes preserves its formatting. Note actions → Copy as offers Markdown, formatted text, HTML source, and plain text. With no selection, it copies the entire note. Markdown copy includes frontmatter. Search fields and the source editor use standard text copying.'));
   const actions = element('div', 'help-actions');
   const markdownExport = button('Export all notes as Markdown files', Download, exportNotes, 'text-button', 'Export Markdown'); markdownExport.disabled = !capabilities.markdownExport;
@@ -888,7 +949,7 @@ function render(): void {
   const viewChanged = previousView !== view || settingsTabChanged;
   semanticSequence++;
   refreshSemanticSettings = undefined;
-  closePopover();
+  closePopover(); scopeBar?.dispose(); scopeBar = undefined;
   disposeDragRegion?.(); disposeDragRegion = undefined;
   const source = app.querySelector<HTMLTextAreaElement>('.source-editor');
   if (source && selected()) sourceSelections.set(selected()!.id, { start: source.selectionStart, end: source.selectionEnd });
@@ -923,7 +984,7 @@ const handleAppCommand = createAppCommandHandler({
   copy: (format, whole) => copyNote(format, whole),
   flush: async () => {
     if (oversizedDraft) throw new Error('This note has unsaved content over 2 MB. Reduce its size before closing Banana Notes.');
-    await Promise.all([queue.flush(), windowStyleQueue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]);
+    await Promise.all([queue.flush(), scopePreferenceQueue.flush(), windowStyleQueue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]);
   },
   focusEditor: () => { if (view === 'note') editor?.commands.focus(); },
   move,
@@ -951,10 +1012,11 @@ function bindAppKeyboardShortcuts(): () => void {
   moveOlder: () => move(1),
   moveNewer: () => move(-1),
   showExplorer: () => { explorerState.mode = 'notes'; view = 'explorer'; render(); },
+  goToScopeShortcut,
   flipView: flip,
   toggleSource: () => { sourceMode = !sourceMode; view = 'note'; render(); },
   openSettings: openThemes,
-  save: () => queue.flush(),
+  save: async () => { await Promise.all([queue.flush(), scopePreferenceQueue.flush()]); },
   goToNote: () => goNote(),
   hideWindow: () => capabilities.window.hide(),
   error: showError,
@@ -970,10 +1032,10 @@ for (const type of ['drop', 'paste'] as const) document.addEventListener(type, e
   event.preventDefault(); event.stopPropagation(); void importDroppedFiles(files, selected()!.id).catch(showError);
 }, true);
 document.addEventListener('dragover', event => { if (capabilities.attachments && view === 'note' && event.dataTransfer?.types.includes('Files')) event.preventDefault(); });
-window.addEventListener('pagehide', () => { if (sessionLoaded) void Promise.all([queue.flush(), windowStyleQueue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]).catch(() => {}); });
+window.addEventListener('pagehide', () => { if (sessionLoaded) void Promise.all([queue.flush(), scopePreferenceQueue.flush(), windowStyleQueue.flush(), fontSizeQueue.flush(), noteFontSelectionTask]).catch(() => {}); });
 async function start(): Promise<void> {
   try {
-    const { library: loaded, appearance, typography, windowStyle: style, focused, features: featureState, startup, hotkey, imageOptions: imagePreferences, pinned: pinState } = await loadWorkspace(capabilities);
+    const { library: loaded, scopePreferences: loadedScopePreferences, appearance, typography, windowStyle: style, focused, features: featureState, startup, hotkey, imageOptions: imagePreferences, pinned: pinState } = await loadWorkspace(capabilities);
     hotkeyDisplay = hotkey.display || '⌃⇧Space'; hotkeyState = hotkey; startupState = startup; ocrEnabled = featureState.ocrEnabled;
     themeID = applyAppearance(document.documentElement, appearance.themeID);
     syntaxThemeID = syntaxThemeIDs.includes(appearance.syntaxThemeID) ? appearance.syntaxThemeID as SyntaxThemeID : 'app'; applySyntaxAppearance();
@@ -995,9 +1057,15 @@ async function start(): Promise<void> {
       windowStyleStatus = status === 'saving' ? 'Saving…' : status === 'error' ? 'Not saved · Retry' : capabilities.presentation.savedLabel;
       refreshWindowStyleControls(); if (error) showError(error);
     });
+    scopePreferences = normalizeScopePreferences(loadedScopePreferences);
+    const loadedScopePreferenceJSON = JSON.stringify(scopePreferences);
     library = loaded || welcomeLibrary(ids.next(), clock.now(), hotkeyDisplay);
     const unpurgedLibrary = library; library = libraryCommands.purgeExpiredTrash(library);
+    scopePreferences = { ...scopePreferences, bookmarks: pruneScopeBookmarks(scopePreferences.bookmarks, library) };
     librarySession = new LibrarySession(library); explorerState = createExplorerState(library); updatePinnedState(pinState);
+    scopePreferences = scopeCommands.rememberSelection(library, library, scopePreferences);
+    scopePreferenceQueue = new PreferenceSaveQueue(capabilities.scopePreferences, (_status, error) => { if (error) showError(error); });
+    if (JSON.stringify(scopePreferences) !== loadedScopePreferenceJSON) scopePreferenceQueue.enqueue(scopePreferences);
     queue = new SaveQueue(capabilities.library, (status, error) => {
       if (status === 'error') { saveError = error instanceof Error ? error.message : 'Could not save changes'; showSaveFailure(); }
       else if (status === 'saved') { saveError = ''; saveFailureNotice?.remove(); saveFailureNotice = undefined; indexCoordinator?.schedule(librarySession.library.notes); }
@@ -1046,7 +1114,7 @@ async function start(): Promise<void> {
 }
 export function mountApp(selectedCapabilities: Capabilities, selectedClock: Clock, selectedIDs: IdGenerator): () => void {
   capabilities = selectedCapabilities; clock = selectedClock; ids = selectedIDs;
-  libraryCommands = new LibraryCommands(clock, ids); projectCommands = new ProjectCommands(clock);
+  libraryCommands = new LibraryCommands(clock, ids); scopeCommands = new ScopeCommands(); projectCommands = new ProjectCommands(clock);
   windowStyleStatus = capabilities.presentation.savedLabel; fontStatus = capabilities.presentation.savedLabel;
   disposeCommands?.();
   const unbind = capabilities.window.bindCommands(handleAppCommand); disposeCommands = unbind;

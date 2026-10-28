@@ -5,6 +5,7 @@ import * as libraryDomain from '../src/domain/library';
 import { LibraryCommands } from '../src/application/library-commands';
 import { addTagToOpenNote, removeTagFromOpenNote } from '../src/ui/note-tag-actions';
 import { renderNoteTagControls } from '../src/ui/note-tag-controls';
+import { closePopover } from '../src/ui/action-menu';
 import type { Library } from '../src/domain/library';
 
 const dom = new JSDOM('<!doctype html><main id="root"></main>', { url: 'https://tag-editing.test' });
@@ -167,6 +168,19 @@ test('note tag controls keep overview clicks separate from an accessible remove 
   assert.equal(overviewClicks, 1); assert.equal(removals, 1, 'removal must not trigger the overview action');
 });
 
+test('note header tag badges offer the pin action from their context menu', () => {
+  const root = document.createElement('div'); document.body.append(root);
+  let pinned = false;
+  renderNoteTagControls(root, ['launch'], {
+    onOverview() {}, onRemove() {}, isPinned: () => pinned, onPinToggle: () => { pinned = !pinned; },
+  });
+  const badge = root.querySelector<HTMLButtonElement>('.tag-badge')!;
+  badge.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+  assert.equal(document.querySelector('[role="menu"] .menu-action span')?.textContent, 'Pin to top bar');
+  document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click();
+  assert.equal(pinned, true);
+  closePopover(); root.remove();
+});
 test('library add-tag command is idempotent for an already present tag', () => {
   const library = makeLibrary('---\ntags: [launch]\n---\nUnchanged body.');
   const result = commands().addTag(library, 'note-1', '#launch');

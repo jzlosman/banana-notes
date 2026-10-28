@@ -69,6 +69,28 @@ test('recent tag chips apply one tag, and the searchable All tags popover suppor
   assert.deepEqual(state.selectedTags, ['work']); assert.equal(dom.window.document.activeElement?.getAttribute('aria-label'), 'All 4 tags');
   click(root, 'Open #work overview'); assert.deepEqual(calls.overview?.at(-1), [['work']]);
 }));
+test('recent-tag and All-tags rows offer the shared pin and unpin context actions', () => {
+  let pinned = false; const toggles: [string, boolean][] = [];
+  return harness((dom, root) => {
+    const recent = root.querySelector<HTMLButtonElement>('[data-tag="work"]')!;
+    recent.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 30 }));
+    assert.match(dom.window.document.querySelector('[role="menu"]')!.textContent!, /Pin to top bar/);
+    dom.window.document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click();
+    assert.deepEqual(toggles, [['work', true]]);
+
+    click(root, 'All 4 tags');
+    const input = dom.window.document.querySelector<HTMLInputElement>('[aria-label="Find a tag"]')!;
+    input.value = 'work'; input.dispatchEvent(new dom.window.Event('input'));
+    const option = dom.window.document.querySelector<HTMLElement>('[role="option"]')!;
+    option.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 50 }));
+    assert.match(dom.window.document.querySelector('[role="menu"]')!.textContent!, /Unpin from top bar/);
+    dom.window.document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click();
+    assert.deepEqual(toggles, [['work', true], ['work', false]]);
+  }, {
+    isPinned: tag => pinned && tag === 'work',
+    onPinToggle: tag => { pinned = !pinned; toggles.push([tag, pinned]); },
+  });
+});
 test('bulk tagging is requested only on demand, and actions receive the exact selection and supplied time', () => harness((_dom, root, calls) => {
   selectMode(root); click(root, 'Select all filtered notes'); click(root, 'Tag selected notes');
   const doc = root.ownerDocument; (doc.querySelector('[aria-label="Tag to add"]') as HTMLInputElement).value = 'project'; click(doc, 'Add tag to selected notes');

@@ -6,6 +6,7 @@ import { renderNoteSummary } from './note-summary';
 import { handleNoteTrashShortcut } from './note-trash-shortcut';
 import { mergeSearchMatches, type NoteSearchResult } from '../application/note-search';
 import { plainInput } from './plain-input';
+import { installTagPinMenu } from './tag-pin-menu';
 
 export type ExplorerMode = 'notes' | 'trash';
 export interface ExplorerState {
@@ -35,6 +36,8 @@ export interface ExplorerViewOptions {
   onArchive(ids: string[], now: string): void;
   onTag(ids: string[], tag: string, now: string): void;
   onOverview(tags: string[]): void;
+  isPinned?(tag: string): boolean;
+  onPinToggle?(tag: string): void;
   onSearch?(query: string, candidateIDs: string[]): Promise<NoteSearchResult>;
   onConfigureSearch?(): void;
   onError?(error: Error): void;
@@ -90,6 +93,9 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
     const chip = el('button', 'recent-tag-chip'); chip.type = 'button';
     chip.onclick = () => selectTag(item.tag);
     chip.dataset.tag = item.tag;
+    if (options.isPinned && options.onPinToggle) installTagPinMenu(chip, item.tag, {
+      isPinned: options.isPinned, togglePin: options.onPinToggle, onError: options.onError ?? (() => {}),
+    });
     chips.set(item.tag, chip); recentTags.append(chip);
   }
   recentTags.append(allTagsButton);
@@ -228,13 +234,21 @@ export function renderExplorerView(options: ExplorerViewOptions): HTMLElement {
         const option = el('div', `all-tags-option${index === activeIndex ? ' highlighted' : ''}`);
         option.setAttribute('role', 'option'); option.setAttribute('aria-selected', String(index === activeIndex)); option.setAttribute('aria-label', `#${item.tag}, ${item.count} ${item.count === 1 ? 'note' : 'notes'}`); option.tabIndex = -1;
         option.append(el('span', '', `#${item.tag}`), el('span', 'all-tags-count', String(item.count)));
+        if (options.isPinned && options.onPinToggle) installTagPinMenu(option, item.tag, {
+          isPinned: options.isPinned, togglePin: options.onPinToggle, onError: options.onError ?? (() => {}),
+          restoreFocus: () => allTagsButton.focus(),
+        });
         option.onclick = () => { closePopover(true); selectTag(item.tag); };
         results.append(option);
       });
     };
     input.oninput = () => { filtered = allTags.filter(item => item.tag.toLocaleLowerCase().includes(input.value.trim().replace(/^#/, '').toLocaleLowerCase())); activeIndex = 0; renderOptions(); };
     input.onkeydown = event => {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (event.shiftKey && event.key === 'F10' && activeIndex >= 0) {
+        event.preventDefault();
+        const option = results.querySelector<HTMLElement>('.highlighted');
+        option?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         if (!filtered.length) return;
         event.preventDefault(); activeIndex = (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + filtered.length) % filtered.length; renderOptions();
         results.querySelector<HTMLElement>('.highlighted')?.scrollIntoView?.({ block: 'nearest' });

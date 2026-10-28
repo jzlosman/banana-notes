@@ -3,12 +3,13 @@ import { resolveWindowStyle, DEFAULT_WINDOW_STYLE, type WindowStyle } from '../d
 import { DEFAULT_FONT_SIZE, resolveFontSize } from '../domain/font-size';
 import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState } from '../domain/note-font';
 import { SYSTEM_THEME } from '../domain/themes';
+import { normalizeScopePreferences, type ScopePreferences } from '../domain/scope-preferences';
 import type { NoteFontSelection } from '../domain/note-font';
 import type { Capabilities, ClipboardContent, PngRenderRequest, StartupPreferencePatch } from '../application/ports';
 import type { SemanticConfiguration, SemanticStatus } from '../application/semantic-contract';
 
 const keys = {
-  library: 'foldnote-preview-v1', theme: 'foldnote-preview-theme-v1', windowStyle: 'foldnote-preview-window-style-v1',
+  library: 'foldnote-preview-v1', scopePreferences: 'foldnote-preview-scope-preferences-v1', theme: 'foldnote-preview-theme-v1', windowStyle: 'foldnote-preview-window-style-v1',
   fontSize: 'foldnote-preview-font-size-v1', noteFont: 'foldnote-preview-note-font-v1', ocr: 'foldnote-preview-ocr-v1',
   syntax: 'foldnote-preview-syntax-v1', image: 'foldnote-preview-image-v1',
 } as const;
@@ -48,6 +49,10 @@ export class PreviewAdapter implements Capabilities {
       return raw === null ? null : validateLibrary(raw);
     },
     save: async (library: Library) => { localStorage.setItem(keys.library, JSON.stringify(validateLibrary(library))); },
+  };
+  readonly scopePreferences = {
+    load: async (): Promise<ScopePreferences> => normalizeScopePreferences(readJSON<unknown>(keys.scopePreferences, null)),
+    save: async (value: ScopePreferences) => { localStorage.setItem(keys.scopePreferences, JSON.stringify(normalizeScopePreferences(value))); },
   };
   readonly window = {
     ready: async () => {},

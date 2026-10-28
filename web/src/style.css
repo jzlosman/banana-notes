@@ -28,7 +28,25 @@ button svg { flex-shrink: 0; pointer-events: none; }
 button, .titlebar, footer { -webkit-user-select: none; user-select: none; }
 .app-shell { display: flex; flex-direction: column; position: relative; isolation: isolate; }
 .titlebar { height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 24px; background: var(--paper); }
-.toolbar-context { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 auto; max-width: 55%; }
+.toolbar-context { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 55%; max-width: 55%; }
+.scope-navigation { position: relative; overflow: visible; }
+.scope-pin-row { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 auto; overflow: hidden; white-space: nowrap; }
+.scope-chip, .scope-overflow { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; max-width: 100px; height: 25px; padding: 2px 7px; border-radius: 6px; color: var(--muted); font-size: 12px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.scope-chip:hover, .scope-overflow:hover { color: var(--ink); background: var(--hover); }
+.scope-chip.active, .scope-overflow.active { color: var(--accent); background: var(--accent-soft); }
+.scope-chip.active:hover, .scope-overflow.active:hover { color: var(--accent); background: var(--accent-soft); }
+.scope-active-tag { display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto; border-radius: 6px; background: var(--accent-soft); }
+.scope-active-tag .scope-chip { color: var(--accent); background: transparent; border-radius: 6px 0 0 6px; max-width: 110px; }
+.scope-clear { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 23px; flex: 0 0 20px; color: var(--accent); border-radius: 0 6px 6px 0; font-size: 15px; line-height: 1; }
+.scope-clear:hover { background: var(--hover); }
+.scope-chip[data-pin-tag] { cursor: grab; touch-action: pan-y; }
+.scope-chip[data-pin-tag]:active { cursor: grabbing; }
+.scope-chip.dragging { opacity: .45; }
+.scope-chip.drag-over { box-shadow: inset 0 -2px var(--accent); }
+.scope-measure { position: absolute; top: -10000px; left: 0; display: flex; align-items: center; width: max-content; visibility: hidden; pointer-events: none; white-space: nowrap; }
+.scope-measure .scope-active-tag { width: max-content; flex: 0 0 auto; }
+@media (max-width: 420px) { .scope-active-tag .scope-chip { max-width: 64px; } }
+@media (prefers-reduced-motion: no-preference) { .scope-chip, .scope-overflow, .scope-clear { transition: color 140ms ease, background-color 140ms ease; } }
 .toolbar-drag { flex: 1 0 18px; align-self: stretch; }
 .header-actions { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
 .icon-button { display: inline-flex; width: 29px; height: 29px; align-items: center; justify-content: center; border-radius: 6px; flex-shrink: 0; }
@@ -36,7 +54,7 @@ button, .titlebar, footer { -webkit-user-select: none; user-select: none; }
 .icon-button.active { color: var(--accent); background: var(--accent-soft); }
 .scope-button { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 550; border-radius: 5px; padding: 3px 4px; margin-left: -4px; }
 .scope-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.scope-button:hover { color: var(--accent); background: var(--accent-soft); }
+.scope-button:hover, .scope-button.active { color: var(--accent); background: var(--accent-soft); }
 .clear-scope { flex-shrink: 0; }
 .clear-scope, .tiny-button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; color: var(--muted); }
 .clear-scope:hover, .tiny-button:hover { color: var(--ink); }

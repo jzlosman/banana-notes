@@ -23,6 +23,7 @@ export interface KeyboardActions {
   moveOlder(): void;
   moveNewer(): void;
   showExplorer(): void;
+  goToScopeShortcut(position: number): void;
   flipView(): void;
   toggleSource(): void;
   openSettings(): void;
@@ -50,6 +51,7 @@ export function installKeyboardShortcuts(actions: KeyboardActions): () => void {
     else if (mod && !event.altKey && (key === '+' || key === '=')) run = actions.increaseFont;
     else if (mod && !event.altKey && key === '-') run = actions.decreaseFont;
     else if (mod && !event.altKey && key === '0') run = actions.resetFont;
+    else if (mod && !event.altKey && !event.shiftKey && /^[1-9]$/.test(key)) run = () => actions.goToScopeShortcut(Number(key));
     else if (mod && event.altKey && key === 'c') run = actions.copyFormatted;
     else if (mod && !event.altKey && !event.shiftKey && key === 'k' && actions.view() === 'note' && !actions.sourceMode() && actions.editorAvailable() && (!field || field.closest('.link-editor'))) run = actions.editLink;
     else if (mod && key === 'n' && !event.shiftKey) run = actions.newNote;

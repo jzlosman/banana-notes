@@ -39,6 +39,48 @@ struct ClipboardPayload: Decodable, Equatable {
     }
 }
 
+struct ScopePreferencesPayload: Decodable, Equatable {
+    let pinnedTags: [String]
+    let bookmarks: [String: String]
+
+    private enum CodingKeys: String, CodingKey, CaseIterable { case pinnedTags, bookmarks }
+    private static let tagPattern = try! NSRegularExpression(pattern: "^[\\p{L}][\\p{L}\\p{N}_/-]{0,79}$")
+    static let empty = try! ScopePreferencesPayload(pinnedTags: [], bookmarks: [:])
+
+    init(pinnedTags: [String], bookmarks: [String: String]) throws {
+        guard Set(pinnedTags).count == pinnedTags.count, pinnedTags.allSatisfy(Self.isValidTag),
+              bookmarks.allSatisfy({ Self.isValidScopeKey($0.key) && !$0.value.isEmpty && $0.value.count <= 512 }) else {
+            throw StoreError(message: "Pinned tags or scope bookmarks are invalid.")
+        }
+        self.pinnedTags = pinnedTags
+        self.bookmarks = bookmarks
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.allKeys.allSatisfy({ CodingKeys.allCases.contains($0) }), container.contains(.pinnedTags), container.contains(.bookmarks) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Scope preferences are incomplete or contain unsupported fields."))
+        }
+        try self.init(pinnedTags: container.decode([String].self, forKey: .pinnedTags),
+                      bookmarks: container.decode([String: String].self, forKey: .bookmarks))
+    }
+
+    var storedValue: [String: Any] { ["pinnedTags": pinnedTags, "bookmarks": bookmarks] }
+
+    private static func isValidTag(_ value: String) -> Bool {
+        guard value.count <= 80 else { return false }
+        return tagPattern.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil
+    }
+
+    private static func isValidScopeKey(_ value: String) -> Bool {
+        if value == "all" { return true }
+        guard value.hasPrefix("tags:") else { return false }
+        let data = Data(value.dropFirst(5).utf8)
+        guard let tags = try? JSONDecoder().decode([String].self, from: data), !tags.isEmpty else { return false }
+        return Set(tags).count == tags.count && tags.allSatisfy(isValidTag)
+    }
+}
+
 struct StartupPreferencesPatch: Decodable, Equatable {
     let launchAtLogin: Bool?
     let newNoteOnLaunch: Bool?

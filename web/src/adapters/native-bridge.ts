@@ -3,6 +3,7 @@ import { resolveWindowStyle, DEFAULT_WINDOW_STYLE } from '../domain/window-style
 import { resolvePinnedPreference } from '../domain/window-preferences';
 import { resolveFontSize, DEFAULT_FONT_SIZE } from '../domain/font-size';
 import { resolveNoteFontState, DEFAULT_NOTE_FONT_STATE } from '../domain/note-font';
+import { normalizeScopePreferences } from '../domain/scope-preferences';
 import { importAttachments, validateAttachmentRecord } from './attachments';
 import type { AttachmentRecord } from '../domain/managed-media';
 import { parseSemanticHits, parseSemanticStatus } from '../application/semantic-contract';
@@ -57,6 +58,8 @@ function validateReply(action: NativeAction, raw: unknown): NativeReply {
     case 'save':
       if (reply.saved !== true) throw new Error('The library save could not be confirmed.');
       return { saved: true };
+    case 'scopePreferences':
+      return { scopePreferences: normalizeScopePreferences(reply.scopePreferences) };
     case 'libraryRecovery':
       if (!(reply.startupError === null || typeof reply.startupError === 'string') || typeof reply.backupAvailable !== 'boolean'
         || (reply.backupUpdatedAt !== undefined && typeof reply.backupUpdatedAt !== 'string')
@@ -135,6 +138,7 @@ function decodeCommand(raw: unknown): AppCommand {
 export class NativeBridge implements Capabilities {
   readonly presentation = { savedLabel: 'Saved on this Mac' };
   readonly library: Capabilities['library'];
+  readonly scopePreferences: Capabilities['scopePreferences'];
   readonly recovery: Capabilities['recovery'];
   readonly window: Capabilities['window'];
   readonly appearance: Capabilities['appearance'];
@@ -160,6 +164,10 @@ export class NativeBridge implements Capabilities {
     if (!handler) throw new Error('The native message bridge is unavailable.');
     this.handler = handler; this.target = target;
     this.library = { load: async () => (await this.loaded()).library ?? null, save: async library => { await this.call('save', { library }); } };
+    this.scopePreferences = {
+      load: async () => normalizeScopePreferences((await this.call('scopePreferences')).scopePreferences),
+      save: async preferences => { await this.call('scopePreferences', { preferences: normalizeScopePreferences(preferences) }); },
+    };
     this.recovery = { state: async () => {
       const value = await this.call('libraryRecovery');
       return { startupError: value.startupError ?? null, backupAvailable: value.backupAvailable === true,

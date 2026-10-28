@@ -34,6 +34,14 @@ struct BridgeSecuritySelfTest {
         if case .save(let library) = try BridgeCommandDecoder.decode(["action": "save", "library": validLibrary]) {
             precondition(library.version == 1 && library.notes.isEmpty)
         } else { preconditionFailure("save must produce an invariant-bearing library document") }
+        if case .scopePreferences(nil) = try BridgeCommandDecoder.decode(["action": "scopePreferences"]) {
+            // A read has no payload.
+        } else { preconditionFailure("scope preference reads must decode without a payload") }
+        if case .scopePreferences(let preferences?) = try BridgeCommandDecoder.decode(["action": "scopePreferences", "preferences": [
+            "pinnedTags": ["launch", "work"], "bookmarks": ["all": "note-1", "tags:[\"launch\"]": "note-2"]
+        ]]) {
+            precondition(preferences.pinnedTags == ["launch", "work"] && preferences.bookmarks["all"] == "note-1")
+        } else { preconditionFailure("scope preference writes must decode into typed values") }
         if case .windowStyle(let style) = try BridgeCommandDecoder.decode(["action": "windowStyle", "style": [
             "focusedOpacity": 0.8, "unfocusedOpacity": 0.5, "glass": 0.3]]) {
             precondition(style.focusedOpacity == 0.8)
@@ -48,6 +56,9 @@ struct BridgeSecuritySelfTest {
             ["action": "windowStyle", "style": ["focusedOpacity": 0, "unfocusedOpacity": 1, "glass": 0]],
             ["action": "clipboard", "content": ["text": true]],
             ["action": "startupPreferences", "launchAtLogin": NSNull()],
+            ["action": "scopePreferences", "preferences": ["pinnedTags": ["launch", "launch"], "bookmarks": [:]]],
+            ["action": "scopePreferences", "preferences": ["pinnedTags": ["not valid"], "bookmarks": [:]]],
+            ["action": "scopePreferences", "preferences": ["pinnedTags": [], "bookmarks": ["invalid": "note"]]],
             ["action": "semanticSearch", "query": "test", "candidateIDs": "not-an-array"]
         ]
         for request in invalid {

@@ -45,6 +45,7 @@ struct LibraryStoreSelfTest {
         assertRejected(["version": true, "notes": [], "selectedID": NSNull(), "activeTag": NSNull()], label: "boolean version")
         assertRejected(["version": 1.5, "notes": [], "selectedID": NSNull(), "activeTag": NSNull()], label: "fractional version")
         assertRejected(["version": 1, "notes": [], "selectedID": NSNull(), "activeTag": NSNull(), "unknownState": "do not discard"], label: "unknown root field")
+        assertRejected(["version": 1, "notes": [], "selectedID": NSNull(), "activeTag": NSNull(), "pinnedTags": ["launch"], "bookmarks": [:]], label: "scope preferences in the v0.2.5 library envelope")
         var unknownNote = note(id: "future", markdown: "")
         unknownNote["futureState"] = "do not discard"
         assertRejected(["version": 1, "notes": [unknownNote], "selectedID": NSNull(), "activeTag": NSNull()], label: "unknown note field")

@@ -26,6 +26,10 @@ final class PreferencesBridgeHandler: BridgeHandler {
         case .featurePreferences(let enabled):
             featurePreferences.setOCR(enabled)
             reply(["ocrEnabled": featurePreferences.ocrEnabled], nil)
+        case .scopePreferences(let value):
+            let preferences = value ?? storedScopePreferences()
+            if value != nil { defaults.set(preferences.storedValue, forKey: "scopePreferences") }
+            reply(["scopePreferences": preferences.storedValue], nil)
         case .theme(let id):
             window.apply(theme: try appearance.select(id))
             reply(["themeID": appearance.selectedID], nil)
@@ -48,6 +52,16 @@ final class PreferencesBridgeHandler: BridgeHandler {
             reply(["ok": true], nil)
         default: throw StoreError(message: "Preferences bridge does not support this command.")
         }
+    }
+
+    private func storedScopePreferences() -> ScopePreferencesPayload {
+        guard let stored = defaults.dictionary(forKey: "scopePreferences"),
+              let pinnedTags = stored["pinnedTags"] as? [String],
+              let bookmarks = stored["bookmarks"] as? [String: String],
+              let preferences = try? ScopePreferencesPayload(pinnedTags: pinnedTags, bookmarks: bookmarks) else {
+            return .empty
+        }
+        return preferences
     }
 }
 

@@ -42,6 +42,14 @@ test('native capabilities preserve recovery, hotkey, and preference wire actions
   assert.deepEqual(messages.map(message => message.action), ['libraryRecovery', 'restoreBackup', 'load', 'hotkeyPreferences', 'hotkeyPreferences']);
 });
 
+test('native scope preferences use a dedicated bridge action and normalize values at the adapter boundary', async () => {
+  const { bridge, messages } = bridgeWith(action => action === 'scopePreferences'
+    ? { scopePreferences: { pinnedTags: ['Work', 'work', 'invalid tag'], bookmarks: { all: 'note-1', malformed: 'note-2' } } } : {});
+  assert.deepEqual(await bridge.scopePreferences.load(), { pinnedTags: ['work'], bookmarks: { all: 'note-1' } });
+  await bridge.scopePreferences.save({ pinnedTags: [' #Launch ', 'launch'], bookmarks: { all: 'note-1' } });
+  assert.deepEqual(messages.at(-1), { action: 'scopePreferences', preferences: { pinnedTags: ['launch'], bookmarks: { all: 'note-1' } } });
+});
+
 test('native library boundary validates untrusted data and requires durable save confirmation', async () => {
   const { bridge } = bridgeWith(action => action === 'load'
     ? { library: { version: 1, notes: [{ id: 'n', markdown: 4 }], selectedID: null, activeTag: null } } : {});

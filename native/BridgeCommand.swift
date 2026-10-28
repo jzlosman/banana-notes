@@ -8,6 +8,7 @@ enum BridgeCapability: Hashable, CaseIterable {
 enum BridgeCommand {
     case load, openData, quit
     case save(LibraryDocument), libraryRecovery, restoreBackup
+    case scopePreferences(ScopePreferencesPayload?)
     case ready, hide, dragRegion(BridgeRect), pin(Bool), fontSize(Int), windowStyle(WindowStyle)
     case featurePreferences(ocrEnabled: Bool), theme(String), hotkeyPreferences(HotkeyChord?)
     case imagePreferences(ImageExportPreferences), syntaxTheme(String), startupPreferences(StartupPreferencesPatch), openLoginSettings
@@ -22,7 +23,7 @@ enum BridgeCommand {
         case .load, .openData, .quit: .application
         case .save, .libraryRecovery, .restoreBackup: .library
         case .ready, .hide, .dragRegion, .pin, .fontSize, .windowStyle: .window
-        case .featurePreferences, .theme, .hotkeyPreferences, .imagePreferences, .syntaxTheme,
+        case .featurePreferences, .theme, .hotkeyPreferences, .imagePreferences, .scopePreferences, .syntaxTheme,
              .startupPreferences, .openLoginSettings: .preferences
         case .clipboard: .clipboard
         case .markdownExport: .markdownExport
@@ -99,6 +100,9 @@ enum BridgeCommandDecoder {
         case "openData": return .openData
         case "quit": return .quit
         case "save": return .save(try payload(field("library", in: body, action: action), as: LibraryDocument.self, action: action))
+        case "scopePreferences":
+            guard body.keys.contains("preferences") else { return .scopePreferences(nil) }
+            return .scopePreferences(try payload(field("preferences", in: body, action: action), as: ScopePreferencesPayload.self, action: action))
         case "libraryRecovery": return .libraryRecovery
         case "restoreBackup": return .restoreBackup
         case "ready": return .ready

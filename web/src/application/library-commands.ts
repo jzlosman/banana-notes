@@ -18,6 +18,7 @@ import {
   withTag,
   type Library,
 } from '../domain/library';
+import type { ScopeBookmarks } from '../domain/scope-preferences';
 import type { Clock, IdGenerator } from './ports';
 
 export type LibraryCommandResult =
@@ -57,8 +58,8 @@ export class LibraryCommands {
   }
 
   navigate(library: Library, delta: number): Library { return navigate(library, delta); }
-  selectNotebook(library: Library, tag: string | null): Library { return selectNotebook(library, tag); }
-  selectNotebooks(library: Library, tags: string[]): Library { return selectNotebooks(library, tags); }
+  selectNotebook(library: Library, tag: string | null, bookmarks: ScopeBookmarks = {}): Library { return selectNotebook(library, tag, bookmarks); }
+  selectNotebooks(library: Library, tags: string[], bookmarks: ScopeBookmarks = {}): Library { return selectNotebooks(library, tags, bookmarks); }
   trash(library: Library, id: string): Library { return trashNote(library, id, this.clock.now()); }
   restore(library: Library, id: string): Library { return restoreNote(library, id, this.clock.now()); }
   trashMany(library: Library, ids: string[]): Library { return bulkTrashNotes(library, ids, this.clock.now()); }

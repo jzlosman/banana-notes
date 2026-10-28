@@ -1,5 +1,7 @@
 import { isMap, isScalar, isSeq, parseDocument, stringify } from 'yaml';
 import { Marked, type Token } from 'marked';
+import { normalizeTag, validTag } from './tags';
+import { normalizeScopePreferences, scopeKey, scopeTagsFromKey, type ScopeBookmarks } from './scope-preferences';
 // Editor extensions install custom tokenizers; never let them mutate tag queries.
 const proseMarkdown = new Marked({ gfm: true });
 const MAX_READ_CACHE_CHARS = 8_000_000;
@@ -46,10 +48,6 @@ export function splitDocument(markdown: string): DocumentParts {
     return { frontmatter: match[0], body: markdown.slice(match[0].length), metadata: metadata || {} };
   } catch { return { frontmatter: '', body: markdown, metadata: {}, error: 'Invalid frontmatter. Edit Markdown source to fix it; your text is preserved.' }; }
 }
-export function normalizeTag(value: string): string {
-  return value.trim().replace(/^#+/, '').normalize('NFC').toLocaleLowerCase('en-US');
-}
-export function validTag(value: string): boolean { return /^[\p{L}][\p{L}\p{N}_/-]*$/u.test(value) && value.length <= 80; }
 function frontmatterTags(metadata: Record<string, unknown>): string[] {
   const value = metadata.tags ?? metadata.tag;
   return (Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,\s]+/) : [])
@@ -364,14 +362,43 @@ export function recentNotebookTags(library: Library): { tag: string; count: numb
   return notebookTagUsage(library).sort((a, b) => b.lastUsed.localeCompare(a.lastUsed) || a.tag.localeCompare(b.tag))
     .map(({ tag, count }) => ({ tag, count }));
 }
-export function selectNotebooks(library: Library, tags: string[]): Library {
+function inScope(note: Note, tags: string[]): boolean {
+  return !note.trashedAt && inTagScope(note, tags);
+}
+export function resolveScopeBookmark(library: Library, tags: string[], bookmarks: ScopeBookmarks): string | null {
+  const activeTags = normalizeTagList(tags);
+  const bookmarkedID = bookmarks[scopeKey(activeTags)];
+  const bookmarked = bookmarkedID && library.notes.find(note => note.id === bookmarkedID);
+  if (bookmarked && inScope(bookmarked, activeTags) && !isBlankMarkdown(bookmarked.markdown)) return bookmarked.id;
+  return library.notes.filter(note => inScope(note, activeTags) && !isBlankMarkdown(note.markdown))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.id ?? null;
+}
+export function updateScopeBookmark(bookmarks: ScopeBookmarks, tags: string[], selectedID: string | null): ScopeBookmarks {
+  const next = normalizeScopePreferences({ bookmarks }).bookmarks;
+  const key = scopeKey(tags);
+  if (selectedID) next[key] = selectedID;
+  else delete next[key];
+  return next;
+}
+export function pruneScopeBookmarks(bookmarks: ScopeBookmarks, library: Library): ScopeBookmarks {
+  const notesByID = new Map(library.notes.map(note => [note.id, note]));
+  return Object.fromEntries(Object.entries(bookmarks).filter(([key, id]) => {
+    const tags = scopeTagsFromKey(key);
+    const note = notesByID.get(id);
+    return tags !== null && !!note && inScope(note, tags);
+  }));
+}
+export function selectNotebooks(library: Library, tags: string[], bookmarks: ScopeBookmarks = {}): Library {
   const activeTags = normalizeTagList(tags);
   const next: Library = { ...library, activeTags, activeTag: activeTags[0] || null };
-  const notes = orderedNotes(next);
-  return { ...next, selectedID: notes.some(n => n.id === next.selectedID) ? next.selectedID : notes[0]?.id || null };
+  const sameScope = scopeKey(selectedTags(library)) === scopeKey(activeTags);
+  const current = next.selectedID && next.notes.find(note => note.id === next.selectedID);
+  const selectedID = sameScope && current && inScope(current, activeTags)
+    ? current.id : resolveScopeBookmark(next, activeTags, bookmarks);
+  return { ...next, selectedID };
 }
-export function selectNotebook(library: Library, tag: string | null): Library {
-  return selectNotebooks(library, tag ? [tag] : []);
+export function selectNotebook(library: Library, tag: string | null, bookmarks: ScopeBookmarks = {}): Library {
+  return selectNotebooks(library, tag ? [tag] : [], bookmarks);
 }
 export function navigate(library: Library, delta: number): Library {
   const notes = orderedNotes(library);

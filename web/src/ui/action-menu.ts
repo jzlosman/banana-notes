@@ -56,7 +56,7 @@ export function openPopover(trigger: HTMLElement, content: HTMLElement, options:
   content.querySelector<HTMLElement>(options.menu ? '[role="menuitem"]:not(:disabled),[role="menuitemradio"]:not(:disabled)' : 'input,select,button')?.focus();
 }
 
-export function openActionMenu(trigger: HTMLElement, items: MenuItem[], options: { label: string; point?: { x: number; y: number }; onError?: (error: unknown) => void }): void {
+export function openActionMenu(trigger: HTMLElement, items: MenuItem[], options: { label: string; point?: { x: number; y: number }; onError?: (error: unknown) => void; restoreFocus?: () => void }): void {
   if (!options.point && trigger.getAttribute('aria-expanded') === 'true') { closePopover(true); return; }
   const doc = trigger.ownerDocument;
   const menu = doc.createElement('div'); menu.className = 'action-menu';

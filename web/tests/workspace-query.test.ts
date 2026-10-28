@@ -10,6 +10,7 @@ test('workspace query reads explicit capabilities and applies absence defaults w
   const load = <T>(name: string, value: T) => async () => { calls.push(name); return value; };
   const capabilities = {
     library: { load: load('library', null), save: async () => {} },
+    scopePreferences: { load: load('scopePreferences', { pinnedTags: [], bookmarks: {} }), save: async () => {} },
     appearance: { load: load('appearance', { themeID: 'system', syntaxThemeID: 'app' }), saveTheme: async (themeID: string) => ({ themeID }), saveSyntaxTheme: async () => {} },
     typography: { load: load('typography', { noteFonts: DEFAULT_NOTE_FONT_STATE, fontSize: 16 }), selectNoteFont: async () => DEFAULT_NOTE_FONT_STATE, saveFontSize: async () => {}, downloadFont: null },
     windowStyle: { load: load('windowStyle', DEFAULT_WINDOW_STYLE), save: async () => {}, previewOpacity: () => null },
@@ -20,7 +21,8 @@ test('workspace query reads explicit capabilities and applies absence defaults w
     imagePreferences: { load: load('image', {}), save: async () => {} },
   } as unknown as Capabilities;
   const snapshot = await loadWorkspace(capabilities);
-  assert.deepEqual(calls.sort(), ['appearance', 'features', 'focused', 'hotkey', 'image', 'library', 'typography', 'windowStyle'].sort());
+  assert.deepEqual(calls.sort(), ['appearance', 'features', 'focused', 'hotkey', 'image', 'library', 'scopePreferences', 'typography', 'windowStyle'].sort());
   assert.deepEqual(snapshot.startup, { launchAtLogin: false, launchStatus: 'notRegistered', launchError: null, newNoteOnLaunch: false });
   assert.equal(snapshot.pinned, true); assert.equal(snapshot.focused, true); assert.equal(snapshot.library, null);
+  assert.deepEqual(snapshot.scopePreferences, { pinnedTags: [], bookmarks: {} });
 });

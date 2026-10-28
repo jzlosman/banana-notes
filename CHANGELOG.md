@@ -4,6 +4,12 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-28
+
+### Fixed
+
+- Drag the window from the empty part of the top bar again. In 0.2.6 the area left for dragging became very narrow.
+
 ## [0.2.6] - 2026-10-28
 
 ### Added

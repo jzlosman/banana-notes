@@ -13,8 +13,11 @@ function installDocument(dom: JSDOM) {
 function rect(width: number) {
   return { x: 0, y: 0, top: 0, right: width, bottom: 24, left: 0, width, height: 24, toJSON() {} } as DOMRect;
 }
-function setGeometry(dom: JSDOM, root: HTMLElement, width: () => number) {
+function setGeometry(dom: JSDOM, root: HTMLElement, titlebar: HTMLElement, width: () => number) {
   root.getBoundingClientRect = () => rect(width());
+  titlebar.style.setProperty('--scope-max-share', '55%');
+  titlebar.style.padding = '0 12px 0 24px';
+  Object.defineProperty(titlebar, 'clientWidth', { configurable: true, get: () => Math.ceil(width() / 0.55 + 36) });
   const original = dom.window.HTMLElement.prototype.getBoundingClientRect;
   dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
     if (this.classList.contains('scope-button')) return rect(40);
@@ -34,11 +37,11 @@ function options(patch: Partial<ScopeBarOptions> = {}): ScopeBarOptions {
 }
 
 test('scope bar folds pins into a shortcut menu and keeps active scopes accessible', () => {
-  const dom = new JSDOM('<!doctype html><div id="bar"></div>', { url: 'https://pinned-tags.test' });
-  const restoreDocument = installDocument(dom); const root = dom.window.document.querySelector<HTMLElement>('#bar')!;
-  let width = 180; const restoreGeometry = setGeometry(dom, root, () => width);
+  const dom = new JSDOM('<!doctype html><header id="titlebar" class="titlebar"><div id="bar"></div></header>', { url: 'https://pinned-tags.test' });
+  const restoreDocument = installDocument(dom); const root = dom.window.document.querySelector<HTMLElement>('#bar')!; const titlebar = dom.window.document.querySelector<HTMLElement>('#titlebar')!;
+  let width = 180; const restoreGeometry = setGeometry(dom, root, titlebar, () => width);
   const calls: string[] = [];
-  const controller = createScopeBar(root, options({
+  const controller = createScopeBar(root, titlebar, options({
     onTag: (tag, active) => calls.push(`${tag}:${active}`),
     onAll: active => calls.push(`all:${active}`),
     onTogglePin: tag => calls.push(`unpin:${tag}`),
@@ -91,11 +94,11 @@ test('tag context menus expose pin state through pointer and keyboard interactio
 });
 
 test('pointer drag reorders pins while context menu supplies keyboard reorder actions', () => {
-  const dom = new JSDOM('<!doctype html><div id="bar"></div>', { url: 'https://pinned-tags.test' });
-  const restoreDocument = installDocument(dom); const root = dom.window.document.querySelector<HTMLElement>('#bar')!;
-  const restoreGeometry = setGeometry(dom, root, () => 500);
+  const dom = new JSDOM('<!doctype html><header id="titlebar" class="titlebar"><div id="bar"></div></header>', { url: 'https://pinned-tags.test' });
+  const restoreDocument = installDocument(dom); const root = dom.window.document.querySelector<HTMLElement>('#bar')!; const titlebar = dom.window.document.querySelector<HTMLElement>('#titlebar')!;
+  const restoreGeometry = setGeometry(dom, root, titlebar, () => 500);
   const moved: [string, number][] = [];
-  const controller = createScopeBar(root, options({ pinnedTags: ['launch', 'work'], onMovePin: (tag, delta) => moved.push([tag, delta]) }));
+  const controller = createScopeBar(root, titlebar, options({ pinnedTags: ['launch', 'work'], onMovePin: (tag, delta) => moved.push([tag, delta]) }));
   try {
     const [launch, work] = [...root.querySelectorAll<HTMLElement>('[data-pin-tag]')];
     Object.defineProperty(dom.window.document, 'elementFromPoint', { configurable: true, value: () => work });

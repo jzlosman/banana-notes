@@ -291,7 +291,7 @@ function renderHeader(): void {
   if (view === 'themes' || view === 'help') {
     context.append(button('Back to note', ArrowLeft, () => goNote(), 'text-button', 'Back to note'));
   } else {
-    scopeBar = createScopeBar(context, scopeBarOptions());
+    scopeBar = createScopeBar(context, header, scopeBarOptions());
   }
   const spacer = element('div', 'toolbar-drag'); spacer.setAttribute('aria-hidden', 'true');
   const actions = element('div', 'header-actions');

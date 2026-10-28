@@ -4,6 +4,13 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-28
+
+### Added
+
+- Pin the tags you use most to the top bar. Right-click any tag and choose **Pin to top bar**; click a pin to switch to it, and click it again to see its notes. ⌘1 goes to All and ⌘2–⌘9 go to your pins.
+- Each tag remembers the note you were last on and takes you back to it.
+
 ## [0.2.5] - 2026-10-26
 
 ### Changed

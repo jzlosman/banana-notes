@@ -27,8 +27,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 button svg { flex-shrink: 0; pointer-events: none; }
 button, .titlebar, footer { -webkit-user-select: none; user-select: none; }
 .app-shell { display: flex; flex-direction: column; position: relative; isolation: isolate; }
-.titlebar { height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 24px; background: var(--paper); }
-.toolbar-context { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 55%; max-width: 55%; }
+.titlebar { --scope-max-share: 55%; height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 24px; background: var(--paper); }
+.toolbar-context { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 auto; max-width: var(--scope-max-share); }
 .scope-navigation { position: relative; overflow: visible; }
 .scope-pin-row { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 auto; overflow: hidden; white-space: nowrap; }
 .scope-chip, .scope-overflow { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; max-width: 100px; height: 25px; padding: 2px 7px; border-radius: 6px; color: var(--muted); font-size: 12px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }

@@ -23,7 +23,7 @@ export interface ScopeBarOptions {
 }
 
 /** Responsive top-bar scope controls; hidden pins remain available through one menu. */
-export function createScopeBar(root: HTMLElement, initial: ScopeBarOptions): ScopeBarController {
+export function createScopeBar(root: HTMLElement, titlebar: HTMLElement, initial: ScopeBarOptions): ScopeBarController {
   const doc = root.ownerDocument;
   root.className = 'toolbar-context scope-navigation'; root.setAttribute('role', 'group'); root.setAttribute('aria-label', 'Note scopes');
   const all = el(doc, 'button', 'scope-button'); all.type = 'button'; all.append(icon(doc, BookOpen, 15));
@@ -82,7 +82,7 @@ export function createScopeBar(root: HTMLElement, initial: ScopeBarOptions): Sco
   const onResize = () => scheduleMeasure();
   const ResizeObserverType = doc.defaultView?.ResizeObserver;
   const observer = ResizeObserverType ? new ResizeObserverType(onResize) : undefined;
-  observer?.observe(root);
+  observer?.observe(titlebar);
   doc.defaultView?.addEventListener('resize', onResize);
 
   function pinItems(): MenuItem[] {
@@ -174,7 +174,12 @@ export function createScopeBar(root: HTMLElement, initial: ScopeBarOptions): Sco
     const chips = [...measure.querySelectorAll<HTMLElement>('.scope-chip')];
     const pinWidths = chips.slice(0, options.pinnedTags.length).map(chip => chip.getBoundingClientRect().width);
     const activeWidths = [...measure.querySelectorAll<HTMLElement>('.scope-active-measure')].map(chip => chip.getBoundingClientRect().width);
-    const width = root.getBoundingClientRect().width || root.clientWidth;
+    const titlebarStyle = doc.defaultView?.getComputedStyle(titlebar);
+    const horizontalPadding = titlebarStyle
+      ? (Number.parseFloat(titlebarStyle.paddingLeft) || 0) + (Number.parseFloat(titlebarStyle.paddingRight) || 0)
+      : 0;
+    const share = Number.parseFloat(titlebarStyle?.getPropertyValue('--scope-max-share') ?? '') / 100;
+    const width = Math.max(0, titlebar.clientWidth - horizontalPadding) * (Number.isFinite(share) ? share : 0);
     if (width <= 0) { visibleCount = options.pinnedTags.length; return; }
     const fixedWidth = all.getBoundingClientRect().width + GAP;
     let chosen = 0;

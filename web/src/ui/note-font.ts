@@ -7,7 +7,7 @@ export type { NoteFontDefinition, NoteFontSelection, NoteFontState } from '../do
 
 const registeredFonts = new WeakMap<Document, Map<string, { signature: string; faces: FontFace[] }>>();
 const fontStack = (font: NoteFontDefinition) => font.kind !== 'system' ? `"${font.family}", ui-monospace, Menlo, monospace` : font.family;
-export async function applyNoteFont(root: HTMLElement, rawState: NoteFontState): Promise<void> {
+export async function applyNoteFont(root: HTMLElement, rawState: NoteFontState, isCurrent: () => boolean = () => true): Promise<void> {
   const state = resolveNoteFontState(rawState);
   const font = state.fonts.find(item => item.id === state.selection.fontID) ?? state.fonts[0];
   if (font.kind !== 'system' && font.faces.length) {
@@ -36,6 +36,7 @@ export async function applyNoteFont(root: HTMLElement, rawState: NoteFontState):
       if (font.faces.some(face => { const [low, high = low] = face.weight.split(/\s+/).map(Number); return low <= 700 && high >= 700; })) await doc.fonts.load(`700 14px "${font.family}"`, sample);
     } catch (error) { entry.faces.forEach(face => doc.fonts.delete?.(face)); registry.delete(font.id); throw error; }
   }
+  if (!isCurrent()) return;
   root.style.setProperty('--note-font-family', fontStack(font));
   root.style.setProperty('--note-font-weight', String(state.selection.weight));
 }

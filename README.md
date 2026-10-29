@@ -62,6 +62,17 @@ npm run build
 open "build/Banana Notes.app"
 ```
 
+## Banana Viewer companion
+
+[Banana Viewer](docs/viewer.md) is a separate macOS app for reading Markdown files directly from Finder. It shares Banana Notes’ Markdown renderer, palettes, and bundled fonts, but has independent settings and never imports files into the notes library or changes their contents.
+
+```sh
+npm run build:viewer
+open "build/Banana Viewer.app"
+```
+
+The companion is currently built from source; the Banana Notes release downloads are unchanged.
+
 ## Feature tour
 
 <a id="focus-fade"></a>

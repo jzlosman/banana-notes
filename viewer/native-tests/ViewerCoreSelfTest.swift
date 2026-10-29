@@ -1,0 +1,237 @@
+import Foundation
+import Darwin
+@testable import BananaViewerCore
+
+@main
+struct ViewerCoreSelfTest {
+    static func main() throws {
+        let catalog = try makeCatalog()
+        try testPreferences(catalog: catalog)
+        print("Viewer preference policy cases passed.")
+        try testDocuments()
+        try testRootSwapBeforePinning()
+        print("Viewer document policy cases passed.")
+        try testResourceAndLinkPolicies()
+        print("Viewer resource/link policy cases passed.")
+        try testPreferencePersistence(catalog: catalog)
+        print("Viewer core policies, bounded reads, and isolated preferences passed.")
+    }
+
+    private static func makeCatalog() throws -> ViewerCatalog {
+        let themes = Data(##"[{"id":"banana-dark","appearance":"dark","colors":{"paper":"#1c1a15"}}]"##.utf8)
+        let fonts = Data(#"[{"id":"space-mono","kind":"bundled","weights":[400]},{"id":"avenir","kind":"system","weights":[400,500]},{"id":"google-font","kind":"google","weights":[400]}]"#.utf8)
+        return try ViewerCatalog(themeData: themes, fontData: fonts)
+    }
+
+    private static func testPreferences(catalog: ViewerCatalog) throws {
+        try ViewerPreferences.defaults.validate(using: catalog)
+        let effectsPreferences = ViewerPreferences(themeID: "system", syntaxThemeID: "app", fontID: "space-mono", fontWeight: 400,
+                                                  fontSize: 15, focusedOpacity: 0.9, unfocusedOpacity: 0.65, glass: 0)
+        let opaquePlan = ViewerWindowSurfacePlan.make(preferences: effectsPreferences, isFocused: false)
+        let glassPlan = ViewerWindowSurfacePlan.make(preferences: ViewerPreferences(
+            themeID: "system", syntaxThemeID: "app", fontID: "space-mono", fontWeight: 400,
+            fontSize: 15, focusedOpacity: 0.9, unfocusedOpacity: 0.65, glass: 0.4), isFocused: false)
+        expect(opaquePlan.paperAlpha == 1 && opaquePlan.windowIsOpaque && !opaquePlan.showsVibrancy,
+               "zero glass uses an opaque theme surface with no vibrancy")
+        expect(glassPlan.paperAlpha == 0.6 && !glassPlan.windowIsOpaque && glassPlan.showsVibrancy && glassPlan.vibrancyAlpha == 0.4,
+               "glass blends the theme surface alpha with native vibrancy")
+        expect(glassPlan.foregroundAlpha == opaquePlan.foregroundAlpha,
+               "glass amount does not independently dim foreground content")
+        try expectThrows("unknown appearance") {
+            try ViewerPreferences(themeID: "system-hack", syntaxThemeID: "app", fontID: "space-mono", fontWeight: 400,
+                                 fontSize: 15, focusedOpacity: 1, unfocusedOpacity: 1, glass: 0).validate(using: catalog)
+        }
+        try expectThrows("downloaded font") {
+            try ViewerPreferences(themeID: "system", syntaxThemeID: "app", fontID: "google-font", fontWeight: 400,
+                                 fontSize: 15, focusedOpacity: 1, unfocusedOpacity: 1, glass: 0).validate(using: catalog)
+        }
+        try expectThrows("font weight mismatch") {
+            try ViewerPreferences(themeID: "system", syntaxThemeID: "app", fontID: "space-mono", fontWeight: 700,
+                                 fontSize: 15, focusedOpacity: 1, unfocusedOpacity: 1, glass: 0).validate(using: catalog)
+        }
+        try expectThrows("invalid opacity") {
+            try ViewerPreferences(themeID: "system", syntaxThemeID: "app", fontID: "space-mono", fontWeight: 400,
+                                 fontSize: 15, focusedOpacity: .nan, unfocusedOpacity: 1, glass: 0).validate(using: catalog)
+        }
+        let encoded = try JSONEncoder().encode(ViewerPreferences.defaults)
+        var wire = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        _ = try ViewerPolicy.validateWirePreferences(wire, catalog: catalog)
+        wire["legacyNotePath"] = "/Users/private/notes.md"
+        try expectThrows("extra wire key") { _ = try ViewerPolicy.validateWirePreferences(wire, catalog: catalog) }
+        wire.removeValue(forKey: "legacyNotePath")
+        wire["fontSize"] = true
+        try expectThrows("boolean is not a font size") { _ = try ViewerPolicy.validateWirePreferences(wire, catalog: catalog) }
+    }
+
+    private static func testDocuments() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let note = root.appendingPathComponent("sample.MD")
+        try Data("# Héllo viewer\n".utf8).write(to: note)
+        let result = try ViewerDocumentReader.read(note)
+        expect(result.markdown.contains("Héllo"), "valid UTF-8 content is preserved")
+        expect(result.canonicalURL == ViewerDocumentReader.canonicalURL(for: note), "document path is canonical")
+        expect(result.revision.count == 64, "revision is SHA-256")
+        expect(result.resourceRoot.directoryPath == result.canonicalURL.deletingLastPathComponent().path,
+               "the document and images share the root pinned before the document read")
+        let alias = root.appendingPathComponent("alias.md")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: note)
+        expect(ViewerDocumentReader.canonicalURL(for: alias) == result.canonicalURL,
+               "symlink aliases deduplicate to a canonical document URL")
+
+        let unsupported = root.appendingPathComponent("notes.txt")
+        try Data("plain".utf8).write(to: unsupported)
+        try expectThrows("unsupported extension") { _ = try ViewerDocumentReader.read(unsupported) }
+
+        let directory = root.appendingPathComponent("folder.md", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        try expectThrows("directory") { _ = try ViewerDocumentReader.read(directory) }
+
+        let invalidUTF8 = root.appendingPathComponent("invalid.md")
+        try Data([0xff, 0xfe, 0x80]).write(to: invalidUTF8)
+        try expectThrows("invalid UTF-8") { _ = try ViewerDocumentReader.read(invalidUTF8) }
+
+        let oversized = root.appendingPathComponent("oversized.md")
+        try Data(repeating: 0x61, count: ViewerDocumentReader.maximumBytes + 1).write(to: oversized)
+        try expectThrows("oversized document") { _ = try ViewerDocumentReader.read(oversized) }
+
+        let before = try ViewerDocumentReader.fingerprint(note)
+        let replacement = root.appendingPathComponent("atomic.tmp")
+        try Data("# replacement content with a different size\n".utf8).write(to: replacement)
+        let renamed = replacement.path.withCString { from in
+            note.path.withCString { to in Darwin.rename(from, to) == 0 }
+        }
+        expect(renamed, "atomic replacement succeeds")
+        let after = try ViewerDocumentReader.fingerprint(note)
+        expect(before != after, "replacement is observable through the fingerprint")
+        let replaced = try ViewerDocumentReader.read(note)
+        expect(replaced.markdown.contains("replacement"), "replacement content is readable")
+    }
+
+    private static func testRootSwapBeforePinning() throws {
+        let workspace = try temporaryDirectory()
+        let selectedDirectory = workspace.appendingPathComponent("selected", isDirectory: true)
+        let movedDirectory = workspace.appendingPathComponent("selected-moved", isDirectory: true)
+        let outside = try temporaryDirectory()
+        try FileManager.default.createDirectory(at: selectedDirectory, withIntermediateDirectories: false)
+        defer {
+            try? FileManager.default.removeItem(at: selectedDirectory)
+            try? FileManager.default.removeItem(at: movedDirectory)
+            try? FileManager.default.removeItem(at: workspace)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        let document = selectedDirectory.appendingPathComponent("chosen.md")
+        try Data("# selected document\n".utf8).write(to: document)
+        try Data("# outside document\n".utf8).write(to: outside.appendingPathComponent("chosen.md"))
+        let canonicalDocument = ViewerDocumentReader.canonicalURL(for: document)
+        let canonicalDirectory = canonicalDocument.deletingLastPathComponent()
+
+        // The parent is replaced after canonicalization but before Reader pins it.
+        try FileManager.default.moveItem(at: canonicalDirectory, to: movedDirectory)
+        try FileManager.default.createSymbolicLink(at: canonicalDirectory, withDestinationURL: outside)
+        try expectThrows("document parent swapped to an outside symlink before pinning") {
+            _ = try ViewerDocumentReader.read(canonicalURL: canonicalDocument)
+        }
+    }
+
+    private static func testResourceAndLinkPolicies() throws {
+        let root = try temporaryDirectory()
+        let outside = try temporaryDirectory()
+        let pinnedRoot = try temporaryDirectory()
+        let movedPinnedRoot = pinnedRoot.deletingLastPathComponent().appendingPathComponent("moved-\(pinnedRoot.lastPathComponent)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: outside)
+            try? FileManager.default.removeItem(at: pinnedRoot)
+            try? FileManager.default.removeItem(at: movedPinnedRoot)
+        }
+        let imageURL = URL(string: "banana-viewer-resource://document/image.png")!
+        let imagePath = try ViewerPolicy.rasterPath(requestURL: imageURL)
+        try Data([0x89, 0x50, 0x4e, 0x47]).write(to: root.appendingPathComponent("image.png"))
+        let canonicalRoot = ViewerDocumentReader.canonicalURL(for: root.appendingPathComponent("image.png")).deletingLastPathComponent()
+        let rootReader = try ViewerRasterResourceReader(canonicalDocumentDirectory: canonicalRoot)
+        let image = try rootReader.read(imagePath)
+        expect(image.mimeType == "image/png" && image.data.count == 4, "raster path is allowlisted and read from its pinned root")
+
+        let svgURL = URL(string: "banana-viewer-resource://document/vector.svg")!
+        try expectThrows("SVG is not raster") { _ = try ViewerPolicy.rasterPath(requestURL: svgURL) }
+        try expectThrows("path traversal") {
+            _ = try ViewerPolicy.rasterPath(requestURL: URL(string: "banana-viewer-resource://document/%2e%2e/escape.png")!)
+        }
+
+        // Validate a lexical path, then replace its final component with an outside symlink.
+        try Data([1, 2, 3]).write(to: outside.appendingPathComponent("escape.png"))
+        let swappedURL = URL(string: "banana-viewer-resource://document/swapped.png")!
+        let validatedBeforeSwap = try ViewerPolicy.rasterPath(requestURL: swappedURL)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("swapped.png"),
+                                                   withDestinationURL: outside.appendingPathComponent("escape.png"))
+        try expectThrows("post-validation symlink replacement") { _ = try rootReader.read(validatedBeforeSwap) }
+
+        let subdirectoryURL = URL(string: "banana-viewer-resource://document/linked/escape.png")!
+        let validatedSubdirectory = try ViewerPolicy.rasterPath(requestURL: subdirectoryURL)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("linked"), withDestinationURL: outside)
+        try expectThrows("symlinked directory traversal") { _ = try rootReader.read(validatedSubdirectory) }
+
+        let pinnedImage = URL(string: "banana-viewer-resource://document/pinned.png")!
+        try Data([0x11]).write(to: pinnedRoot.appendingPathComponent("pinned.png"))
+        try Data([0x22]).write(to: outside.appendingPathComponent("pinned.png"))
+        let canonicalPinnedRoot = ViewerDocumentReader.canonicalURL(for: pinnedRoot.appendingPathComponent("pinned.png")).deletingLastPathComponent()
+        let pinnedReader = try ViewerRasterResourceReader(canonicalDocumentDirectory: canonicalPinnedRoot)
+        try FileManager.default.moveItem(at: pinnedRoot, to: movedPinnedRoot)
+        try FileManager.default.createSymbolicLink(at: pinnedRoot, withDestinationURL: outside)
+        let pinnedContents = try pinnedReader.read(ViewerPolicy.rasterPath(requestURL: pinnedImage))
+        expect(pinnedContents.data == Data([0x11]), "renaming the root cannot redirect an already pinned descriptor")
+
+        let source = root.appendingPathComponent("folder/current.md")
+        expect(ViewerPolicy.localMarkdownTarget(href: "next.md#section", relativeTo: source)?.lastPathComponent == "next.md",
+               "relative Markdown link accepts fragments")
+        expect(ViewerPolicy.localMarkdownTarget(href: "../../outside.md", relativeTo: source) != nil,
+               "an explicit Markdown link may resolve a Markdown document")
+        expect(ViewerPolicy.localMarkdownTarget(href: "file:///tmp/private.md", relativeTo: source) == nil,
+               "file URL is not a local bridge target")
+        expect(ViewerPolicy.localMarkdownTarget(href: "image.png", relativeTo: source) == nil,
+               "local link bridge opens only Markdown")
+        expect(ViewerPolicy.explicitExternalURL("https://example.test/a") != nil, "HTTPS click is allowed")
+        expect(ViewerPolicy.explicitExternalURL("mailto:reader@example.test") != nil, "mailto click is allowed")
+        expect(ViewerPolicy.explicitExternalURL("file:///etc/passwd") == nil, "file URL is not external")
+        expect(ViewerPolicy.explicitExternalURL("javascript:alert(1)") == nil, "script URL is rejected")
+        expect(ViewerPolicy.explicitExternalURL("https://user:pass@example.test") == nil, "credential URL is rejected")
+    }
+
+    private static func testPreferencePersistence(catalog: ViewerCatalog) throws {
+        let suite = "com.jzlosman.banana-viewer.tests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else { fatalError("Could not create isolated preferences domain") }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ViewerPreferencesStore(defaults: defaults, catalog: catalog)
+        expect(store.preferences == .defaults, "new app domain starts from viewer defaults")
+        let changed = ViewerPreferences(themeID: "banana-dark", syntaxThemeID: "banana-dark", fontID: "avenir", fontWeight: 500,
+                                        fontSize: 18, focusedOpacity: 0.9, unfocusedOpacity: 0.8, glass: 0.3)
+        try store.save(changed)
+        expect(store.preferences == changed, "viewer settings persist in the supplied isolated domain")
+
+        let first = URL(fileURLWithPath: "/tmp/viewer-one.md")
+        let second = URL(fileURLWithPath: "/tmp/viewer-two.mdown")
+        store.recordRecent(first)
+        store.recordRecent(second)
+        store.recordRecent(first)
+        expect(store.recentDocumentURLs.map(\.lastPathComponent) == ["viewer-one.md", "viewer-two.mdown"],
+               "recents are unique and newest first")
+        store.clearRecentDocuments()
+        expect(store.recentDocumentURLs.isEmpty, "clear recents removes viewer-owned recent list")
+    }
+
+    private static func temporaryDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("banana-viewer-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+        guard condition() else { fatalError("Viewer core test failed: \(message)") }
+    }
+
+    private static func expectThrows(_ name: String, _ body: () throws -> Void) throws {
+        do { try body() } catch { return }
+        fatalError("Viewer core test did not reject \(name)")
+    }
+}

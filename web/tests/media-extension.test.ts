@@ -27,3 +27,13 @@ test('unmanaged image and arbitrary media HTML are not rendered as active media'
   assert.equal(editor.view.dom.querySelector('script'), null);
   editor.destroy();
 });
+test('image alt serialization escapes backslashes, opening brackets and closing brackets', () => {
+  const expectedAlt = 'a\\b[c]d]';
+  const first = parse('');
+  first.commands.setContent({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'image', attrs: { src: asset('png'), alt: expectedAlt, title: null } }] }] });
+  const firstAlt = first.state.doc.firstChild?.firstChild?.attrs.alt;
+  assert.equal(firstAlt, expectedAlt);
+  const serialized = first.getMarkdown();
+  assert.ok(serialized.includes(`![a\\\\b\\[c\\]d\\]](${asset('png')})`), serialized);
+  first.destroy();
+});

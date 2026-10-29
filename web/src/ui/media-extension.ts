@@ -9,28 +9,49 @@ function imageSource(value: string): boolean {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password; } catch { return false; }
 }
 
-/** Audio/video are restricted to native-managed assets and persist as a
- * narrowly recognized controls-only HTML convention; arbitrary raw HTML is not enabled. */
-export const ManagedImage = Image.extend({
-  addAttributes() {
-    return { ...this.parent?.(), src: {
-      default: null,
-      parseHTML: (element: HTMLElement) => { const src = element.getAttribute('src') ?? ''; return imageSource(src) ? src : null; },
-      renderHTML: (attributes: Record<string, unknown>) => imageSource(String(attributes.src ?? '')) ? { src: attributes.src } : {},
-    } };
-  },
-  parseMarkdown(token: any, helpers: any) {
-    const src = token.href ?? token.url ?? '';
-    if (!imageSource(src)) return null;
-    return helpers.createNode(this.name, { src, alt: token.text ?? '', title: token.title ?? null });
-  },
-  renderMarkdown(node: any) {
-    const src = node.attrs?.src;
-    if (!imageSource(src)) return '';
-    const alt = String(node.attrs?.alt ?? '').replace(/[\\[\]]/g, '\\$&');
-    return `![${alt}](${src})`;
-  },
-});
+export type MarkdownImageResolver = {
+  resolve(source: string): string | null;
+  isResolved?(source: string): boolean;
+};
+
+function imageExtension(resolveSource?: MarkdownImageResolver) {
+  const acceptedSource = (value: unknown): string | null => {
+    const source = String(value ?? '');
+    if (resolveSource) {
+      if (resolveSource.isResolved?.(source)) return source;
+      return resolveSource.resolve(source);
+    }
+    return imageSource(source) ? source : null;
+  };
+
+  return Image.extend({
+    addAttributes() {
+      return { ...this.parent?.(), src: {
+        default: null,
+        parseHTML: (element: HTMLElement) => acceptedSource(element.getAttribute('src')),
+        renderHTML: (attributes: Record<string, unknown>) => {
+          const src = acceptedSource(attributes.src);
+          return src ? { src } : {};
+        },
+      } };
+    },
+    parseMarkdown(token: any, helpers: any) {
+      const source = String(token.href ?? token.url ?? '');
+      const src = resolveSource ? resolveSource.resolve(source) : acceptedSource(source);
+      if (!src) return null;
+      return helpers.createNode(this.name, { src, alt: token.text ?? '', title: token.title ?? null });
+    },
+    renderMarkdown(node: any) {
+      const src = acceptedSource(node.attrs?.src);
+      if (!src) return '';
+      const alt = String(node.attrs?.alt ?? '').replace(/[\\[\]]/g, '\\$&');
+      return `![${alt}](${src})`;
+    },
+  });
+}
+
+/** Existing Notes grammar; viewer-only resolution is an explicit opt-in. */
+export const ManagedImage = imageExtension();
 
 function mediaNode(kind: 'audio' | 'video') {
   const pattern = new RegExp(`^<${kind} controls src="(foldnote-asset:\\/\\/media\\/[0-9a-f-]+\\.[a-z0-9]+)"></${kind}>`);
@@ -63,4 +84,6 @@ function mediaNode(kind: 'audio' | 'video') {
 
 export const ManagedAudio = mediaNode('audio');
 export const ManagedVideo = mediaNode('video');
-export const mediaExtensions = () => [ManagedImage, ManagedAudio, ManagedVideo];
+export function mediaExtensions(options: { imageResolver?: MarkdownImageResolver } = {}) {
+  return [options.imageResolver ? imageExtension(options.imageResolver) : ManagedImage, ManagedAudio, ManagedVideo];
+}

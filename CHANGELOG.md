@@ -4,6 +4,10 @@ All notable changes to Banana Notes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Banana Viewer, a separately built macOS companion for reading Markdown files in normal document windows. It shares rendering, palettes, and bundled fonts with Banana Notes while keeping its preferences independent and leaving files and the notes library untouched. The first version is read-only. Viewer has its own document-line banana logo and independently versioned release workflow for signed, notarized draft downloads, separate from the Banana Notes update feed.
+
 ## [0.2.7] - 2026-10-28
 
 ### Fixed

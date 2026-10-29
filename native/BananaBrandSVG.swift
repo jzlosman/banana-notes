@@ -5,27 +5,36 @@ import Foundation
 /// SVG serialization adapter. Geometry and colours come only from `BananaMark`;
 /// Space Mono outlines are loaded from the same bundled WOFF2 faces used by the app.
 enum BananaBrandSVG {
-    static func generatedFiles(repositoryRoot: URL) throws -> [String: String] {
+    static func generatedFiles(repositoryRoot: URL, product: BananaMark.Product = .notes) throws -> [String: String] {
         let fontDirectory = repositoryRoot.appendingPathComponent("node_modules/@fontsource/space-mono/files", isDirectory: true)
         let regularFont = try loadFont(fontDirectory.appendingPathComponent("space-mono-latin-400-normal.woff2"), size: BananaMark.lockupFontSize)
         let boldFont = try loadFont(fontDirectory.appendingPathComponent("space-mono-latin-700-normal.woff2"), size: BananaMark.lockupFontSize)
-        let wordmark = try makeWordmark(regular: regularFont, bold: boldFont)
-
+        let wordmark = try makeWordmark(regular: regularFont, bold: boldFont, product: product)
+        if product == .notes {
+            return [
+                "app-icon.svg": appIconSVG(product: product),
+                "mark.svg": markSVG(outlined: true, product: product),
+                "mark-on-cocoa.svg": markSVG(outlined: false, product: product),
+                "logo.svg": logoSVG(wordmark: wordmark, dark: false, product: product),
+                "logo-dark.svg": logoSVG(wordmark: wordmark, dark: true, product: product),
+                "logo-on-cocoa.svg": logoOnCocoaSVG(wordmark: wordmark, product: product),
+                "menu-bar.svg": menuBarSVG()
+            ]
+        }
         return [
-            "app-icon.svg": appIconSVG(),
-            "mark.svg": markSVG(outlined: true),
-            "mark-on-cocoa.svg": markSVG(outlined: false),
-            "logo.svg": logoSVG(wordmark: wordmark, dark: false),
-            "logo-dark.svg": logoSVG(wordmark: wordmark, dark: true),
-            "logo-on-cocoa.svg": logoOnCocoaSVG(wordmark: wordmark),
-            "menu-bar.svg": menuBarSVG()
+            "app-icon.svg": appIconSVG(product: product),
+            "mark.svg": markSVG(outlined: true, product: product),
+            "logo.svg": logoSVG(wordmark: wordmark, dark: false, product: product),
+            "logo-dark.svg": logoSVG(wordmark: wordmark, dark: true, product: product),
+            "logo-on-cocoa.svg": logoOnCocoaSVG(wordmark: wordmark, product: product)
         ]
     }
 
-    static func exportMarkSVG(side: Double) -> String {
+    static func exportMarkSVG(side: Double, product: BananaMark.Product = .notes) -> String {
         let box = BananaMark.markViewBox
         let inner = noteLayersSVG(BananaMark.standaloneMarkLayers)
-        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(number(side))\" height=\"\(number(side))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\" aria-hidden=\"true\"><g transform=\"\(noteRotationTransform)\">\(inner)</g></svg>"
+        let lines = product == .viewer ? viewerWritingLinesSVG() : ""
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(number(side))\" height=\"\(number(side))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\" aria-hidden=\"true\"><g transform=\"\(noteRotationTransform)\">\(inner)\(lines)</g></svg>"
     }
 
     private struct Wordmark {
@@ -39,7 +48,7 @@ enum BananaBrandSVG {
         let visualEnd: Double
     }
 
-    private static func makeWordmark(regular: CTFont, bold: CTFont) throws -> Wordmark {
+    private static func makeWordmark(regular: CTFont, bold: CTFont, product: BananaMark.Product) throws -> Wordmark {
         let em = BananaMark.lockupFontSize
         let markSize = BananaMark.markSizeInEm * em
         let baseline = markSize / 2 + Double(CTFontGetXHeight(regular)) / 2
@@ -47,8 +56,8 @@ enum BananaBrandSVG {
         let bananaStart = markSize + BananaMark.markTextGapInEm * em
         let banana = try outline("banana", font: bold, visualStart: bananaStart, baseline: baseline, tracking: tracking)
         let notesStart = banana.visualEnd + BananaMark.wordGapInEm * em
-        let notes = try outline("notes", font: regular, visualStart: notesStart, baseline: baseline, tracking: tracking)
-        return Wordmark(width: notes.visualEnd, height: markSize, paths: banana.paths + notes.paths)
+        let suffix = try outline(product.wordmarkSuffix, font: regular, visualStart: notesStart, baseline: baseline, tracking: tracking)
+        return Wordmark(width: suffix.visualEnd, height: markSize, paths: banana.paths + suffix.paths)
     }
 
     private static func outline(_ text: String, font: CTFont, visualStart: Double, baseline: Double,
@@ -98,7 +107,7 @@ enum BananaBrandSVG {
         return font
     }
 
-    private static func appIconSVG() -> String {
+    private static func appIconSVG(product: BananaMark.Product) -> String {
         let scale = BananaMark.iconTileSize / BananaMark.noteSize
         let shadowOffset = BananaMark.iconShadowOffset / scale
         let shadowBlur = BananaMark.iconShadowBlur / scale
@@ -106,26 +115,28 @@ enum BananaBrandSVG {
         let radius = number(BananaMark.iconTileRadius)
         let canvas = number(BananaMark.iconCanvasSize)
         let layers = noteLayersSVG(BananaMark.noteLayers)
+        let lines = product == .viewer ? viewerWritingLinesSVG() : ""
         return """
         <svg xmlns="http://www.w3.org/2000/svg" width="\(canvas)" height="\(canvas)" viewBox="0 0 \(canvas) \(canvas)" role="img">
-          <title>Banana Notes</title>
+          <title>\(product.title)</title>
           <defs><filter id="tile-shadow" x="-4" y="-4" width="56" height="58" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="\(preciseNumber(shadowOffset))" stdDeviation="\(preciseNumber(shadowBlur))" flood-color="#000000" flood-opacity="\(number(BananaMark.iconShadowOpacity))"/></filter></defs>
           <g transform="translate(\(number(BananaMark.iconTileOrigin)) \(number(BananaMark.iconTileOrigin))) scale(\(preciseNumber(scale)))">
             <rect x="0" y="0" width="\(tile)" height="\(tile)" rx="\(radius)" fill="\(BananaMark.Color.cocoa)" filter="url(#tile-shadow)"/>
             <rect x="0" y="0" width="\(tile)" height="\(tile)" rx="\(radius)" fill="\(BananaMark.Color.cocoa)"/>
-            <g transform="\(noteRotationTransform)">\(layers)</g>
+            <g transform="\(noteRotationTransform)">\(layers)\(lines)</g>
           </g>
         </svg>
         """
     }
 
-    private static func markSVG(outlined: Bool) -> String {
+    private static func markSVG(outlined: Bool, product: BananaMark.Product) -> String {
         let box = BananaMark.markViewBox
         let layers = noteLayersSVG(outlined ? BananaMark.standaloneMarkLayers : BananaMark.noteLayers)
+        let lines = product == .viewer ? viewerWritingLinesSVG() : ""
         return """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))" role="img">
-          <title>Banana Notes</title>
-          <g transform="\(noteRotationTransform)">\(layers)</g>
+          <title>\(product.title)</title>
+          <g transform="\(noteRotationTransform)">\(layers)\(lines)</g>
         </svg>
         """
     }
@@ -139,43 +150,53 @@ enum BananaBrandSVG {
         """
     }
 
-    private static func logoSVG(wordmark: Wordmark, dark: Bool) -> String {
+    private static func logoSVG(wordmark: Wordmark, dark: Bool, product: BananaMark.Product) -> String {
         let markSize = wordmark.height
         let mark: String
-        if dark {
+        if dark && product == .notes {
             let tile = number(BananaMark.noteSize)
             mark = "<svg x=\"0\" y=\"0\" width=\"\(number(markSize))\" height=\"\(number(markSize))\" viewBox=\"0 0 \(tile) \(tile)\"><rect width=\"\(tile)\" height=\"\(tile)\" rx=\"\(number(BananaMark.iconTileRadius))\" fill=\"\(BananaMark.Color.cocoa)\"/><g transform=\"\(noteRotationTransform)\">\(noteLayersSVG(BananaMark.noteLayers))</g></svg>"
         } else {
             let box = BananaMark.markViewBox
-            mark = "<svg x=\"0\" y=\"0\" width=\"\(number(markSize))\" height=\"\(number(markSize))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\"><g transform=\"\(noteRotationTransform)\">\(noteLayersSVG(BananaMark.standaloneMarkLayers))</g></svg>"
+            let lines = product == .viewer ? viewerWritingLinesSVG() : ""
+            mark = "<svg x=\"0\" y=\"0\" width=\"\(number(markSize))\" height=\"\(number(markSize))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\"><g transform=\"\(noteRotationTransform)\">\(noteLayersSVG(BananaMark.standaloneMarkLayers))\(lines)</g></svg>"
         }
         let textColor = dark ? BananaMark.Color.cream : BananaMark.Color.ink
         return """
         <svg xmlns="http://www.w3.org/2000/svg" width="\(number(wordmark.width))" height="\(number(wordmark.height))" viewBox="0 0 \(number(wordmark.width)) \(number(wordmark.height))" role="img">
-          <title>Banana Notes</title>
+          <title>\(product.title)</title>
           \(mark)
           <g fill="\(textColor)">\(wordmark.paths.joined())</g>
         </svg>
         """
     }
 
-    private static func logoOnCocoaSVG(wordmark: Wordmark) -> String {
+    private static func logoOnCocoaSVG(wordmark: Wordmark, product: BananaMark.Product) -> String {
         let padding = 16.0
         let width = wordmark.width + padding * 2
         let height = wordmark.height + padding * 2
         let markSize = wordmark.height
         let box = BananaMark.markViewBox
-        let mark = "<svg x=\"0\" y=\"0\" width=\"\(number(markSize))\" height=\"\(number(markSize))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\"><g transform=\"\(noteRotationTransform)\">\(noteLayersSVG(BananaMark.noteLayers))</g></svg>"
+        let markLayers = product == .viewer ? BananaMark.standaloneMarkLayers : BananaMark.noteLayers
+        let lines = product == .viewer ? viewerWritingLinesSVG() : ""
+        let mark = "<svg x=\"0\" y=\"0\" width=\"\(number(markSize))\" height=\"\(number(markSize))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\"><g transform=\"\(noteRotationTransform)\">\(noteLayersSVG(markLayers))\(lines)</g></svg>"
+        let background = product == .notes ? "<rect width=\"100%\" height=\"100%\" fill=\"\(BananaMark.Color.cocoa)\"/>\n  " : ""
         return """
         <svg xmlns="http://www.w3.org/2000/svg" width="\(number(width))" height="\(number(height))" viewBox="0 0 \(number(width)) \(number(height))" role="img">
-          <title>Banana Notes</title>
-          <rect width="100%" height="100%" fill="\(BananaMark.Color.cocoa)"/>
-          <g transform="translate(\(number(padding)) \(number(padding)))">
+          <title>\(product.title)</title>
+          \(background)<g transform="translate(\(number(padding)) \(number(padding)))">
             \(mark)
             <g fill="\(BananaMark.Color.cream)">\(wordmark.paths.joined())</g>
           </g>
         </svg>
         """
+    }
+
+    private static func viewerWritingLinesSVG() -> String {
+        let path = BananaMark.viewerWritingLines.map { line in
+            "M\(number(line.start.x)) \(number(line.start.y))H\(number(line.end.x))"
+        }.joined()
+        return "<path d=\"\(path)\" fill=\"none\" stroke=\"\(BananaMark.Color.espresso)\" stroke-width=\"\(number(BananaMark.viewerWritingLineWidth))\" stroke-linecap=\"round\"/>"
     }
 
     private static var noteRotationTransform: String {

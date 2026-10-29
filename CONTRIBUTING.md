@@ -11,7 +11,9 @@ npm ci --ignore-scripts
 npm run typecheck
 npm test
 bash scripts/native-tests.sh
+npm run test:viewer:native
 npm run build
+npm run build:viewer
 ```
 
 Create a feature branch and open a pull request against `main`. Include meaningful tests and, for interface changes, screenshots using synthetic notes. The browser preview is available with `npm run dev` after building the web assets. For the static Pages site, run `npm run site:dev` and `cd site && python3 -m http.server 4321` in separate terminals; run `npm run site:build` for a production stylesheet.
@@ -35,6 +37,8 @@ The web app separates deterministic rules in `web/src/domain/`, use cases and po
 On macOS, `AppDelegate.swift` handles lifecycle callbacks and `NativeApplicationRuntime.swift` composes the window, hotkey, bridge, menu, and termination services. `BridgeCommandDecoder` turns wire actions into typed `BridgeCommand` values; `BridgeRouter` dispatches each to a capability handler. `NativePorts.swift` defines effect ports, while framework-independent policy code is checked by `ArchitectureSelfTest`.
 
 Dependencies point inward: domain and application rules depend on contracts, while UI and adapters depend on those inner boundaries. To add a native capability, add its wire action and typed `BridgeCommand` case, implement and register a handler, then expose a web capability port and adapter.
+
+The separately installed Banana Viewer companion has its own composition roots in `web/src/viewer/` and `viewer/native/`. It shares Markdown and appearance components at build time, not the notes runtime, library, or preferences. See [the companion guide](docs/viewer.md) for its file-ownership and verification boundaries.
 
 ## Design and safety
 

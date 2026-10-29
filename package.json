@@ -20,6 +20,9 @@
   "scripts": {
     "build:web": "node scripts/build-web.mjs",
     "build": "npm run build:web && bash scripts/build-app.sh",
+    "build:viewer": "npm run build:web && bash scripts/build-viewer.sh",
+    "test:viewer:native": "bash scripts/viewer-native-tests.sh",
+    "test:viewer:webkit": "bash scripts/viewer-native-tests.sh --webkit-smoke",
     "test": "tsx --test web/tests/*.test.ts",
     "test:task-caret-webkit": "node scripts/task-item-caret-webkit.mjs",
     "test:markdown-pbt": "node scripts/run-markdown-pbt.mjs",

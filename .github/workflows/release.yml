@@ -2,7 +2,7 @@ name: Signed Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v[0-9]*']
   workflow_dispatch:
 
 permissions:
@@ -99,6 +99,7 @@ jobs:
       - name: Package and notarize
         if: github.event_name == 'push'
         env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           NOTARY_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
           NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

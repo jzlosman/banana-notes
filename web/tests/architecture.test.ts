@@ -33,22 +33,28 @@ function codeOnly(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|[^:\\])\/\/.*$/gm, '$1')
-    .replace(/`(?:\\[\s\S]|\$\{[^}]*\}|[^`\\])*`|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/g, match => {
-      const quote = match[0];
-      const keepImports = quote !== '`' && /^['"](?:\.|@?[a-z])/.test(match);
-      return keepImports ? match : quote + quote;
-    });
+    .replace(/`(?:\\[\s\S]|\$\{[^}]*\}|[^`\\])*`|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/g, match => match[0] + match[0])
+    // A document field in a domain read model is not the global DOM document.
+    .replace(/\bdocument(?=\s*:)|(?<=\.)document\b/g, '');
 }
+
+test('purity scanning distinguishes document read-model fields and URL strings from DOM effects', () => {
+  assert.doesNotMatch(codeOnly("type Snapshot = { document: string }; snapshot.document; const url = 'banana-viewer-resource://document/';"), /\bdocument\b/);
+  assert.match(codeOnly("document.createElement('p');"), /\bdocument\b/);
+  assert.match(codeOnly('window.localStorage.getItem(key);'), /\b(?:window|localStorage)\b/);
+  assert.deepEqual(importsOf("import { Search } from 'lucide';"), ['lucide']);
+});
 
 test('domain is deterministic and imports no outward application, adapter, UI, or browser APIs', () => {
   const failures: string[] = [];
-  for (const file of sourceFiles(join(sourceRoot, 'domain'))) {
+  for (const file of [...sourceFiles(join(sourceRoot, 'domain')), ...sourceFiles(join(sourceRoot, 'viewer/domain'))]) {
     const source = readFileSync(file, 'utf8');
     for (const specifier of importsOf(source)) {
       const target = resolvedImport(file, specifier);
       if (target && /\/(application|adapters|ui)\//.test(target)) failures.push(`${file}: imports ${specifier}`);
     }
-    if (/\b(?:window|document|localStorage|navigator|HTMLElement|FileReader|crypto|performance)\b|Date\.now\s*\(|from\s+['"](?:lucide|@tiptap\/)/.test(codeOnly(source))) {
+    if (/\b(?:window|document|localStorage|navigator|HTMLElement|FileReader|crypto|performance)\b|Date\.now\s*\(/.test(codeOnly(source)) ||
+        importsOf(source).some(specifier => /^(?:lucide(?:\/|$)|@tiptap\/)/.test(specifier))) {
       failures.push(`${file}: references a browser/UI effect`);
     }
   }
@@ -57,7 +63,7 @@ test('domain is deterministic and imports no outward application, adapter, UI, o
 
 test('application depends only on its own contracts and the domain', () => {
   const failures: string[] = [];
-  for (const file of sourceFiles(join(sourceRoot, 'application'))) {
+  for (const file of [...sourceFiles(join(sourceRoot, 'application')), ...sourceFiles(join(sourceRoot, 'viewer/application'))]) {
     for (const specifier of importsOf(readFileSync(file, 'utf8'))) {
       const target = resolvedImport(file, specifier);
       if (target && !target.includes('/application/') && !target.includes('/domain/')) failures.push(`${file}: imports ${specifier}`);
@@ -73,7 +79,7 @@ test('UI never imports adapters; adapter internals stay inward of the UI boundar
     for (const specifier of importsOf(readFileSync(file, 'utf8'))) {
       const target = resolvedImport(file, specifier);
       if (!target?.includes('/adapters/')) continue;
-      if (file !== join(sourceRoot, 'main.ts') && !file.includes('/adapters/')) failures.push(`${file}: imports ${specifier}`);
+      if (file !== join(sourceRoot, 'main.ts') && file !== join(sourceRoot, 'viewer/main.ts') && !file.includes('/adapters/')) failures.push(`${file}: imports ${specifier}`);
     }
     if (file.includes('/adapters/') && importsOf(readFileSync(file, 'utf8')).some(specifier => resolvedImport(file, specifier)?.includes('/ui/'))) {
       failures.push(`${file}: adapter imports UI`);
@@ -82,10 +88,25 @@ test('UI never imports adapters; adapter internals stay inward of the UI boundar
   assert.deepEqual(failures, []);
 });
 
+test('Banana Viewer stays independent of Notes library and preview adapters', () => {
+  const failures: string[] = [];
+  const viewerRoot = join(sourceRoot, 'viewer');
+  const sharedRenderingModules = new Set(['appearance.ts', 'note-font.ts', 'code-highlighting.ts', 'icon.ts', 'theme-grid.ts', 'editor-schema.ts', 'markdown-source.ts']);
+  for (const file of sourceFiles(viewerRoot)) {
+    for (const specifier of importsOf(readFileSync(file, 'utf8'))) {
+      const target = resolvedImport(file, specifier);
+      if (target && !target.includes('/viewer/') && (target.endsWith('/domain/library.ts') || target.endsWith('/application/ports.ts') ||
+        target.endsWith('/adapters/preview.ts') || target.endsWith('/adapters/native-bridge.ts'))) failures.push(`${file}: imports Notes capability ${specifier}`);
+      if (target?.includes('/ui/') && !target.includes('/viewer/ui/') && !sharedRenderingModules.has(target.split('/').pop() ?? '')) failures.push(`${file}: imports Notes UI module ${specifier}`);
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
 test('every vertical auto-scroller opts into the shared quiet-scroll treatment', () => {
   // Layout selectors stay plain (so media-query overrides keep working); the element that receives a
   // scrolling class must also receive `quiet-scroll` where the UI creates it.
-  const markup = sourceFiles(join(sourceRoot, 'ui')).map(file => readFileSync(file, 'utf8')).join('\n');
+  const markup = [...sourceFiles(join(sourceRoot, 'ui')), ...sourceFiles(join(sourceRoot, 'viewer/ui'))].map(file => readFileSync(file, 'utf8')).join('\n');
   const classLiterals = [...markup.matchAll(/'([^'\n]*)'|"([^"\n]*)"/g)].map(match => (match[1] ?? match[2]).split(/\s+/));
   const failures: string[] = [];
   for (const file of styleFiles(sourceRoot)) {

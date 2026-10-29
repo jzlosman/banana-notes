@@ -54,12 +54,17 @@ async function buildBundledFonts() {
 }
 
 await mkdir('web/dist', { recursive: true });
-const result = await build({
+const minify = (process.env.BANANA_NOTES_DEBUG ?? process.env.FOLDNOTE_DEBUG) !== '1';
+const notesBuild = await build({
   entryPoints: ['web/src/main.ts'], bundle: true, format: 'iife', target: ['safari17'],
-  outfile: 'web/dist/app.js', sourcemap: true, minify: (process.env.BANANA_NOTES_DEBUG ?? process.env.FOLDNOTE_DEBUG) !== '1',
-  legalComments: 'none', metafile: true,
+  outfile: 'web/dist/app.js', sourcemap: true, minify, legalComments: 'none', metafile: true,
+});
+const viewerBuild = await build({
+  entryPoints: ['web/src/viewer/main.ts'], bundle: true, format: 'iife', target: ['safari17'],
+  outfile: 'web/dist/viewer.js', sourcemap: true, minify, legalComments: 'none', metafile: true,
 });
 await copyFile('web/index.html', 'web/dist/index.html');
+await copyFile('web/viewer.html', 'web/dist/viewer.html');
 await copyFile('web/src/theme-catalog.json', 'web/dist/theme-catalog.json');
 await buildBundledFonts();
 
@@ -76,7 +81,7 @@ for (const [source, name] of [
 await cp('vendor/agent-paint/licenses', path.join(notices, 'palette-licenses'), { recursive: true });
 
 const packages = new Map();
-for (const input of Object.keys(result.metafile.inputs)) {
+for (const input of [...Object.keys(notesBuild.metafile.inputs), ...Object.keys(viewerBuild.metafile.inputs)]) {
   if (!input.startsWith('node_modules/')) continue;
   let directory = path.dirname(path.resolve(input));
   while (directory !== path.dirname(directory)) {

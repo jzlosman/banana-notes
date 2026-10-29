@@ -76,3 +76,9 @@ The reader is the hero; we're the guide. Talk about what they're doing, not abou
 - **Show, don't boast.** Name the shortcut, the click, the result. No "revolutionary," "supercharge," "effortless" or "unlock."
 - **Be honest about what it isn't.** No sync, no account, no cloud. Say so plainly; it's part of the appeal.
 - **A little fun, never cute.** One banana joke per page, at most.
+
+## Banana Viewer companion
+
+Banana Viewer keeps the same note shape, tilt, colors, and lowercase Space Mono wordmark, adding three document lines inside the note and using **banana** viewer. Its source is the same shared geometry and generator, selected with `bash scripts/build-icons.sh viewer`; its assets live in [`assets/viewer-brand/`](assets/viewer-brand/).
+
+The standalone `mark.svg` and all Viewer wordmark variants have transparent backgrounds: no cocoa square behind the mark. The rounded cocoa tile belongs only to `app-icon.svg`, `app-icon-1024.png`, and the macOS `AppIcon.icns`. Use `logo.svg` on light backgrounds and `logo-dark.svg` on dark ones. Viewer branding does not alter the Banana Notes assets or defaults.

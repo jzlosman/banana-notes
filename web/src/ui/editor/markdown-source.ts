@@ -53,12 +53,13 @@ function nestedTokens(token: any): any[] {
   return [token, ...(Array.isArray(token.tokens) ? token.tokens.flatMap(nestedTokens) : [])];
 }
 
-function unsupported(token: any, source: string): boolean {
+function unsupported(token: any, source: string, supportsImage?: (source: string) => boolean): boolean {
   if (token.type === 'def') return true;
   if (token.type === 'html') return true;
   const tokens = nestedTokens(token);
   if (tokens.some(part => part.type === 'html' || part.type === 'def')) return true;
   if (tokens.some(part => part.type === 'link' && /^!?\[[\s\S]*?\](?:\[[^\]]*\])?$/.test(part.raw ?? ''))) return true;
+  if (supportsImage && tokens.some(part => part.type === 'image' && !supportsImage(String(part.href ?? part.url ?? '')))) return true;
   if (/\[\^[^\]]+\]/.test(source)) return true;
   if (/\\#/.test(source)) return true;
   if (/(?:\$\$?[\s\S]+?\$\$?|\\\([\s\S]+?\\\)|\\\[(?=[^\]]*(?:\\[a-z]+|[=+^_*/]))[\s\S]+?\\\])/.test(source)) return true;
@@ -104,14 +105,14 @@ function normalizedNode(editor: Editor, node: JSONContent): JSONContent[] {
 function rawNode(source: string): JSONContent { return { type: RawMarkdownBlock.name, attrs: { source } }; }
 
 /** Parse once at the adapter boundary, replacing unsupported syntax with safe source atoms. */
-export function installMarkdownSource(editor: Editor, source: string): void {
+export function installMarkdownSource(editor: Editor, source: string, options: { supportsImage?: (source: string) => boolean } = {}): void {
   const parsed = sourceBlocks(editor, source);
   const content: JSONContent[] = [];
 
   for (const block of parsed.blocks) {
     let nodes: JSONContent[] = [];
     const token = editor.markdown!.instance.lexer(markdownParserInput(block.token))[0];
-    if (token && !unsupported(token, block.token)) {
+    if (token && !unsupported(token, block.token, options.supportsImage)) {
       const result = editor.markdown!.parse(markdownParserInput(block.token.replace(/\n+$/, '')));
       nodes = (result.content ?? []).flatMap(node => normalizedNode(editor, node));
     }

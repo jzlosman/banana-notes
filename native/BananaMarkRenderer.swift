@@ -2,16 +2,17 @@ import AppKit
 
 /// AppKit drawing adapter for the pure design geometry in `BananaMark`.
 enum BananaMarkRenderer {
-    static func drawNote(in bounds: NSRect, outlined: Bool) {
+    static func drawNote(in bounds: NSRect, outlined: Bool, product: BananaMark.Product = .notes) {
         draw(layers: outlined ? BananaMark.standaloneMarkLayers : BananaMark.noteLayers,
              in: bounds, designSize: BananaMark.noteSize, rotated: true)
+        if product == .viewer { drawWritingLines(in: bounds) }
     }
 
     static func drawMenuGlyph(in bounds: NSRect) {
         draw(layers: BananaMark.menuBarLayers, in: bounds, designSize: BananaMark.menuBarCanvasSize, rotated: false)
     }
 
-    static func drawAppIcon(in bounds: NSRect) {
+    static func drawAppIcon(in bounds: NSRect, product: BananaMark.Product = .notes) {
         let canvasScale = bounds.width / CGFloat(BananaMark.iconCanvasSize)
         let tileScale = canvasScale * CGFloat(BananaMark.iconTileSize / BananaMark.noteSize)
         let tileOrigin = CGFloat(BananaMark.iconTileOrigin) * canvasScale
@@ -31,7 +32,25 @@ enum BananaMarkRenderer {
             color(BananaMark.Color.cocoa).setFill()
             tilePath.fill()
         }
-        drawNote(in: tile, outlined: false)
+        drawNote(in: tile, outlined: false, product: product)
+    }
+
+    private static func drawWritingLines(in bounds: NSRect) {
+        let path = NSBezierPath()
+        for line in BananaMark.viewerWritingLines {
+            path.move(to: map(line.start, in: bounds))
+            path.line(to: map(line.end, in: bounds))
+        }
+        path.lineCapStyle = .round
+        path.lineWidth = CGFloat(BananaMark.viewerWritingLineWidth) * min(bounds.width, bounds.height) / CGFloat(BananaMark.noteSize)
+        color(BananaMark.Color.espresso).setStroke()
+        path.stroke()
+    }
+
+    private static func map(_ source: BananaMark.Point, in bounds: NSRect) -> NSPoint {
+        let point = BananaMark.rotated(source)
+        return NSPoint(x: bounds.minX + CGFloat(point.x / BananaMark.noteSize) * bounds.width,
+                       y: bounds.maxY - CGFloat(point.y / BananaMark.noteSize) * bounds.height)
     }
 
     private static func draw(layers: [BananaMark.Layer], in bounds: NSRect, designSize: Double, rotated: Bool) {

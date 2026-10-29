@@ -1,8 +1,16 @@
 import Foundation
 
-/// Pure design geometry and colours for every Banana Notes brand rendering.
+/// Pure design geometry and colours shared by Banana Notes and Banana Viewer renderings.
 /// Coordinates use a top-left origin, positive y down, and the approved 48-unit grid.
 enum BananaMark {
+    enum Product: String {
+        case notes
+        case viewer
+
+        var title: String { self == .notes ? "Banana Notes" : "Banana Viewer" }
+        var wordmarkSuffix: String { self == .notes ? "notes" : "viewer" }
+    }
+
     struct Point: Equatable {
         let x: Double
         let y: Double
@@ -21,6 +29,11 @@ enum BananaMark {
         let fill: String?
         let stroke: String?
         let strokeWidth: Double
+    }
+
+    struct WritingLine: Equatable {
+        let start: Point
+        let end: Point
     }
 
     enum Color {
@@ -86,6 +99,13 @@ enum BananaMark {
 
     static let standaloneMarkLayers = noteLayers + [
         Layer(commands: silhouette, fill: nil, stroke: Color.espresso, strokeWidth: 1)
+    ]
+
+    static let viewerWritingLineWidth = 1.65
+    static let viewerWritingLines = [
+        WritingLine(start: Point(x: 17.8, y: 18.1), end: Point(x: 30, y: 18.1)),
+        WritingLine(start: Point(x: 17.8, y: 23.6), end: Point(x: 28, y: 23.6)),
+        WritingLine(start: Point(x: 17.8, y: 29.1), end: Point(x: 23.5, y: 29.1))
     ]
 
     static let menuBarLayers: [Layer] = [

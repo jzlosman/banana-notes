@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
       - name: Keep local artifacts out of source
         run: |
-          forbidden="$(git ls-files -- evidence research build web/dist node_modules assets/AppIcon.iconset assets/brand-exploration DESIGN.md PRODUCT.md AGENTS.md '.env' '.env.*' '*.pem' '*.key' '*.p12' '*.pfx')"
+          forbidden="$(git ls-files -- evidence research build web/dist node_modules assets/AppIcon.iconset assets/viewer-brand/AppIcon.iconset assets/brand-exploration DESIGN.md PRODUCT.md AGENTS.md '.env' '.env.*' '*.pem' '*.key' '*.p12' '*.pfx')"
           if [[ -n "$forbidden" ]]; then
             echo '::error::Private or generated artifacts must not be tracked.'
             printf '%s\n' "$forbidden"

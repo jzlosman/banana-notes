@@ -1,10 +1,17 @@
 # Banana Viewer
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/viewer-brand/logo-dark.svg">
+  <img src="../assets/viewer-brand/logo.svg" alt="banana viewer" width="340">
+</picture>
+
 Banana Viewer is a separately installed macOS app for reading Markdown files. It uses Banana Notes’ Markdown components, theme catalog, syntax colors, and bundled fonts without starting the notes runtime or opening its library.
 
 ![Banana Viewer reading a synthetic Markdown document in its native Mac window](media/banana-viewer-native.png)
 
 The native app, opened through macOS with a synthetic Markdown file.
+
+[Watch the 18-second announcement trailer](media/banana-viewer-announcement.mp4) · [Poster](media/banana-viewer-announcement-poster.png). The trailer is silent and uses real app captures with sample documents.
 
 ## Build and run
 
@@ -17,7 +24,7 @@ open "build/Banana Viewer.app"
 open -a "$PWD/build/Banana Viewer.app" "$PWD/README.md"
 ```
 
-The companion starts at version 0.1.0, independently recorded in `viewer/version.txt`; `VIEWER_VERSION` and `VIEWER_BUILD` optionally override local build metadata. The build produces a universal Apple silicon/Intel application. Local builds are ad-hoc signed, not notarized distribution releases. The existing Banana Notes release workflow and downloads remain unchanged.
+The companion version is independently recorded in `viewer/version.txt`; `VIEWER_VERSION` and `VIEWER_BUILD` optionally override local build metadata. The build produces a universal Apple silicon/Intel application with its own document-line banana icon. Local builds are ad-hoc signed, not notarized distribution releases. The [independent Viewer release workflow](viewer-releases.md) prepares signed, notarized drafts under `viewer-v…` tags without replacing Banana Notes downloads or its update feed.
 
 To install the companion, copy `build/Banana Viewer.app` into Applications. Banana Notes does not need to be installed. To make Viewer the default for Markdown, select a `.md` file in Finder, choose **Get Info → Open with → Banana Viewer → Change All**. The app does not change file associations automatically.
 

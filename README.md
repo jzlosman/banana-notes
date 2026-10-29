@@ -71,7 +71,7 @@ npm run build:viewer
 open "build/Banana Viewer.app"
 ```
 
-The companion is currently built from source; the Banana Notes release downloads are unchanged.
+Build the companion from source, or use its [independent release process](docs/viewer-releases.md). Viewer has its own version, logo, and `viewer-v…` release tags; Banana Notes downloads and its update feed stay separate.
 
 ## Feature tour
 

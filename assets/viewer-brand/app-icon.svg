@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img">
+  <title>Banana Viewer</title>
+  <defs><filter id="tile-shadow" x="-4" y="-4" width="56" height="58" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0.582524271845" stdDeviation="0.582524271845" flood-color="#000000" flood-opacity="0.25"/></filter></defs>
+  <g transform="translate(100 100) scale(17.166666666667)">
+    <rect x="0" y="0" width="48" height="48" rx="10.8" fill="#5A3A22" filter="url(#tile-shadow)"/>
+    <rect x="0" y="0" width="48" height="48" rx="10.8" fill="#5A3A22"/>
+    <g transform="rotate(-8 23.5 24)"><path d="M12.2 10 L34.8 10 Q37 10 37 12.2 L37 16.5 C37 30.5 32.5 38 17.5 38 L12.2 38 Q10 38 10 35.8 L10 12.2 Q10 10 12.2 10 Z" fill="#D9A00A"/><path d="M17.2 10 L34.8 10 Q37 10 37 12.2 L37 16.5 C37 25 25 36.6 17.5 38 L12.2 38 Q10 38 10 35.8 L10 17.2 Z" fill="#FBE122"/><path d="M12.2 10 L17.2 10 L10 17.2 L10 12.2 Q10 10 12.2 10 Z" fill="#2E1D12"/><path d="M17.8 18.1H30M17.8 23.6H28M17.8 29.1H23.5" fill="none" stroke="#2E1D12" stroke-width="1.65" stroke-linecap="round"/></g>
+  </g>
+</svg>

@@ -6,6 +6,7 @@ node_modules/
 /site/vendor/
 /site/index.html
 /assets/AppIcon.iconset/
+/assets/viewer-brand/AppIcon.iconset/
 *.app/
 *.log
 .DS_Store

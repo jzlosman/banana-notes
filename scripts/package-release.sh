@@ -2,9 +2,82 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/build/Banana Notes.app"
+PRODUCT="${1:-notes}"
+if [[ "$#" -gt 1 ]]; then
+  echo "Usage: bash scripts/package-release.sh [notes|viewer]" >&2
+  exit 2
+fi
+case "$PRODUCT" in
+  notes)
+    PRODUCT_NAME='Banana Notes'
+    BUNDLE_ID='com.jzlosman.banana-notes'
+    ASSET_PREFIX='Banana-Notes'
+    OUT="$ROOT/build/release"
+    TEMP_PREFIX='banana-notes-release'
+    EXPECTED_VERSION="${BANANA_VERSION:-}"
+    ;;
+  viewer)
+    PRODUCT_NAME='Banana Viewer'
+    BUNDLE_ID='com.jzlosman.banana-viewer'
+    ASSET_PREFIX='Banana-Viewer'
+    OUT="$ROOT/build/viewer-release"
+    TEMP_PREFIX='banana-viewer-release'
+    EXPECTED_VERSION="${VIEWER_VERSION:-}"
+    ;;
+  *)
+    echo "Unknown release product '$PRODUCT'. Use 'notes' or 'viewer'." >&2
+    exit 2
+    ;;
+esac
+
+APP="$ROOT/build/$PRODUCT_NAME.app"
 if [[ ! -d "$APP" || ! -f "$APP/Contents/Info.plist" ]]; then
-  echo "Signed app not found at '$APP'. Build with scripts/build-app.sh first." >&2
+  echo "Signed app not found at '$APP'. Build the $PRODUCT_NAME app first." >&2
+  exit 1
+fi
+
+plist_value() {
+  /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist"
+}
+ACTUAL_NAME="$(plist_value CFBundleName)"
+ACTUAL_ID="$(plist_value CFBundleIdentifier)"
+ACTUAL_EXECUTABLE="$(plist_value CFBundleExecutable)"
+VERSION="$(plist_value CFBundleShortVersionString)"
+BUILD="$(plist_value CFBundleVersion)"
+if [[ "$ACTUAL_NAME" != "$PRODUCT_NAME" || "$ACTUAL_ID" != "$BUNDLE_ID" || "$ACTUAL_EXECUTABLE" != "$PRODUCT_NAME" ]]; then
+  echo "The app bundle identity does not match the selected $PRODUCT release product." >&2
+  exit 1
+fi
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+  echo "The app bundle has an invalid release version '$VERSION'." >&2
+  exit 1
+fi
+if [[ -n "$EXPECTED_VERSION" && "$VERSION" != "$EXPECTED_VERSION" ]]; then
+  echo "App version '$VERSION' does not match the requested release version '$EXPECTED_VERSION'." >&2
+  exit 1
+fi
+
+if [[ -z "${SIGN_IDENTITY:-}" ]]; then
+  echo "SIGN_IDENTITY is required to sign the release disk image with the app's Developer ID." >&2
+  exit 1
+fi
+if ! codesign --verify --deep --strict --verbose=2 "$APP"; then
+  echo "The app signature is invalid; release packaging requires a Developer ID-signed app." >&2
+  exit 1
+fi
+SIGNATURE_DETAILS="$(codesign -dv --verbose=4 "$APP" 2>&1 || true)"
+ACTUAL_TEAM_ID=''
+if [[ "$SIGNATURE_DETAILS" =~ TeamIdentifier=([A-Z0-9]{10}) ]]; then
+  ACTUAL_TEAM_ID="${BASH_REMATCH[1]}"
+fi
+if ! grep -q 'flags=.*runtime' <<<"$SIGNATURE_DETAILS" || \
+   ! grep -Fq "Identifier=$BUNDLE_ID" <<<"$SIGNATURE_DETAILS" || \
+   [[ ! "$ACTUAL_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+  echo "The app must have a hardened-runtime Developer ID signature for $BUNDLE_ID with a valid TeamIdentifier." >&2
+  exit 1
+fi
+if [[ -n "${APPLE_TEAM_ID:-}" && "$ACTUAL_TEAM_ID" != "$APPLE_TEAM_ID" ]]; then
+  echo "The app is signed by team $ACTUAL_TEAM_ID, not the expected APPLE_TEAM_ID." >&2
   exit 1
 fi
 
@@ -29,28 +102,11 @@ else
   exit 1
 fi
 
-if [[ -z "${SIGN_IDENTITY:-}" ]]; then
-  echo "SIGN_IDENTITY is required to sign the release disk image with the app's Developer ID." >&2
-  exit 1
-fi
-if ! codesign --verify --deep --strict --verbose=2 "$APP"; then
-  echo "The app signature is invalid; release packaging requires a Developer ID-signed app." >&2
-  exit 1
-fi
-SIGNATURE_DETAILS="$(codesign -dv --verbose=4 "$APP" 2>&1 || true)"
-if ! grep -q 'flags=.*runtime' <<<"$SIGNATURE_DETAILS" || ! grep -Eq 'TeamIdentifier=[A-Z0-9]{10}' <<<"$SIGNATURE_DETAILS"; then
-  echo "The app must use a hardened-runtime Developer ID signature before packaging." >&2
-  exit 1
-fi
-
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
-OUT="$ROOT/build/release"
-TEMP="$(mktemp -d "${TMPDIR:-/tmp}/banana-release.XXXXXX")"
+TEMP="$(mktemp -d "${TMPDIR:-/tmp}/$TEMP_PREFIX.XXXXXX")"
 trap 'rm -rf "$TEMP"' EXIT
 mkdir -p "$OUT"
-DMG_NAME="Banana-Notes-${VERSION}.dmg"
-ZIP_NAME="Banana-Notes-${VERSION}.zip"
+DMG_NAME="$ASSET_PREFIX-${VERSION}.dmg"
+ZIP_NAME="$ASSET_PREFIX-${VERSION}.zip"
 DMG="$OUT/$DMG_NAME"
 ZIP="$OUT/$ZIP_NAME"
 
@@ -80,7 +136,7 @@ staple_with_retry() {
   return 1
 }
 
-NOTARY_ZIP="$TEMP/Banana-Notes-${VERSION}-notary.zip"
+NOTARY_ZIP="$TEMP/${ASSET_PREFIX}-${VERSION}-notary.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$NOTARY_ZIP"
 submit_for_notarization "$NOTARY_ZIP"
 staple_with_retry staple "$APP"
@@ -90,9 +146,9 @@ rm -f "$DMG" "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 STAGING="$TEMP/dmg-root"
 mkdir -p "$STAGING"
-cp -R "$APP" "$STAGING/Banana Notes.app"
+cp -R "$APP" "$STAGING/$PRODUCT_NAME.app"
 ln -s /Applications "$STAGING/Applications"
-hdiutil create -volname "Banana Notes $VERSION" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+hdiutil create -volname "$PRODUCT_NAME $VERSION" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
 codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DMG"
 submit_for_notarization "$DMG"
 staple_with_retry staple "$DMG"
@@ -104,5 +160,5 @@ spctl -a -vv -t execute "$APP"
   cd "$OUT"
   shasum -a 256 "$DMG_NAME" "$ZIP_NAME" > SHA256SUMS
 )
-echo "Packaged Banana Notes $VERSION (build $BUILD) in $OUT"
+echo "Packaged $PRODUCT_NAME $VERSION (build $BUILD) in $OUT"
 echo "Checksums: $OUT/SHA256SUMS"

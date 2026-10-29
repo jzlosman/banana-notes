@@ -33,7 +33,8 @@ for file in "${required[@]}"; do
   fi
 done
 for path in "$WEB_DIST/fonts/manifest.js" "$WEB_DIST/fonts" "$WEB_DIST/third-party" \
-            "$ROOT/web/src/domain/note-font-catalog.json" "$ROOT/viewer/Info.plist"; do
+            "$ROOT/web/src/domain/note-font-catalog.json" "$ROOT/viewer/Info.plist" \
+            "$ROOT/assets/viewer-brand/AppIcon.icns"; do
   if [[ ! -e "$path" ]]; then
     echo "Missing Banana Viewer build input: $path" >&2
     exit 1
@@ -75,13 +76,12 @@ lipo "$MACOS/Banana Viewer" -verify_arch x86_64
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.jzlosman.banana-viewer' "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable Banana Viewer' "$CONTENTS/Info.plist"
-if [[ -f "$ROOT/assets/AppIcon.icns" ]]; then
-  cp "$ROOT/assets/AppIcon.icns" "$RESOURCES/AppIcon.icns"
-  /usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string AppIcon' "$CONTENTS/Info.plist"
-fi
+cp "$ROOT/assets/viewer-brand/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string AppIcon' "$CONTENTS/Info.plist"
 
 if [[ -n "${VIEWER_SIGN_IDENTITY:-}" ]]; then
-  codesign --force --sign "$VIEWER_SIGN_IDENTITY" "$APP"
+  # AppKit and WebKit need no exception entitlements for this standalone viewer.
+  codesign --force --sign "$VIEWER_SIGN_IDENTITY" --options runtime --timestamp "$APP"
 else
   codesign --force --deep --sign - "$APP"
 fi

@@ -204,7 +204,6 @@ export function renderViewerSettings(options: SettingsOptions): ViewerSettingsVi
   windowSection.append(legibility, reset); windowPanel.append(windowSection);
 
   const generalPanel = tabPanels.get('General')!;
-  const generalSection = section(doc, 'General');
   const defaultAppRow = doc.createElement('div'); defaultAppRow.className = 'viewer-default-app-row';
   const defaultAppCopy = doc.createElement('div'); defaultAppCopy.className = 'viewer-default-app-copy';
   const defaultAppLabel = doc.createElement('span'); defaultAppLabel.className = 'viewer-default-app-label';
@@ -217,7 +216,7 @@ export function renderViewerSettings(options: SettingsOptions): ViewerSettingsVi
   defaultAppSwitch.setAttribute('aria-describedby', defaultAppCaption.id);
   const defaultAppThumb = doc.createElement('span'); defaultAppThumb.className = 'viewer-default-app-switch-thumb'; defaultAppThumb.setAttribute('aria-hidden', 'true');
   defaultAppSwitch.append(defaultAppThumb);
-  defaultAppRow.append(defaultAppCopy, defaultAppSwitch); generalSection.append(defaultAppRow); generalPanel.append(generalSection);
+  defaultAppRow.append(defaultAppCopy, defaultAppSwitch); generalPanel.append(defaultAppRow);
 
   const error = doc.createElement('p'); error.className = 'viewer-settings-error viewer-settings-global-error'; error.setAttribute('role', 'alert'); error.hidden = true;
   const footer = doc.createElement('p'); footer.className = 'viewer-settings-footer'; footer.textContent = 'These settings apply only to Banana Viewer. Banana Notes keeps its own preferences.';

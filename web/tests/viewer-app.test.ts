@@ -134,6 +134,10 @@ test('General settings renders an accessible default-app switch without offering
     const { root, mounted } = app(port); await flush();
     root.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click(); await flush();
     assert.equal(root.querySelector<HTMLButtonElement>('#viewer-settings-tab-general')?.getAttribute('aria-selected'), 'true');
+    const generalPanel = root.querySelector<HTMLElement>('#viewer-settings-panel-general')!;
+    assert.equal(generalPanel.getAttribute('aria-labelledby'), 'viewer-settings-tab-general');
+    assert.equal(generalPanel.querySelector('h2'), null, 'the tab name is not repeated as a section heading');
+    assert.ok(generalPanel.querySelector(':scope > .viewer-default-app-row'), 'the switch row is the first panel content');
     assert.equal(root.querySelector('#viewer-settings-tab-default-app'), null, 'the former Default app tab is removed');
     assert.equal(root.querySelector('.viewer-default-app-label')?.textContent, 'Open Markdown files with Banana Viewer');
     const toggle = root.querySelector<HTMLButtonElement>('.viewer-default-app-switch')!;

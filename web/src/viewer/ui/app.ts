@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, CodeXml, FileText, FolderOpen, Search, Settings, X } from 'lucide';
+import { ArrowDown, ArrowUp, CodeXml, FileText, FolderOpen, Lock, LockOpen, Search, Settings, X } from 'lucide';
 import { DEFAULT_NOTE_FONT_STATE, resolveNoteFontState } from '../../domain/note-font';
 import { stepFontSize } from '../../domain/font-size';
 import { applyAppearance } from '../../ui/appearance';
@@ -8,9 +8,10 @@ import { applyNoteFont } from '../../ui/note-font';
 import type { NoteFontState } from '../../domain/note-font';
 import { DEFAULT_VIEWER_PREFERENCES, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
 import type { ViewerSession, ViewerSessionEvent } from '../application/session';
-import { renderReadOnlyMarkdown, type ReadOnlyMarkdownRenderer } from './markdown-renderer';
+import { guardViewerMarkdownEditor, renderReadOnlyMarkdown, type ReadOnlyMarkdownRenderer } from './markdown-renderer';
 import { renderViewerSettings, type ViewerSettingsView } from './settings-view';
 import { createTextSearchIndex } from './find';
+import { canSave, markdownForSave } from '../domain/editing';
 
 export type ViewerApp = { dispose(): void; openSettings(): void; openFind(): void; toggleSource(): void };
 
@@ -25,10 +26,13 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   const toolbar = document.createElement('header'); toolbar.className = 'viewer-toolbar'; toolbar.setAttribute('aria-label', 'Document controls');
   const openButton = document.createElement('button'); openButton.type = 'button'; openButton.className = 'viewer-open-button'; openButton.textContent = 'Open…'; openButton.title = 'Open a Markdown file (⌘O)'; openButton.setAttribute('aria-label', 'Open a Markdown file');
   const spacer = document.createElement('span'); spacer.className = 'viewer-toolbar-spacer';
+  const editingLabel = document.createElement('span'); editingLabel.className = 'viewer-editing-label'; editingLabel.textContent = 'Editing'; editingLabel.hidden = true;
+  const lockButton = iconButton(Lock, 'Unlock to Edit', 'Unlock to Edit (⌘E)');
+  lockButton.setAttribute('aria-pressed', 'false');
   const findButton = iconButton(Search, 'Find', 'Find in document (⌘F)');
   const sourceButton = iconButton(CodeXml, 'Source', 'View Markdown source (⌘⇧M)');
   const settingsButton = iconButton(Settings, 'Settings', 'Viewer settings');
-  toolbar.append(openButton, spacer, findButton, sourceButton, settingsButton);
+  toolbar.append(openButton, spacer, editingLabel, lockButton, findButton, sourceButton, settingsButton);
 
   const findBar = document.createElement('div'); findBar.className = 'viewer-find-bar search-field'; findBar.hidden = true;
   const findIcon = renderIcon(Search, 15); findBar.append(findIcon);
@@ -38,12 +42,18 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   const next = iconButton(ArrowDown, 'Next match', 'Next match (↵)'); next.classList.add('viewer-find-step');
   const closeFind = iconButton(X, 'Close Find', 'Close Find (Esc)'); closeFind.classList.add('viewer-find-close');
   findBar.append(findInput, count, previous, next, closeFind);
+  const conflictBanner = document.createElement('div'); conflictBanner.className = 'viewer-conflict-banner'; conflictBanner.setAttribute('role', 'status'); conflictBanner.hidden = true;
+  const conflictMessage = document.createElement('span'); conflictMessage.textContent = 'This file changed on disk.';
+  const reloadChanges = document.createElement('button'); reloadChanges.type = 'button'; reloadChanges.className = 'text-button'; reloadChanges.textContent = 'Reload';
+  const keepChanges = document.createElement('button'); keepChanges.type = 'button'; keepChanges.className = 'text-button'; keepChanges.textContent = 'Keep My Edits';
+  conflictBanner.append(conflictMessage, reloadChanges, keepChanges);
   const main = document.createElement('main'); main.className = 'viewer-body'; main.setAttribute('aria-live', 'off');
-  shell.append(toolbar, findBar, main); appRoot.replaceChildren(shell); appRoot.removeAttribute('aria-busy');
+  shell.append(toolbar, findBar, conflictBanner, main); appRoot.replaceChildren(shell); appRoot.removeAttribute('aria-busy');
 
   let snapshot: ViewerSnapshot | undefined;
   let mode: ViewMode = 'reader';
   let renderer: ReadOnlyMarkdownRenderer | undefined;
+  let rendererHost: HTMLElement | undefined;
   let settings: ViewerSettingsView | undefined;
   let settingsReturnFocus: HTMLElement | null = null;
   let settingsReturnScroll = 0;
@@ -58,7 +68,14 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   let renderedDocumentID = '';
   let scrollRestoreCleanup: (() => void) | undefined;
   let renderedSourceKey = '';
-  let sourceElement: HTMLPreElement | undefined;
+  let sourceElement: HTMLElement | undefined;
+  let originalMarkdown = '';
+  let baselineMarkdown = '';
+  let sourceDraft = '';
+  let sourceMode = false;
+  let replaceVersionPending = false;
+  let replaceVersionConfirmed = false;
+  let preserveEditSurface = false;
 
   const showStatus = (message: string) => {
     statusMessage = message;
@@ -82,8 +99,18 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   };
 
   const loadedDocument = (): Extract<ViewerSnapshot['document'], { kind: 'loaded' }> | undefined => snapshot?.document.kind === 'loaded' ? snapshot.document : undefined;
-  const disposeRenderer = () => { scrollRestoreCleanup?.(); scrollRestoreCleanup = undefined; renderer?.destroy(); renderer = undefined; renderedDocumentKey = ''; renderedDocumentID = ''; };
+  const disposeRenderer = () => { scrollRestoreCleanup?.(); scrollRestoreCleanup = undefined; renderer?.destroy(); renderer = undefined; rendererHost = undefined; renderedDocumentKey = ''; renderedDocumentID = ''; };
   const disposeSource = () => { sourceElement?.remove(); sourceElement = undefined; renderedSourceKey = ''; };
+  const editState = () => snapshot?.editing.kind === 'unlocked' ? snapshot.editing : undefined;
+  const currentEditedText = (): string => sourceMode
+    ? sourceDraft
+    : renderer?.editor.getMarkdown() ?? originalMarkdown;
+  const updateDirtyFromText = (text: string) => {
+    const state = editState();
+    if (!state) return;
+    const dirty = sourceMode ? text !== originalMarkdown : text !== baselineMarkdown;
+    if (state.dirty !== dirty) void session.setDocumentDirty(dirty).catch(error => showStatus(messageOf(error, 'Editing state could not be updated.')));
+  };
   const renderEmpty = () => {
     disposeRenderer(); disposeSource(); main.className = 'viewer-body viewer-empty-state quiet-scroll';
     const card = document.createElement('section'); card.className = 'viewer-empty';
@@ -110,7 +137,14 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
     const surface = main.querySelector<HTMLElement>('.viewer-source-text, .viewer-markdown');
     return surface ? createTextSearchIndex(surface) : undefined;
   };
-  const findMatches = (): number[] => activeSearchIndex()?.matches(findInput.value) ?? [];
+  const findMatches = (): number[] => {
+    if (mode === 'source' && sourceElement?.tagName === 'TEXTAREA') {
+      const query = findInput.value.trim();
+      return query ? [...(sourceElement as HTMLTextAreaElement).value.matchAll(new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu'))]
+        .map(match => match.index ?? 0) : [];
+    }
+    return activeSearchIndex()?.matches(findInput.value) ?? [];
+  };
   const updateFindCount = (matches: number[]) => {
     count.textContent = matches.length ? `${Math.min(findIndex + 1, matches.length)} of ${matches.length}` : findInput.value.trim() ? 'No matches' : '';
   };
@@ -120,7 +154,12 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
     findIndex = (findIndex + delta + matches.length) % matches.length; updateFindCount(matches);
     const index = activeSearchIndex();
     const start = matches[findIndex];
-    const range = start === undefined ? null : index?.range(start, findInput.value.trim().length);
+    if (start === undefined) return;
+    if (mode === 'source' && sourceElement?.tagName === 'TEXTAREA') {
+      (sourceElement as HTMLTextAreaElement).setSelectionRange(start, start + findInput.value.trim().length);
+      return;
+    }
+    const range = index?.range(start, findInput.value.trim().length);
     if (!range) return;
     const selection = document.defaultView?.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
     (range.startContainer.parentElement as HTMLElement | null)?.scrollIntoView?.({
@@ -143,24 +182,50 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
     disposeRenderer(); main.className = 'viewer-body viewer-source-view quiet-scroll';
     const current = loadedDocument();
     if (!current) return;
-    const key = `${current.revision}\u0000${current.markdown}`;
+    const unlocked = snapshot?.editing.kind === 'unlocked';
+    const key = `${current.revision}\u0000${current.markdown}\u0000${unlocked ? 'editing' : 'locked'}`;
     if (sourceElement && renderedSourceKey === key && main.contains(sourceElement)) return;
     disposeSource();
-    sourceElement = document.createElement('pre'); sourceElement.className = 'viewer-source-text quiet-scroll'; sourceElement.setAttribute('aria-label', `Markdown source for ${current.name}`); sourceElement.setAttribute('role', 'document');
-    sourceElement.textContent = current.markdown; renderedSourceKey = key; main.replaceChildren(sourceElement);
+    const sourceNote = document.createElement('p'); sourceNote.className = 'viewer-source-note';
+    sourceNote.textContent = 'Editing Markdown source to preserve this document.';
+    sourceNote.hidden = !unlocked || !sourceMode;
+    if (unlocked) {
+      const sourceEditor = document.createElement('textarea'); sourceEditor.className = 'viewer-source-text viewer-source-editor quiet-scroll';
+      sourceEditor.setAttribute('aria-label', `Editable Markdown source for ${current.name}`);
+      sourceEditor.spellcheck = false;
+      sourceEditor.value = sourceMode ? sourceDraft : current.markdown;
+      sourceEditor.addEventListener('input', () => { sourceDraft = sourceEditor.value; updateDirtyFromText(sourceDraft); });
+      sourceElement = sourceEditor;
+    } else {
+      const pre = document.createElement('pre'); pre.className = 'viewer-source-text quiet-scroll';
+      pre.setAttribute('aria-label', `Markdown source for ${current.name}`); pre.setAttribute('role', 'document');
+      pre.textContent = current.markdown; sourceElement = pre;
+    }
+    renderedSourceKey = key; main.replaceChildren(sourceNote, sourceElement);
   };
   const renderReader = () => {
     const current = loadedDocument();
     if (!current) return;
     const key = `${current.documentID}\u0000${current.revision}\u0000${current.resourceBaseURL}\u0000${current.markdown}`;
     main.className = 'viewer-body viewer-reader quiet-scroll';
-    if (renderer && renderedDocumentKey === key && main.contains(renderer.root)) return;
+    if (renderer && rendererHost && renderedDocumentKey === key) {
+      if (!main.contains(renderer.root)) main.replaceChildren(rendererHost);
+      renderer.setEditable(snapshot?.editing.kind === 'unlocked', text => updateDirtyFromText(text));
+      return;
+    }
     const scrollTop = renderer && renderedDocumentID === current.documentID ? main.scrollTop : 0;
     disposeRenderer(); disposeSource();
-    const host = document.createElement('article'); host.className = 'viewer-reader-content'; main.replaceChildren(host);
+    const host = document.createElement('article'); host.className = 'viewer-reader-content'; rendererHost = host; main.replaceChildren(host);
     renderer = renderReadOnlyMarkdown(host, current.markdown, current.resourceBaseURL, href => {
       void run(session.openLink(href), 'This link could not be opened.');
     });
+    if (snapshot?.editing.kind === 'unlocked') {
+      if (!snapshot.editing.dirty) {
+        originalMarkdown = current.markdown;
+        baselineMarkdown = renderer.editor.getMarkdown();
+      }
+      renderer.setEditable(true, text => updateDirtyFromText(text));
+    } else renderer.setEditable(false);
     renderedDocumentKey = key; renderedDocumentID = current.documentID;
     const pendingImages = new Set([...host.querySelectorAll('img')].filter(image => !image.complete));
     if (!pendingImages.size || scrollTop === 0) { main.scrollTop = scrollTop; return; }
@@ -225,6 +290,17 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
     findButton.disabled = mode === 'settings' || snapshot.document.kind !== 'loaded';
     sourceButton.disabled = mode === 'settings' || snapshot.document.kind !== 'loaded';
     sourceButton.classList.toggle('active', mode === 'source');
+    const editingAvailable = snapshot.editing.kind !== 'unavailable';
+    const unlocked = snapshot.editing.kind === 'unlocked';
+    lockButton.disabled = !editingAvailable || mode === 'settings' || snapshot.document.kind !== 'loaded';
+    lockButton.replaceChildren(renderIcon(unlocked ? LockOpen : Lock, 18));
+    lockButton.setAttribute('aria-label', unlocked ? 'Lock' : 'Unlock to Edit');
+    lockButton.setAttribute('aria-pressed', String(unlocked));
+    lockButton.title = editingAvailable ? (unlocked ? 'Lock (⌘E)' : 'Unlock to Edit (⌘E)') : 'Editing is available in the Mac app';
+    editingLabel.hidden = !unlocked;
+    conflictBanner.hidden = !snapshot.externalChange;
+    if (!editingAvailable) lockButton.setAttribute('aria-description', 'Editing is available in the Mac app');
+    else lockButton.removeAttribute('aria-description');
     settingsButton.disabled = mode === 'settings';
     settingsButton.setAttribute('aria-pressed', String(mode === 'settings'));
     openButton.disabled = settingsSaving > 0;
@@ -239,7 +315,7 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
     if (mode === 'settings') return;
     settingsReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : settingsButton;
     settingsReturnScroll = main.scrollTop; settingsReturnMode = mode;
-    closeFindBar(false); disposeRenderer(); mode = 'settings'; makeSettings(); render();
+    closeFindBar(false); mode = 'settings'; makeSettings(); render();
     settings?.focus();
   }
   function closeSettings(): void {
@@ -249,7 +325,73 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   }
   function toggleSource(): void {
     if (!loadedDocument() || mode === 'settings') return;
+    if (snapshot?.editing.kind === 'unlocked') {
+      if (sourceMode) return;
+      sourceDraft = renderer ? markdownForSave(originalMarkdown, baselineMarkdown, renderer.editor.getMarkdown()) : originalMarkdown;
+      sourceMode = true;
+    }
     closeFindBar(false); disposeRenderer(); mode = mode === 'source' ? 'reader' : 'source'; render();
+  }
+  async function toggleEditing(): Promise<void> {
+    if (!snapshot || snapshot.editing.kind === 'unavailable' || !loadedDocument()) return;
+    if (snapshot.editing.kind === 'unlocked') {
+      await run(session.lockDocument(), 'The document could not be locked.');
+      return;
+    }
+    const current = loadedDocument()!;
+    const scrollTop = main.scrollTop, scrollLeft = main.scrollLeft;
+    originalMarkdown = current.markdown;
+    sourceMode = mode === 'source';
+    if (sourceMode) {
+      baselineMarkdown = originalMarkdown;
+      sourceDraft = originalMarkdown;
+    } else {
+      if (!renderer) renderReader();
+      if (!renderer) return;
+      const guard = guardViewerMarkdownEditor(current.markdown, renderer.editor);
+      if (guard.kind === 'source') {
+        disposeRenderer();
+        mode = 'source';
+        sourceMode = true;
+        baselineMarkdown = originalMarkdown;
+        sourceDraft = originalMarkdown;
+      } else {
+        baselineMarkdown = guard.editor.getMarkdown();
+        sourceMode = false;
+      }
+    }
+    const unlocked = await run(session.unlockDocument(), 'The document could not be unlocked.');
+    if (unlocked) { main.scrollTop = scrollTop; main.scrollLeft = scrollLeft; }
+  }
+  async function saveCurrentDocument(): Promise<void> {
+    const current = loadedDocument();
+    if (!current || !snapshot || snapshot.editing.kind === 'unavailable' || !canSave(snapshot.editing)) return;
+    if (replaceVersionPending && !replaceVersionConfirmed) {
+      if (!document.defaultView?.confirm('Replace the version on disk?')) return;
+      replaceVersionConfirmed = true;
+    }
+    const edited = currentEditedText();
+    const markdown = markdownForSave(originalMarkdown, baselineMarkdown, edited, sourceMode);
+    preserveEditSurface = true;
+    const result = await run(session.saveDocument(current.revision, markdown), 'The document could not be saved.');
+    if (!result) { preserveEditSurface = false; return; }
+    if (result.kind === 'saved') {
+      replaceVersionPending = false;
+      replaceVersionConfirmed = false;
+      clearStatus();
+    } else if (result.kind === 'conflict') {
+      preserveEditSurface = false;
+      showStatus('This file changed on disk. Review the conflict banner before saving again.');
+    } else {
+      preserveEditSurface = false;
+      const messages = {
+        readOnlyFile: 'This file is read-only.',
+        permissionDenied: 'Permission denied. The file was not saved.',
+        tooLarge: 'This document exceeds the 8 MB limit.',
+        unknown: 'The file could not be saved.',
+      } as const;
+      showStatus(messages[result.reason]);
+    }
   }
   const run = async <T>(operation: Promise<T>, fallback: string): Promise<T | undefined> => {
     try { const result = await operation; clearStatus(); return result; }
@@ -258,7 +400,13 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
 
   openButton.addEventListener('click', () => void run(session.open(), 'The file picker could not be opened.'));
   findButton.addEventListener('click', openFind);
+  lockButton.addEventListener('click', () => void toggleEditing());
   sourceButton.addEventListener('click', toggleSource);
+  reloadChanges.addEventListener('click', () => void run(session.discardAndReload(), 'The document could not be reloaded.'));
+  keepChanges.addEventListener('click', () => {
+    preserveEditSurface = true;
+    void run(session.keepDocumentEdits(), 'Your edits could not be kept.').then(result => { if (result) replaceVersionPending = true; });
+  });
   settingsButton.addEventListener('click', openSettings);
   previous.addEventListener('click', () => navigateMatch(-1));
   next.addEventListener('click', () => navigateMatch(1));
@@ -295,9 +443,29 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
         previousDocument?.kind === 'loaded' && snapshot.document.kind === 'loaded' &&
           (previousDocument.documentID !== snapshot.document.documentID || previousDocument.revision !== snapshot.document.revision || previousDocument.markdown !== snapshot.document.markdown || previousDocument.resourceBaseURL !== snapshot.document.resourceBaseURL);
       if (documentChanged) {
+        const sameFile = previousDocument?.kind === 'loaded' && snapshot.document.kind === 'loaded' && previousDocument.documentID === snapshot.document.documentID;
+        const keepEditingSurface = preserveEditSurface && sameFile;
         closeFindBar(false);
-        if (mode !== 'settings') mode = 'reader';
-        else settingsReturnMode = 'reader';
+        if (keepEditingSurface && snapshot.document.kind === 'loaded') {
+          if (renderer && renderedDocumentID === snapshot.document.documentID) {
+            renderedDocumentKey = `${snapshot.document.documentID}\u0000${snapshot.document.revision}\u0000${snapshot.document.resourceBaseURL}\u0000${snapshot.document.markdown}`;
+          }
+          if (sourceElement) renderedSourceKey = `${snapshot.document.revision}\u0000${snapshot.document.markdown}\u0000${snapshot.editing.kind === 'unlocked' ? 'editing' : 'locked'}`;
+          if (snapshot.editing.kind === 'unlocked' && !snapshot.editing.dirty) {
+            originalMarkdown = snapshot.document.markdown;
+            baselineMarkdown = sourceMode ? originalMarkdown : renderer?.editor.getMarkdown() ?? originalMarkdown;
+            if (sourceMode) sourceDraft = originalMarkdown;
+          }
+          preserveEditSurface = false;
+        } else {
+          originalMarkdown = snapshot.document.kind === 'loaded' ? snapshot.document.markdown : '';
+          baselineMarkdown = '';
+          sourceDraft = '';
+          sourceMode = false;
+          replaceVersionPending = false;
+          if (mode !== 'settings') mode = 'reader';
+          else settingsReturnMode = 'reader';
+        }
       }
       if (settings) settings.update(snapshot.preferences);
       clearStatus(); render();
@@ -314,13 +482,15 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
         case 'zoomIn': void changeFontSize(1); break;
         case 'zoomOut': void changeFontSize(-1); break;
         case 'zoomReset': void setFontSize(15); break;
+        case 'toggleEditing': void toggleEditing(); break;
+        case 'save': case 'saveForClose': void saveCurrentDocument(); break;
       }
     }
   };
   const unsubscribe = session.subscribe(onSessionEvent);
   const handleBootstrapFailure = (error: unknown) => {
     const message = messageOf(error, 'Banana Viewer could not start.');
-    snapshot = { document: { kind: 'error', name: 'Banana Viewer', message }, preferences: { ...DEFAULT_VIEWER_PREFERENCES } };
+    snapshot = { document: { kind: 'error', name: 'Banana Viewer', message }, preferences: { ...DEFAULT_VIEWER_PREFERENCES }, editing: { kind: 'unavailable' }, externalChange: false };
     render();
   };
   void session.bootstrap().catch(handleBootstrapFailure);

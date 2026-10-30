@@ -1,4 +1,5 @@
-import { normalizeViewerPreferences, type ViewerCommand, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
+import { normalizeViewerPreferences, type ViewerCommand, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot, type DocumentWriteResult } from '../domain/model';
+import { canSave, lock, markDirty, unlock } from '../domain/editing';
 import type { ViewerEvent, ViewerPort } from './ports';
 
 export type ViewerSessionEvent = ViewerEvent | { kind: 'preferences-saving' } | { kind: 'preferences-saved' };
@@ -32,10 +33,43 @@ export class ViewerSession {
 
   open(): Promise<null> { return this.port.open(); }
   reload(): Promise<null> { return this.port.reload(); }
+  discardAndReload(): Promise<null> { return this.port.discardAndReload(); }
   reveal(): Promise<null> { return this.port.reveal(); }
   openLink(href: string): Promise<null> { return this.port.openLink(href); }
   queryDefaultAppStatus(): Promise<ViewerDefaultAppStatus> { return this.port.queryDefaultAppStatus(); }
   setDefaultApp(enabled: boolean): Promise<ViewerDefaultAppOutcome> { return this.port.setDefaultApp(enabled); }
+
+  async unlockDocument(): Promise<ViewerSnapshot> {
+    const snapshot = this.requireSnapshot();
+    if (snapshot.document.kind !== 'loaded' || snapshot.editing.kind === 'unavailable') throw new Error('Editing is unavailable for this document.');
+    unlock(snapshot.editing);
+    return this.accept(await this.port.unlockDocument());
+  }
+
+  async lockDocument(): Promise<ViewerSnapshot> {
+    const snapshot = this.requireSnapshot();
+    if (snapshot.editing.kind === 'unavailable') throw new Error('Editing is unavailable in this viewer.');
+    if (!(snapshot.editing.kind === 'unlocked' && snapshot.editing.dirty)) lock(snapshot.editing);
+    return this.accept(await this.port.lockDocument());
+  }
+
+  async setDocumentDirty(dirty: boolean): Promise<ViewerSnapshot> {
+    const snapshot = this.requireSnapshot();
+    if (snapshot.editing.kind === 'unavailable') throw new Error('Editing is unavailable in this viewer.');
+    markDirty(snapshot.editing, dirty);
+    if (snapshot.editing.kind === 'unlocked' && snapshot.editing.dirty === dirty) return snapshot;
+    return this.accept(await this.port.setDocumentDirty(dirty));
+  }
+
+  async keepDocumentEdits(): Promise<ViewerSnapshot> {
+    return this.accept(await this.port.keepDocumentEdits());
+  }
+
+  async saveDocument(expectedRevision: string, markdown: string): Promise<DocumentWriteResult> {
+    const snapshot = this.requireSnapshot();
+    if (snapshot.editing.kind === 'unavailable' || !canSave(snapshot.editing)) throw new Error('Only an unlocked, edited document can be saved.');
+    return this.port.saveDocument(expectedRevision, markdown);
+  }
 
   updatePreferences(patch: Partial<ViewerPreferences>): Promise<ViewerSnapshot> {
     const operation = this.preferenceTail.then(async () => {
@@ -59,9 +93,15 @@ export class ViewerSession {
     this.listeners.clear();
   }
 
-  private accept(snapshot: ViewerSnapshot): void {
+  private requireSnapshot(): ViewerSnapshot {
+    if (!this.snapshotValue) throw new Error('Banana Viewer is still starting.');
+    return this.snapshotValue;
+  }
+
+  private accept(snapshot: ViewerSnapshot): ViewerSnapshot {
     this.snapshotValue = snapshot;
     this.emit({ kind: 'snapshot', snapshot });
+    return snapshot;
   }
 
   private emit(event: ViewerSessionEvent): void {

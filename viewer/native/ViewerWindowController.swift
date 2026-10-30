@@ -18,6 +18,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
     private var currentFingerprint: ViewerFileFingerprint?
     private var documentRoot: ViewerRasterResourceReader?
     private var currentDocument: ViewerDocument = .empty
+    private var editingState: ViewerEditingState = .locked
+    private var pendingExternalResult: ViewerReadResult?
+    private var externalChangeDetected = false
+    private var closeAfterSave = false
+    private var lockAfterSave = false
+    private var terminationSaveCompletion: ((Bool) -> Void)?
     private var pageReady = false
     private var queuedMenuCommands: [String] = []
     private var filePoll: Timer?
@@ -25,7 +31,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
     var onOpenDocument: ((URL) -> Void)?
     var onOpenPanel: (() -> Void)?
     var onPreferencesUpdated: (() -> Void)?
+    var onEditingStateChanged: ((ViewerEditingState) -> Void)?
     var onClose: (() -> Void)?
+
 
     private(set) var webView: WKWebView!
     var documentURL: URL? { currentURL }
@@ -91,6 +99,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         if securityScopedAccess, let securityScopedURL { securityScopedURL.stopAccessingSecurityScopedResource() }
         let canonical = canonicalURL ?? ViewerDocumentReader.canonicalURL(for: url)
         currentURL = canonical
+        editingState = .locked
+        pendingExternalResult = nil
+        externalChangeDetected = false
+        closeAfterSave = false
+        lockAfterSave = false
         securityScopedURL = url
         securityScopedAccess = url.startAccessingSecurityScopedResource()
         resourceHandler.clearRoot()
@@ -108,15 +121,21 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         applyPreferences()
     }
 
-    func reloadDocument() {
+    func reloadDocument(discardingEdits: Bool = false) {
         guard currentURL != nil else { publishState(); return }
+        if discardingEdits {
+            if editingState.isUnlocked { editingState = .unlocked(dirty: false) }
+            pendingExternalResult = nil
+            externalChangeDetected = false
+            currentFingerprint = nil
+        }
         refreshDocument(forcePublish: true)
     }
 
     func publishState() {
         guard let webView, webView.isLoading == false else { return }
         do {
-            let snapshot = ViewerSnapshot(document: currentDocument, preferences: preferencesStore.preferences)
+            let snapshot = makeSnapshot()
             let data = try JSONEncoder().encode(snapshot)
             let script = "window.dispatchEvent(new CustomEvent('banana-viewer-state',{detail:JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + data.base64EncodedString() + "'),c=>c.charCodeAt(0))))}));"
             webView.evaluateJavaScript(script, completionHandler: nil)
@@ -129,7 +148,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
     }
 
     func dispatchMenuCommand(_ command: String) {
-        let allowed = Set(["settings", "find", "source", "zoomIn", "zoomOut", "zoomReset"])
+        let allowed = Set(["settings", "find", "source", "zoomIn", "zoomOut", "zoomReset", "toggleEditing", "save", "saveForClose"])
         guard allowed.contains(command) else { return }
         guard pageReady else { queuedMenuCommands.append(command); return }
         deliverMenuCommand(command)
@@ -140,8 +159,36 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         NSWorkspace.shared.activateFileViewerSelecting([currentURL])
     }
 
-    func windowDidBecomeKey(_ notification: Notification) { applyWindowEffects() }
+    func windowDidBecomeKey(_ notification: Notification) { applyWindowEffects(); onEditingStateChanged?(editingState) }
     func windowDidResignKey(_ notification: Notification) { applyWindowEffects() }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        guard let window, window.isVisible else { completionHandler(false); return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = message
+        alert.informativeText = "Replacing writes your current edits over the version on disk."
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            completionHandler(response == .alertFirstButtonReturn)
+        }
+    }
+
+    var hasUnsavedEdits: Bool { editingState.isDirty }
+    var currentEditingState: ViewerEditingState { editingState }
+
+    func confirmTermination(_ completion: @escaping (Bool) -> Void) {
+        guard editingState.isDirty else { completion(true); return }
+        presentUnsavedChangesSheet(locking: false, termination: completion)
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard editingState.isDirty else { return true }
+        presentUnsavedChangesSheet(locking: false)
+        return false
+    }
 
     func windowWillClose(_ notification: Notification) {
         stopObserving()
@@ -171,6 +218,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         onOpenDocument = nil
         onOpenPanel = nil
         onPreferencesUpdated = nil
+        onEditingStateChanged = nil
         onClose = nil
         close?()
     }
@@ -224,18 +272,62 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         do {
             switch action {
             case "bootstrap":
-                replyHandler(try viewerFoundationValue(ViewerSnapshot(document: currentDocument, preferences: preferencesStore.preferences)), nil)
+                replyHandler(try viewerFoundationValue(makeSnapshot()), nil)
             case "open":
                 replyHandler(NSNull(), nil)
                 onOpenPanel?()
             case "reload":
                 reloadDocument()
                 replyHandler(NSNull(), nil)
+            case "reloadDiscardingEdits":
+                reloadDocument(discardingEdits: true)
+                replyHandler(NSNull(), nil)
+            case "unlockDocument":
+                guard exactKeys(body, ["action"]), case .loaded = currentDocument else { throw ViewerError.unavailable }
+                editingState = .unlocked(dirty: false)
+                updateEditedTitle()
+                publishState()
+                replyHandler(try viewerFoundationValue(makeSnapshot()), nil)
+            case "lockDocument":
+                guard exactKeys(body, ["action"]) else { throw ViewerError.unavailable }
+                if editingState.isDirty {
+                    presentUnsavedChangesSheet(locking: true)
+                    replyHandler(try viewerFoundationValue(makeSnapshot()), nil)
+                } else {
+                    editingState = .locked
+                    updateEditedTitle()
+                    publishState()
+                    replyHandler(try viewerFoundationValue(makeSnapshot()), nil)
+                }
+            case "documentDirty":
+                guard exactKeys(body, ["action", "dirty"]), let dirty = body["dirty"] as? Bool, editingState.isUnlocked else {
+                    throw ViewerError.unavailable
+                }
+                editingState = .unlocked(dirty: dirty)
+                updateEditedTitle()
+                publishState()
+                replyHandler(try viewerFoundationValue(makeSnapshot()), nil)
+            case "keepDocumentEdits":
+                guard exactKeys(body, ["action"]), editingState.isDirty, let pendingExternalResult,
+                      case let .loaded(documentID, name, markdown, _, resourceBaseURL) = currentDocument else {
+                    throw ViewerError.unavailable
+                }
+                currentDocument = .loaded(documentID: documentID, name: name, markdown: markdown,
+                                          revision: pendingExternalResult.revision, resourceBaseURL: resourceBaseURL)
+                currentFingerprint = pendingExternalResult.fingerprint
+                documentRoot = pendingExternalResult.resourceRoot
+                resourceHandler.pinRoot(pendingExternalResult.resourceRoot)
+                self.pendingExternalResult = nil
+                self.externalChangeDetected = false
+                publishState()
+                replyHandler(try viewerFoundationValue(makeSnapshot()), nil)
+            case "saveDocument":
+                try saveDocument(body, replyHandler: replyHandler)
             case "preferences":
                 let preferences = try ViewerPolicy.validateWirePreferences(body["preferences"] as Any, catalog: catalog)
                 try preferencesStore.save(preferences)
                 onPreferencesUpdated?()
-                replyHandler(try viewerFoundationValue(ViewerSnapshot(document: currentDocument, preferences: preferences)), nil)
+                replyHandler(try viewerFoundationValue(makeSnapshot()), nil)
             case "openLink":
                 guard let href = body["href"] as? String, href.utf8.count <= 8_192 else {
                     throw ViewerError.invalidResource
@@ -292,6 +384,16 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
             } else {
                 result = try ViewerDocumentReader.read(canonicalURL: currentURL)
             }
+            if editingState.isDirty, case let .loaded(_, _, _, currentRevision, _) = currentDocument,
+               result.revision != currentRevision {
+                pendingExternalResult = result
+                externalChangeDetected = true
+                currentFingerprint = result.fingerprint
+                documentRoot = result.resourceRoot
+                resourceHandler.pinRoot(result.resourceRoot)
+                publishState()
+                return
+            }
             let next = ViewerDocument.loaded(documentID: ViewerDocumentReader.documentID(for: result.canonicalURL),
                                              name: result.canonicalURL.lastPathComponent,
                                              markdown: result.markdown,
@@ -301,24 +403,138 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
             currentFingerprint = result.fingerprint
             documentRoot = result.resourceRoot
             currentDocument = next
+            pendingExternalResult = nil
+            externalChangeDetected = false
             resourceHandler.pinRoot(result.resourceRoot)
-            window?.title = "\(result.canonicalURL.lastPathComponent) — Banana Viewer"
+            updateEditedTitle()
             if changed || forcePublish { publishState() }
         } catch let error as ViewerError {
+            if editingState.isDirty, case .loaded = currentDocument {
+                pendingExternalResult = nil
+                externalChangeDetected = true
+                currentFingerprint = nil
+                publishState()
+                return
+            }
             let next = ViewerDocument.error(name: currentURL.lastPathComponent, message: error.localizedDescription)
-            currentFingerprint = observedFingerprint
+            currentFingerprint = nil
             let changed = currentDocument != next
             currentDocument = next
+            pendingExternalResult = nil
+            externalChangeDetected = false
             resourceHandler.clearRoot()
-            window?.title = "\(currentURL.lastPathComponent) — Banana Viewer"
+            updateEditedTitle()
             if changed || forcePublish { publishState() }
         } catch {
+            if editingState.isDirty, case .loaded = currentDocument {
+                pendingExternalResult = nil
+                externalChangeDetected = true
+                currentFingerprint = nil
+                publishState()
+                return
+            }
             let next = ViewerDocument.error(name: currentURL.lastPathComponent, message: ViewerError.unavailable.localizedDescription)
-            currentFingerprint = observedFingerprint
+            currentFingerprint = nil
             let changed = currentDocument != next
             currentDocument = next
+            pendingExternalResult = nil
+            externalChangeDetected = false
             resourceHandler.clearRoot()
+            updateEditedTitle()
             if changed || forcePublish { publishState() }
+        }
+    }
+
+    private func makeSnapshot() -> ViewerSnapshot {
+        ViewerSnapshot(document: currentDocument, preferences: preferencesStore.preferences,
+                       editing: editingState, externalChange: externalChangeDetected)
+    }
+
+    private func exactKeys(_ body: [String: Any], _ keys: [String]) -> Bool { Set(body.keys) == Set(keys) }
+
+    private func updateEditedTitle() {
+        guard let window else { return }
+        let name: String
+        switch currentDocument {
+        case let .loaded(_, documentName, _, _, _): name = documentName
+        case let .error(documentName, _): name = documentName
+        case .empty: name = "Banana Viewer"
+        }
+        window.isDocumentEdited = editingState.isDirty
+        window.title = editingState.isDirty ? "\(name) — Edited — Banana Viewer" : "\(name) — Banana Viewer"
+        onEditingStateChanged?(editingState)
+    }
+
+    private func saveDocument(_ body: [String: Any], replyHandler: @escaping (Any?, String?) -> Void) throws {
+        guard exactKeys(body, ["action", "expectedRevision", "markdown"]),
+              let expectedRevision = body["expectedRevision"] as? String,
+              let markdown = body["markdown"] as? String,
+              let currentURL else { throw ViewerError.unavailable }
+        let result = ViewerDocumentWriter.save(canonicalURL: currentURL, using: documentRoot,
+                                               expectedRevision: expectedRevision, markdown: markdown,
+                                               isUnlocked: editingState.isUnlocked)
+        if case .saved = result {
+            do {
+                let saved = try ViewerDocumentReader.read(canonicalURL: currentURL, using: documentRoot ?? ViewerRasterResourceReader(canonicalDocumentDirectory: currentURL.deletingLastPathComponent()))
+                currentFingerprint = saved.fingerprint
+                documentRoot = saved.resourceRoot
+                resourceHandler.pinRoot(saved.resourceRoot)
+                currentDocument = .loaded(documentID: ViewerDocumentReader.documentID(for: saved.canonicalURL),
+                                          name: saved.canonicalURL.lastPathComponent, markdown: saved.markdown,
+                                          revision: saved.revision, resourceBaseURL: ViewerPolicy.resourceBaseURL)
+                pendingExternalResult = nil
+                externalChangeDetected = false
+                editingState = lockAfterSave ? .locked : .unlocked(dirty: false)
+                lockAfterSave = false
+                updateEditedTitle()
+                publishState()
+            } catch { }
+        } else if case .conflict = result {
+            closeAfterSave = false
+            lockAfterSave = false
+            refreshDocument(forcePublish: false)
+        } else {
+            closeAfterSave = false
+            lockAfterSave = false
+        }
+        let value = try viewerFoundationValue(result)
+        replyHandler(value, nil)
+        let terminationCompletion = terminationSaveCompletion
+        terminationSaveCompletion = nil
+        if case .saved = result { terminationCompletion?(true) }
+        else { terminationCompletion?(false) }
+        if case .saved = result, closeAfterSave {
+            closeAfterSave = false
+            DispatchQueue.main.async { [weak self] in self?.window?.performClose(nil) }
+        }
+    }
+
+    private func presentUnsavedChangesSheet(locking: Bool, termination: ((Bool) -> Void)? = nil) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Do you want to save changes to this document?"
+        alert.informativeText = "Your edits will be lost if you close this window without saving."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don’t Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window!) { [weak self] response in
+            guard let self else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                self.closeAfterSave = !locking && termination == nil
+                self.lockAfterSave = locking
+                self.terminationSaveCompletion = termination
+                self.dispatchMenuCommand("saveForClose")
+            case .alertSecondButtonReturn:
+                self.closeAfterSave = false
+                self.lockAfterSave = false
+                self.editingState = .locked
+                self.pendingExternalResult = nil
+                self.reloadDocument(discardingEdits: true)
+                if termination != nil { termination?(true) }
+                else if !locking { self.window?.performClose(nil) }
+            default: termination?(false)
+            }
         }
     }
 

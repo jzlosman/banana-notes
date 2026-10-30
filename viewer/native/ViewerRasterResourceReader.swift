@@ -51,6 +51,47 @@ final class ViewerRasterResourceReader {
         return try Self.fileFingerprint(descriptor)
     }
 
+    func replaceDocumentAtomically(filename: String, data: Data, maximumBytes: Int) throws {
+        guard !filename.isEmpty, filename != ".", filename != "..", !filename.contains("/"),
+              !filename.contains("\\"), !filename.contains("\0") else { throw ViewerFileWriteError.unknown }
+        guard data.count <= maximumBytes else { throw ViewerFileWriteError.tooLarge }
+        let current = filename.withCString { openat(rootDescriptor, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK) }
+        guard current >= 0 else { throw Self.writeError(errno) }
+        defer { Darwin.close(current) }
+        var info = stat()
+        guard fstat(current, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { throw ViewerFileWriteError.unknown }
+        let mode = mode_t(info.st_mode & mode_t(0o7777))
+        guard (mode & mode_t(0o222)) != 0 else { throw ViewerFileWriteError.readOnlyFile }
+
+        let temporary = ".banana-viewer-\(UUID().uuidString).tmp"
+        let output = temporary.withCString { openat(rootDescriptor, $0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, mode) }
+        guard output >= 0 else { throw Self.writeError(errno) }
+        var keepTemporary = true
+        defer {
+            Darwin.close(output)
+            if keepTemporary { temporary.withCString { _ = unlinkat(rootDescriptor, $0, 0) } }
+        }
+        guard fchmod(output, mode) == 0 else { throw Self.writeError(errno) }
+        try data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(output, base.advanced(by: offset), rawBuffer.count - offset)
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    throw Self.writeError(errno)
+                }
+                guard written > 0 else { throw ViewerFileWriteError.unknown }
+                offset += written
+            }
+        }
+        guard fsync(output) == 0 else { throw Self.writeError(errno) }
+        let renamed = temporary.withCString { source in filename.withCString { target in renameat(rootDescriptor, source, rootDescriptor, target) } }
+        guard renamed == 0 else { throw Self.writeError(errno) }
+        keepTemporary = false
+        guard fsync(rootDescriptor) == 0 else { throw Self.writeError(errno) }
+    }
+
     func read(_ path: ViewerRasterPath) throws -> ViewerRasterImage {
         guard !path.components.isEmpty else { throw ViewerError.invalidResource }
         var directory = dup(rootDescriptor)
@@ -108,6 +149,11 @@ final class ViewerRasterResourceReader {
             throw ViewerError.unavailable
         }
         return ViewerFileContents(data: data, fingerprint: after)
+    }
+
+    private static func writeError(_ code: Int32) -> ViewerFileWriteError {
+        if code == EACCES || code == EPERM || code == EROFS { return .permissionDenied }
+        return .unknown
     }
 
     private static func fileFingerprint(_ descriptor: Int32) throws -> ViewerFileFingerprint {

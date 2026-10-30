@@ -19,7 +19,8 @@ struct ViewerWebKitSmokeTest {
         let first = root.appendingPathComponent("smoke.md")
         let image = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jgV8AAAAASUVORK5CYII=")!
         try image.write(to: root.appendingPathComponent("smoke.png"))
-        try writeAtomically(Data("# Viewer smoke initial\n\n![Local image](smoke.png)\n".utf8), to: first)
+        let initialBytes = Data("# Viewer smoke initial\n\n![Local image](smoke.png)\n".utf8)
+        try writeAtomically(initialBytes, to: first)
         let second = root.appendingPathComponent("second.md")
         try writeAtomically(Data("# Second window document\n".utf8), to: second)
 
@@ -44,6 +45,7 @@ struct ViewerWebKitSmokeTest {
         try wait(webView, timeout: 20, description: "viewer page load") {
             (try? evaluate(webView, "document.readyState === 'complete'")) as? Bool == true
         }
+        _ = try evaluate(webView, "window.__viewerSmokeState=null; window.addEventListener('banana-viewer-state', event => { window.__viewerSmokeState=event.detail; }); true")
         try wait(webView, timeout: 20, description: "rendered initial Markdown") {
             (try? evaluate(webView, "(document.body?.innerText || '').includes('Viewer smoke initial')")) as? Bool == true
         }
@@ -62,8 +64,125 @@ struct ViewerWebKitSmokeTest {
         }
         let bootstrap = try resultObject(webView)
         guard (bootstrap["document"] as? [String: Any])?["kind"] as? String == "loaded",
-              (bootstrap["document"] as? [String: Any])?["name"] as? String == "smoke.md" else {
-            throw SmokeFailure.message("Native bootstrap returned an unexpected document snapshot.")
+              (bootstrap["document"] as? [String: Any])?["name"] as? String == "smoke.md",
+              (bootstrap["editing"] as? [String: Any])?["kind"] as? String == "locked" else {
+            throw SmokeFailure.message("Native bootstrap did not open the document locked.")
+        }
+        let initialRevision = (bootstrap["document"] as? [String: Any])?["revision"] as? String ?? ""
+        let lockedUI = try evaluate(webView, "document.querySelector('[aria-label=\\\"Unlock to Edit\\\"]')?.getAttribute('aria-pressed') === 'false' && document.querySelector('[contenteditable=\\\"true\\\"]') === null") as? Bool == true
+        guard lockedUI else { throw SmokeFailure.message("The initial WebKit document surface is not locked and read-only.") }
+        guard NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Save")?.isEnabled == false else {
+            throw SmokeFailure.message("Save was enabled for a locked document.")
+        }
+        try postBridge(webView, message: ["action": "saveDocument", "expectedRevision": initialRevision, "markdown": "must not replace a locked document"])
+        let rejectedLockedSave = try resultObject(webView)
+        guard rejectedLockedSave["kind"] as? String == "failed",
+              rejectedLockedSave["reason"] as? String == "unknown",
+              try Data(contentsOf: first) == initialBytes else {
+            throw SmokeFailure.message("The native writer accepted a save while the window was locked.")
+        }
+
+        _ = try evaluate(webView, "document.querySelector('[aria-label=\\\"Unlock to Edit\\\"]')?.click(); true")
+        try wait(webView, timeout: 8, description: "unlock command and rich editing") {
+            (try? evaluate(webView, "document.querySelector('[aria-label=\\\"Lock\\\"]') !== null && document.querySelector('.viewer-markdown[contenteditable=\\\"true\\\"]') !== null")) as? Bool == true
+        }
+        try postBridge(webView, message: ["action": "bootstrap"])
+        let unlockedSnapshot = try resultObject(webView)
+        guard (unlockedSnapshot["editing"] as? [String: Any])?["kind"] as? String == "unlocked",
+              NSApp.mainMenu?.items.first(where: { $0.title == "Edit" })?.submenu?.item(withTitle: "Lock Editing") != nil else {
+            throw SmokeFailure.message("The Edit menu did not reflect the unlocked per-window state.")
+        }
+        try replaceEditorText(webView, from: "Viewer smoke initial", to: "Viewer smoke edited")
+        try wait(webView, timeout: 8, description: "dirty edit state") { controller.window?.isDocumentEdited == true }
+        try postBridge(webView, message: ["action": "bootstrap"])
+        let dirtySnapshot = try resultObject(webView)
+        guard (dirtySnapshot["editing"] as? [String: Any])?["dirty"] as? Bool == true,
+              controller.window?.isDocumentEdited == true,
+              controller.window?.title.contains("Edited") == true,
+              NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Save")?.isEnabled == true else {
+            throw SmokeFailure.message("A dirty edit did not update the native edited marker, title, and Save menu.")
+        }
+        try sendCommandS(controller)
+        try wait(webView, timeout: 10, description: "Command-S disk save") {
+            let clean = controller.window?.isDocumentEdited == false
+            let saved = (try? String(contentsOf: first, encoding: .utf8))?.contains("Viewer smoke edited") == true
+            return clean && saved
+        }
+        guard controller.window?.isDocumentEdited == false,
+              controller.window?.title.contains("Edited") == false,
+              NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Save")?.isEnabled == false else {
+            throw SmokeFailure.message("Command-S did not clear the dirty native state.")
+        }
+
+        try postBridge(webView, message: ["action": "bootstrap"])
+        let cleanSnapshot = try resultObject(webView)
+        guard (cleanSnapshot["editing"] as? [String: Any])?["dirty"] as? Bool == false else {
+            throw SmokeFailure.message("Command-S did not publish a clean editing snapshot.")
+        }
+        try replaceEditorText(webView, from: "Viewer smoke edited", to: "Viewer smoke local edit")
+        try wait(webView, timeout: 8, description: "second dirty edit") { controller.window?.isDocumentEdited == true }
+        let externalBytes = Data("# External version\n".utf8)
+        try writeAtomically(externalBytes, to: first)
+        try wait(webView, timeout: 12, description: "dirty external-change conflict") {
+            (try? evaluate(webView, "!document.querySelector('.viewer-conflict-banner').hidden && document.querySelector('.viewer-markdown').textContent.includes('Viewer smoke local edit')")) as? Bool == true
+        }
+        guard try Data(contentsOf: first) == externalBytes else {
+            throw SmokeFailure.message("The conflict detector overwrote an external edit.")
+        }
+        _ = try evaluate(webView, "document.querySelector('.viewer-conflict-banner button')?.click(); true")
+        try wait(webView, timeout: 8, description: "discard and reload after conflict") {
+            (try? evaluate(webView, "document.querySelector('.viewer-conflict-banner').hidden && document.querySelector('.viewer-markdown')?.textContent.includes('External version')")) as? Bool == true
+        }
+        guard controller.window?.isDocumentEdited == false else {
+            throw SmokeFailure.message("Reloading an external version left the window marked as edited.")
+        }
+
+        try replaceEditorText(webView, from: "External version", to: "Viewer smoke kept local edit")
+        try wait(webView, timeout: 8, description: "dirty edit after external reload") { controller.window?.isDocumentEdited == true }
+        let replacementBytes = Data("# Second external version\n".utf8)
+        try writeAtomically(replacementBytes, to: first)
+        try wait(webView, timeout: 12, description: "second dirty external-change conflict") {
+            (try? evaluate(webView, "!document.querySelector('.viewer-conflict-banner').hidden && document.querySelector('.viewer-markdown').textContent.includes('Viewer smoke kept local edit')")) as? Bool == true
+        }
+        guard try Data(contentsOf: first) == replacementBytes else {
+            throw SmokeFailure.message("A second external edit was overwritten before confirmation.")
+        }
+        _ = try evaluate(webView, "document.querySelector('.viewer-conflict-banner button:last-child')?.click(); true")
+        try wait(webView, timeout: 8, description: "keep local edits after external conflict") {
+            (try? evaluate(webView, "document.querySelector('.viewer-conflict-banner').hidden && document.querySelector('.viewer-markdown').textContent.includes('Viewer smoke kept local edit')")) as? Bool == true
+        }
+        controller.dispatchMenuCommand("save")
+        try wait(webView, timeout: 8, description: "replace-version confirmation sheet") {
+            controller.window?.attachedSheet != nil
+        }
+        guard let confirmationWindow = controller.window, let sheet = confirmationWindow.attachedSheet,
+              let contentView = sheet.contentView,
+              let cancelButton = findButton("Cancel", in: contentView) else {
+            throw SmokeFailure.message("Keeping conflicting edits did not present an accessible replacement confirmation.")
+        }
+        cancelButton.performClick(nil)
+        try wait(webView, timeout: 8, description: "cancelled external replacement") {
+            controller.window?.attachedSheet == nil && controller.window?.isDocumentEdited == true &&
+                (try? Data(contentsOf: first)) == replacementBytes
+        }
+        controller.dispatchMenuCommand("save")
+        try wait(webView, timeout: 8, description: "replacement confirmation after cancellation") {
+            controller.window?.attachedSheet != nil
+        }
+        guard let replacementWindow = controller.window, let replacementSheet = replacementWindow.attachedSheet,
+              let replacementContent = replacementSheet.contentView,
+              let replaceButton = findButton("Replace", in: replacementContent) else {
+            throw SmokeFailure.message("The external replacement confirmation did not offer Replace.")
+        }
+        replaceButton.performClick(nil)
+        try wait(webView, timeout: 10, description: "confirmed replacement of the external version") {
+            let saved = (try? String(contentsOf: first, encoding: .utf8))?.contains("Viewer smoke kept local edit") == true
+            return controller.window?.isDocumentEdited == false && saved
+        }
+        guard controller.window?.title.contains("Edited") == false,
+              let saved = try? String(contentsOf: first, encoding: .utf8),
+              saved.contains("Viewer smoke kept local edit"), !saved.contains("Second external version") else {
+            throw SmokeFailure.message("Confirming replacement did not save the local version and clear dirty state.")
         }
 
         _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage({action:'defaultAppStatus'}).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
@@ -175,6 +294,29 @@ struct ViewerWebKitSmokeTest {
         try wait(secondController.webView!, timeout: 20, description: "second URL rendering") {
             (try? evaluate(secondController.webView!, "(document.body?.innerText || '').includes('Second window document')")) as? Bool == true
         }
+        guard try evaluate(webView, "document.querySelector('[aria-label=\\\"Lock\\\"]') !== null") as? Bool == true,
+              try evaluate(secondController.webView!, "document.querySelector('[aria-label=\\\"Unlock to Edit\\\"]') !== null") as? Bool == true else {
+            throw SmokeFailure.message("Opening another document shared the first window's lock state.")
+        }
+        _ = try evaluate(secondController.webView!, "document.querySelector('[aria-label=\\\"Unlock to Edit\\\"]')?.click(); true")
+        try wait(secondController.webView!, timeout: 8, description: "independent second-window unlock") {
+            (try? evaluate(secondController.webView!, "document.querySelector('[aria-label=\\\"Lock\\\"]') !== null")) as? Bool == true
+        }
+        guard try evaluate(webView, "document.querySelector('[aria-label=\\\"Lock\\\"]') !== null") as? Bool == true,
+              NSApp.mainMenu?.items.first(where: { $0.title == "Edit" })?.submenu?.item(withTitle: "Lock Editing") != nil else {
+            throw SmokeFailure.message("Unlocking a second document changed the first window's editing state or menu state.")
+        }
+        _ = try evaluate(secondController.webView!, "document.querySelector('[aria-label=\\\"Lock\\\"]')?.click(); true")
+        try wait(secondController.webView!, timeout: 8, description: "independent second-window lock") {
+            (try? evaluate(secondController.webView!, "document.querySelector('[aria-label=\\\"Unlock to Edit\\\"]') !== null")) as? Bool == true
+        }
+        runtime.open([first])
+        try wait(webView, timeout: 4, description: "Edit menu follows the newly presented window") {
+            NSApp.mainMenu?.items.first(where: { $0.title == "Edit" })?.submenu?.item(withTitle: "Lock Editing") != nil
+        }
+        guard try evaluate(webView, "document.querySelector('[aria-label=\\\"Lock\\\"]') !== null") as? Bool == true else {
+            throw SmokeFailure.message("Presenting the first document changed its independent editing state.")
+        }
 
         for openWindow in runtime.windowControllers { openWindow.window?.close() }
         let closeDeadline = Date().addingTimeInterval(3)
@@ -194,7 +336,7 @@ struct ViewerWebKitSmokeTest {
         try wait(settingsController.webView!, timeout: 20, description: "queued Settings command on a cold window") {
             (try? evaluate(settingsController.webView!, "document.querySelector('.viewer-settings') !== null")) as? Bool == true
         }
-        print("Viewer WebKit smoke passed: rendering, bridge validation, default-app off/pending/on/restore states through a fake LaunchServices adapter, transparent surface, native glass, relative image, atomic refresh, delete/recovery, multi-URL deduplication, and cold Settings delivery.")
+        print("Viewer WebKit smoke passed: locked-by-default editing, save/conflict handling, default-app switch/restore through fake LaunchServices, rendering, native glass, relative images, refresh/recovery, multi-URL deduplication, and cold Settings delivery.")
     }
 
     private static func captureDefaultAppEvidence(_ controller: ViewerWindowController, webView: WKWebView, state: String) throws {
@@ -234,6 +376,46 @@ struct ViewerWebKitSmokeTest {
         guard runtime.controller(for: document) == nil else {
             throw SmokeFailure.message("Closing a document did not remove its controller from the runtime.")
         }
+    }
+
+    private static func postBridge(_ webView: WKWebView, message: [String: Any]) throws {
+        let data = try JSONSerialization.data(withJSONObject: message, options: [.fragmentsAllowed])
+        let payload = String(decoding: data, as: UTF8.self)
+        _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage(\(payload)).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
+        try wait(webView, timeout: 8, description: "native promise bridge reply") {
+            (try? evaluate(webView, "window.__viewerSmokeResult !== null")) as? Bool == true
+        }
+    }
+
+    private static func replaceEditorText(_ webView: WKWebView, from source: String, to replacement: String) throws {
+        let sourceJSON = String(decoding: try JSONSerialization.data(withJSONObject: source, options: [.fragmentsAllowed]), as: UTF8.self)
+        let replacementJSON = String(decoding: try JSONSerialization.data(withJSONObject: replacement, options: [.fragmentsAllowed]), as: UTF8.self)
+        let script = "(() => { const editor=document.querySelector('.viewer-markdown'); if(!editor) return false; const from=\(sourceJSON), to=\(replacementJSON); const walker=document.createTreeWalker(editor, NodeFilter.SHOW_TEXT); let node; while((node=walker.nextNode())) { const start=node.nodeValue.indexOf(from); if(start<0) continue; const range=document.createRange(); range.setStart(node,start); range.setEnd(node,start+from.length); const selection=window.getSelection(); selection.removeAllRanges(); selection.addRange(range); return document.execCommand('insertText',false,to); } return false; })()"
+        guard try evaluate(webView, script) as? Bool == true else {
+            throw SmokeFailure.message("The WebKit rich editor could not replace the synthetic test text.")
+        }
+    }
+
+    private static func findButton(_ title: String, in view: NSView) -> NSButton? {
+        if let button = view as? NSButton, button.title == title { return button }
+        for subview in view.subviews {
+            if let button = findButton(title, in: subview) { return button }
+        }
+        return nil
+    }
+
+    private static func sendCommandS(_ controller: ViewerWindowController) throws {
+        guard let window = controller.window,
+              let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                           timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil,
+                                           characters: "s", charactersIgnoringModifiers: "s",
+                                           isARepeat: false, keyCode: 1) else {
+            throw SmokeFailure.message("Could not create the Command-S keyboard event.")
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.sendEvent(event)
     }
 
     private static func resultObject(_ webView: WKWebView) throws -> [String: Any] {

@@ -58,9 +58,59 @@ struct ViewerWindowSurfacePlan: Equatable {
     }
 }
 
+enum ViewerEditingState: Equatable, Encodable {
+    case locked
+    case unlocked(dirty: Bool)
+
+    private enum CodingKeys: String, CodingKey { case kind, dirty }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .locked: try container.encode("locked", forKey: .kind)
+        case .unlocked(let dirty):
+            try container.encode("unlocked", forKey: .kind)
+            try container.encode(dirty, forKey: .dirty)
+        }
+    }
+
+    var isUnlocked: Bool { if case .unlocked = self { return true }; return false }
+    var isDirty: Bool { if case .unlocked(dirty: true) = self { return true }; return false }
+}
+
+enum ViewerSaveResult: Encodable, Equatable {
+    case saved(revision: String)
+    case conflict
+    case failed(reason: Reason)
+
+    enum Reason: String, Encodable { case readOnlyFile, permissionDenied, tooLarge, unknown }
+    private enum CodingKeys: String, CodingKey { case kind, revision, reason }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .saved(let revision):
+            try container.encode("saved", forKey: .kind)
+            try container.encode(revision, forKey: .revision)
+        case .conflict: try container.encode("conflict", forKey: .kind)
+        case .failed(let reason):
+            try container.encode("failed", forKey: .kind)
+            try container.encode(reason.rawValue, forKey: .reason)
+        }
+    }
+}
+
 struct ViewerSnapshot: Encodable, Equatable {
     let document: ViewerDocument
     let preferences: ViewerPreferences
+    let editing: ViewerEditingState
+    let externalChange: Bool
+
+    init(document: ViewerDocument, preferences: ViewerPreferences,
+         editing: ViewerEditingState = .locked, externalChange: Bool = false) {
+        self.document = document
+        self.preferences = preferences
+        self.editing = editing
+        self.externalChange = externalChange
+    }
 }
 
 enum ViewerDocument: Encodable, Equatable {

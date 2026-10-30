@@ -13,6 +13,7 @@ struct ViewerReadResult {
     let canonicalURL: URL
     let fingerprint: ViewerFileFingerprint
     let markdown: String
+    let sourceData: Data
     let revision: String
     let resourceRoot: ViewerRasterResourceReader
 }
@@ -67,7 +68,7 @@ struct ViewerDocumentReader {
         guard let markdown = String(data: contents.data, encoding: .utf8) else { throw ViewerError.invalidUTF8 }
         let digest = SHA256.hash(data: contents.data).map { String(format: "%02x", $0) }.joined()
         return ViewerReadResult(canonicalURL: canonicalURL, fingerprint: contents.fingerprint,
-                                markdown: markdown, revision: digest, resourceRoot: resourceRoot)
+                                markdown: markdown, sourceData: contents.data, revision: digest, resourceRoot: resourceRoot)
     }
 
     static func fingerprint(_ url: URL) throws -> ViewerFileFingerprint {

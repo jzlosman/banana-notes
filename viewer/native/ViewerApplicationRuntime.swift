@@ -10,6 +10,7 @@ final class ViewerApplicationRuntime {
     private let menu = ViewerMenuController()
     private(set) var windowControllers: [ViewerWindowController] = []
     private var windowsByDocumentPath: [String: ViewerWindowController] = [:]
+    private weak var presentedController: ViewerWindowController?
     private var started = false
 
     init(webDirectory: URL, defaults: UserDefaults = .standard, launchServices: ViewerLaunchServices? = nil) throws {
@@ -33,20 +34,20 @@ final class ViewerApplicationRuntime {
         menu.sendCommand = { [weak self] in self?.sendMenuCommand($0) }
         menu.install()
         menu.recentURLs = preferencesStore.recentDocumentURLs
-        if launchURLs.isEmpty { createEmptyWindow().show() }
+        if launchURLs.isEmpty { present(createEmptyWindow()) }
         else { open(launchURLs) }
     }
 
     func reopen() {
-        if let controller = activeController { controller.show() }
-        else if windowControllers.isEmpty { createEmptyWindow().show() }
+        if let controller = activeController { present(controller) }
+        else if windowControllers.isEmpty { present(createEmptyWindow()) }
     }
 
     func open(_ urls: [URL]) {
         for url in urls where url.isFileURL {
             let canonical = ViewerDocumentReader.canonicalURL(for: url)
             if let existing = windowsByDocumentPath[canonical.path] {
-                existing.show()
+                present(existing)
                 continue
             }
             let controller: ViewerWindowController
@@ -55,15 +56,16 @@ final class ViewerApplicationRuntime {
             } else {
                 controller = createWindow()
             }
+            presentedController = controller
             controller.open(url, canonicalURL: canonical)
             windowsByDocumentPath[canonical.path] = controller
             menu.recentURLs = preferencesStore.recentDocumentURLs
-            controller.show()
+            present(controller)
         }
     }
 
     func presentOpenPanel() {
-        if windowControllers.isEmpty { createEmptyWindow().show() }
+        if windowControllers.isEmpty { present(createEmptyWindow()) }
         let panel = NSOpenPanel()
         panel.title = "Open Markdown Document"
         panel.prompt = "Open"
@@ -87,10 +89,11 @@ final class ViewerApplicationRuntime {
 
     func sendMenuCommand(_ command: String) {
         guard command == "settings" || command == "find" || command == "source" ||
-                command == "zoomIn" || command == "zoomOut" || command == "zoomReset" else { return }
+                command == "zoomIn" || command == "zoomOut" || command == "zoomReset" ||
+                command == "toggleEditing" || command == "save" || command == "saveForClose" else { return }
         if command == "settings", windowControllers.isEmpty {
             let controller = createEmptyWindow()
-            controller.show()
+            present(controller)
             controller.dispatchMenuCommand(command)
             return
         }
@@ -105,16 +108,36 @@ final class ViewerApplicationRuntime {
         windowsByDocumentPath[ViewerDocumentReader.canonicalURL(for: url).path]
     }
 
+    func confirmTermination(_ completion: @escaping (Bool) -> Void) {
+        let dirtyControllers = windowControllers.filter(\.hasUnsavedEdits)
+        func confirm(_ index: Int) {
+            guard index < dirtyControllers.count else { completion(true); return }
+            dirtyControllers[index].confirmTermination { accepted in
+                guard accepted else { completion(false); return }
+                confirm(index + 1)
+            }
+        }
+        confirm(0)
+    }
+
     func shutdown() {
         for controller in windowControllers { controller.window?.close() }
         windowControllers.removeAll()
         windowsByDocumentPath.removeAll()
+        presentedController = nil
     }
 
     private var activeController: ViewerWindowController? {
         if let keyWindow = NSApp.keyWindow,
            let controller = windowControllers.first(where: { $0.window === keyWindow }) { return controller }
+        if let presentedController, presentedController.window?.isVisible == true { return presentedController }
         return windowControllers.last(where: { $0.window?.isVisible == true }) ?? windowControllers.last
+    }
+
+    private func present(_ controller: ViewerWindowController) {
+        presentedController = controller
+        controller.show()
+        menu.setEditingState(controller.currentEditingState)
     }
 
     @discardableResult
@@ -128,10 +151,18 @@ final class ViewerApplicationRuntime {
         controller.onOpenDocument = { [weak self] in self?.open([$0]) }
         controller.onOpenPanel = { [weak self] in self?.presentOpenPanel() }
         controller.onPreferencesUpdated = { [weak self] in self?.broadcastPreferences() }
+        controller.onEditingStateChanged = { [weak self, weak controller] state in
+            guard let self, let controller, self.activeController === controller else { return }
+            self.menu.setEditingState(state)
+        }
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             self.windowControllers.removeAll { $0 === controller }
             self.windowsByDocumentPath = self.windowsByDocumentPath.filter { $0.value !== controller }
+            if self.presentedController === controller {
+                self.presentedController = self.windowControllers.last(where: { $0.window?.isVisible == true })
+                if let active = self.activeController { self.menu.setEditingState(active.currentEditingState) }
+            }
         }
         windowControllers.append(controller)
         return controller

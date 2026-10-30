@@ -4,11 +4,12 @@ All notable changes to Banana Notes are documented here. Banana Viewer has its o
 
 ## Banana Viewer
 
-### [0.1.3] - Unreleased
+### [0.2.0] - Unreleased
 
 #### Added
 
-- Add a General settings switch for opening Markdown files with Banana Viewer. It remembers the previous app in Viewer preferences, restores it when possible, and stays unavailable when there is no restorable app; another Viewer copy with the same bundle identifier counts as default.
+- Add a General settings switch for making Banana Viewer the Markdown default. It remembers the previous app in Viewer preferences and restores it when possible.
+- Open documents locked by default, with one-click rich or source editing, explicit Save, per-window dirty tracking and external-change conflict handling. Rich saves patch changed line hunks into the original bytes while preserving untouched content.
 
 #### Fixed
 

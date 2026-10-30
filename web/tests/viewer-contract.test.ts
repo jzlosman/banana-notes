@@ -7,6 +7,7 @@ import {
 const loaded = (preferences: unknown) => decodeNativeSnapshot({
   document: { kind: 'loaded', documentID: 'native-document-1', name: 'Readme.md', markdown: '# Read', revision: 'rev-1', resourceBaseURL: 'banana-viewer-resource://document/' },
   preferences,
+  editing: { kind: 'locked' }, externalChange: false,
 });
 
 test('native viewer preferences stay fractional across decode, including defaults and stored window values', () => {

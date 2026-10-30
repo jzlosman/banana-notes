@@ -11,7 +11,7 @@ Banana Viewer is a separately installed macOS app for reading Markdown files. It
 
 The native app, opened through macOS with a synthetic Markdown file.
 
-[Watch the 18-second announcement trailer](media/banana-viewer-announcement.mp4) · [Poster](media/banana-viewer-announcement-poster.png). The trailer is silent and uses real app captures with sample documents.
+[Watch the 51-second narrated launch film](media/banana-viewer-launch.mp4) · [Poster](media/banana-viewer-launch-poster.png). It features ElevenLabs narration and music, with real Banana Viewer captures using synthetic sample documents.
 
 ## Build and run
 

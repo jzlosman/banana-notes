@@ -56,7 +56,7 @@ function diffLines(before: readonly string[], after: readonly string[]): Operati
     const down = k === -d || (k !== d && (previous.get(k - 1) ?? -1) < (previous.get(k + 1) ?? -1));
     const previousK = down ? k + 1 : k - 1;
     const previousX = d === 0 ? 0 : (previous.get(previousK) ?? 0);
-    const previousY = previousX - previousK;
+    const previousY = d === 0 ? 0 : previousX - previousK;
     while (x > previousX && y > previousY) {
       reversed.push({ kind: 'equal', value: before[x - 1]! }); x--; y--;
     }
@@ -87,6 +87,16 @@ function hunks(before: readonly string[], after: readonly string[]): EditHunk[] 
 function lines(text: string): string[] {
   const result = text.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g);
   return result ?? [];
+}
+
+function dominantLineEnding(source: string): string {
+  const counts = new Map<string, number>();
+  for (const ending of source.match(/\r\n|\r|\n/g) ?? []) counts.set(ending, (counts.get(ending) ?? 0) + 1);
+  let dominant = '\n', highestCount = 0;
+  for (const [ending, count] of counts) {
+    if (count > highestCount) { dominant = ending; highestCount = count; }
+  }
+  return dominant;
 }
 
 type SourceAlignment = {
@@ -124,8 +134,8 @@ function projectHunk(hunk: EditHunk, alignment: SourceAlignment, originalLength:
   for (let index = hunk.end; index < mapping.length; index++) {
     if (mapping[index] !== undefined) { right = mapping[index]!; break; }
   }
-  const start = left === undefined ? (right ?? 0) : left + 1;
-  const end = right === undefined ? (left === undefined ? originalLength : left + 1) : right;
+  const start = left === undefined ? 0 : left + 1;
+  const end = right === undefined ? originalLength : right;
   let projectedStart = Math.min(start, end), projectedEnd = Math.max(start, end);
   for (const region of alignment.changedRegions) {
     const intersects = hunk.start < region.baselineEnd && hunk.end > region.baselineStart;
@@ -146,24 +156,32 @@ function projectHunk(hunk: EditHunk, alignment: SourceAlignment, originalLength:
  */
 export function patchRichMarkdown(original: string, baseline: string, edited: string): string {
   if (edited === baseline) return original;
-  if (baseline === original) return edited;
   const originalLines = lines(original), baselineLines = lines(baseline), editedLines = lines(edited);
+  const lineEnding = dominantLineEnding(original);
   const alignment = sourceAlignment(originalLines, baselineLines);
   const changes = hunks(baselineLines, editedLines).map(hunk => ({
     ...projectHunk(hunk, alignment, originalLines.length),
-    replacement: hunk.replacement,
+    replacement: hunk.replacement.map(line => `${lineBody(line)}${lineEnding}`),
   }));
   if (!changes.length) return original;
-  const output: string[] = [];
+  const output: { token: string; replacement: boolean }[] = [];
+  const appendOriginal = (sourceLines: readonly string[]) => {
+    output.push(...sourceLines.map(token => ({ token, replacement: false })));
+  };
   let cursor = 0;
   for (const change of changes) {
     const start = Math.max(cursor, change.start);
     const end = Math.max(start, change.end);
-    output.push(...originalLines.slice(cursor, start), ...change.replacement);
+    appendOriginal(originalLines.slice(cursor, start));
+    output.push(...change.replacement.map(token => ({ token, replacement: true })));
     cursor = end;
   }
-  output.push(...originalLines.slice(cursor));
-  return output.join('');
+  appendOriginal(originalLines.slice(cursor));
+  let result = output.map(line => line.token).join('');
+  const originalHasFinalNewline = /(?:\r\n|\r|\n)$/.test(original);
+  if (originalHasFinalNewline && !/(?:\r\n|\r|\n)$/.test(result)) result += lineEnding;
+  else if (!originalHasFinalNewline && output.at(-1)?.replacement) result = result.replace(/(?:\r\n|\r|\n)$/, '');
+  return result;
 }
 
 /** Source editor text is already the exact document representation; never serialize or normalize it. */

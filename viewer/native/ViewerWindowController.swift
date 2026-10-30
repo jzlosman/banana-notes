@@ -277,7 +277,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
             } else {
                 result = try ViewerDocumentReader.read(canonicalURL: currentURL)
             }
-            let next = ViewerDocument.loaded(name: result.canonicalURL.lastPathComponent,
+            let next = ViewerDocument.loaded(documentID: ViewerDocumentReader.documentID(for: result.canonicalURL),
+                                             name: result.canonicalURL.lastPathComponent,
                                              markdown: result.markdown,
                                              revision: result.revision,
                                              resourceBaseURL: ViewerPolicy.resourceBaseURL)

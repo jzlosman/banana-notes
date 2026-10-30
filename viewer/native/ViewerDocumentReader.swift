@@ -22,6 +22,10 @@ struct ViewerDocumentReader {
     static let supportedExtensions: Set<String> = ["md", "markdown", "mdown", "mkd"]
 
     /// Resolve selected aliases once at the filesystem adapter boundary.
+    static func documentID(for canonicalURL: URL) -> String {
+        SHA256.hash(data: Data(canonicalURL.path.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
     static func canonicalURL(for url: URL) -> URL {
         let standardized = url.standardizedFileURL
         guard standardized.isFileURL else { return standardized }

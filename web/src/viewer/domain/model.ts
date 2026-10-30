@@ -4,7 +4,7 @@ import fontCatalog from '../../domain/note-font-catalog.json' with { type: 'json
 
 export type ViewerDocument =
   | { kind: 'empty' }
-  | { kind: 'loaded'; name: string; markdown: string; revision: string; resourceBaseURL: string }
+  | { kind: 'loaded'; documentID: string; name: string; markdown: string; revision: string; resourceBaseURL: string }
   | { kind: 'error'; name: string; message: string };
 
 export type ViewerPreferences = {
@@ -83,11 +83,12 @@ export function decodeNativeSnapshot(value: unknown): ViewerSnapshot {
   if (rawDocument.kind === 'empty') decodedDocument = { kind: 'empty' };
   else if (rawDocument.kind === 'error' && safeName(rawDocument.name) && safeMessage(rawDocument.message)) {
     decodedDocument = { kind: 'error', name: rawDocument.name, message: rawDocument.message };
-  } else if (rawDocument.kind === 'loaded' && safeName(rawDocument.name) && typeof rawDocument.markdown === 'string' &&
+  } else if (rawDocument.kind === 'loaded' && typeof rawDocument.documentID === 'string' && /^[a-z0-9_-]{1,128}$/.test(rawDocument.documentID) &&
+    safeName(rawDocument.name) && typeof rawDocument.markdown === 'string' &&
     typeof rawDocument.revision === 'string' && rawDocument.revision.length > 0 && rawDocument.revision.length <= 512 &&
     rawDocument.resourceBaseURL === 'banana-viewer-resource://document/') {
     decodedDocument = {
-      kind: 'loaded', name: rawDocument.name, markdown: rawDocument.markdown,
+      kind: 'loaded', documentID: rawDocument.documentID, name: rawDocument.name, markdown: rawDocument.markdown,
       revision: rawDocument.revision, resourceBaseURL: rawDocument.resourceBaseURL,
     };
   } else throw new Error('The Banana Viewer document response is invalid.');

@@ -12,6 +12,8 @@ export class BrowserViewerAdapter implements ViewerPort {
   private readonly input: HTMLInputElement;
   private currentFile: File | undefined;
   private revision = 0;
+  private documentSequence = 0;
+  private currentDocumentID = '';
   private readSequence = 0;
 
   constructor(private readonly targetWindow: Window = window) {
@@ -46,7 +48,7 @@ export class BrowserViewerAdapter implements ViewerPort {
   }
 
   async reload(): Promise<null> {
-    if (this.currentFile) await this.readFile(this.currentFile);
+    if (this.currentFile) await this.readFile(this.currentFile, false);
     return null;
   }
 
@@ -103,9 +105,10 @@ export class BrowserViewerAdapter implements ViewerPort {
     });
   }
 
-  private async readFile(file: File): Promise<void> {
+  private async readFile(file: File, newDocument = true): Promise<void> {
     const sequence = ++this.readSequence;
     this.currentFile = file;
+    if (newDocument) this.currentDocumentID = `browser-${++this.documentSequence}`;
     try {
       const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
       if (!SUPPORTED_EXTENSIONS.has(extension)) throw new Error('Choose a Markdown document (.md, .markdown, .mdown, or .mkd).');
@@ -120,7 +123,7 @@ export class BrowserViewerAdapter implements ViewerPort {
       const base = new URL('.', this.targetWindow.location.href).href;
       this.snapshot = {
         ...this.snapshot,
-        document: { kind: 'loaded', name: file.name, markdown, revision: `browser-${++this.revision}`, resourceBaseURL: base },
+        document: { kind: 'loaded', documentID: this.currentDocumentID, name: file.name, markdown, revision: `browser-${++this.revision}`, resourceBaseURL: base },
       };
       this.emit({ kind: 'snapshot', snapshot: this.snapshot });
     } catch (error) {

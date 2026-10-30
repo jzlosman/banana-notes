@@ -65,18 +65,19 @@ struct ViewerSnapshot: Encodable, Equatable {
 
 enum ViewerDocument: Encodable, Equatable {
     case empty
-    case loaded(name: String, markdown: String, revision: String, resourceBaseURL: String)
+    case loaded(documentID: String, name: String, markdown: String, revision: String, resourceBaseURL: String)
     case error(name: String, message: String)
 
-    private enum CodingKeys: String, CodingKey { case kind, name, markdown, revision, resourceBaseURL, message }
+    private enum CodingKeys: String, CodingKey { case kind, documentID, name, markdown, revision, resourceBaseURL, message }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .empty:
             try container.encode("empty", forKey: .kind)
-        case let .loaded(name, markdown, revision, resourceBaseURL):
+        case let .loaded(documentID, name, markdown, revision, resourceBaseURL):
             try container.encode("loaded", forKey: .kind)
+            try container.encode(documentID, forKey: .documentID)
             try container.encode(name, forKey: .name)
             try container.encode(markdown, forKey: .markdown)
             try container.encode(revision, forKey: .revision)

@@ -15,7 +15,7 @@ const { mountViewerApp } = await import('../src/viewer/ui/app');
 const source = 'A [link](https://example.test/needle) and hel**lo**\r\n';
 
 class MemoryPort implements ViewerPort {
-  current: ViewerSnapshot = { document: { kind: 'loaded', name: 'Example.md', markdown: source, revision: 'r1', resourceBaseURL: 'banana-viewer-resource://document/' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES } };
+  current: ViewerSnapshot = { document: { kind: 'loaded', documentID: 'document-1', name: 'Example.md', markdown: source, revision: 'r1', resourceBaseURL: 'banana-viewer-resource://document/' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES } };
   listeners = new Set<(event: ViewerEvent) => void>();
   saved: ViewerSnapshot['preferences'][] = [];
   failNext: Error | undefined;
@@ -39,6 +39,16 @@ function app() {
   const root = dom.window.document.createElement('div'); dom.window.document.body.append(root);
   const port = new MemoryPort(); const session = new ViewerSession(port); const mounted = mountViewerApp(root as unknown as HTMLElement, session);
   return { root, port, session, mounted };
+}
+function clampScrollToContent(main: HTMLElement, maximumForContent?: (reader: HTMLElement | null) => number): void {
+  let position = 0;
+  const maximum = () => Math.max(0, maximumForContent?.(main.querySelector<HTMLElement>('.viewer-markdown') ?? null) ??
+    (main.querySelector<HTMLElement>('.viewer-markdown')?.textContent?.length ?? 0) * 2 - 20);
+  Object.defineProperty(main, 'scrollTop', {
+    configurable: true,
+    get: () => Math.min(position, maximum()),
+    set: (value: number) => { position = Math.max(0, Math.min(value, maximum())); },
+  });
 }
 
 test('reader find counts visible text, crosses formatting, and source search uses original Markdown', async () => {
@@ -81,6 +91,60 @@ test('preference-only snapshots preserve the mounted renderer; settings Done res
   root.querySelector<HTMLButtonElement>('.viewer-done-button')!.click();
   assert.equal(main.scrollTop, 38);
   assert.equal(dom.window.document.activeElement, settingsButton);
+  mounted.dispose();
+});
+
+test('reader keeps scroll on a same-document revision and resets for a different document', async () => {
+  const { root, port, mounted } = app(); await flush();
+  const main = root.querySelector<HTMLElement>('main')!;
+  clampScrollToContent(main);
+  main.scrollTop = 8;
+  assert.equal(main.scrollTop, 8, 'the fixture has enough content to scroll');
+
+  port.current = {
+    ...port.current,
+    document: { ...port.current.document as Extract<ViewerSnapshot['document'], { kind: 'loaded' }>, markdown: `${source}Updated.`, revision: 'r2' },
+  };
+  port.publish({ kind: 'snapshot', snapshot: port.current }); await flush();
+  assert.equal(main.scrollTop, 8, 'same-file revisions preserve the current reader position');
+
+  port.current = {
+    ...port.current,
+    document: { ...port.current.document as Extract<ViewerSnapshot['document'], { kind: 'loaded' }>, documentID: 'document-2', name: 'Other.md', revision: 'r1' },
+  };
+  port.publish({ kind: 'snapshot', snapshot: port.current }); await flush();
+  assert.equal(main.scrollTop, 0, 'opening another file starts at the top even when its content matches');
+  mounted.dispose();
+});
+
+test('reader reapplies same-file scroll after images settle unless the user scrolls first', async () => {
+  const { root, port, mounted } = app(); await flush();
+  const main = root.querySelector<HTMLElement>('main')!;
+  clampScrollToContent(main, reader => reader?.querySelector('img')?.dataset.ready === 'true' ? 100 : reader?.querySelector('img') ? 4 : 100);
+  main.scrollTop = 8;
+  assert.equal(main.scrollTop, 8);
+  const current = port.current.document;
+  assert.equal(current.kind, 'loaded');
+  if (current.kind !== 'loaded') throw new Error('Expected loaded fixture document.');
+
+  port.current = { ...port.current, document: { ...current, markdown: '![board](images/board.png)', revision: 'r2' } };
+  port.publish({ kind: 'snapshot', snapshot: port.current }); await flush();
+  const image = main.querySelector<HTMLImageElement>('img')!;
+  Object.defineProperty(image, 'complete', { configurable: true, value: false });
+  assert.equal(main.scrollTop, 4, 'the new image initially clamps the restored position');
+  image.dataset.ready = 'true'; image.dispatchEvent(new dom.window.Event('load'));
+  assert.equal(main.scrollTop, 8, 'settling the image restores the intended position');
+
+  const updated = port.current.document;
+  assert.equal(updated.kind, 'loaded');
+  if (updated.kind !== 'loaded') throw new Error('Expected loaded fixture document.');
+  port.current = { ...port.current, document: { ...updated, revision: 'r3' } };
+  port.publish({ kind: 'snapshot', snapshot: port.current }); await flush();
+  const secondImage = main.querySelector<HTMLImageElement>('img')!;
+  Object.defineProperty(secondImage, 'complete', { configurable: true, value: false });
+  main.scrollTop = 2; main.dispatchEvent(new dom.window.Event('scroll'));
+  secondImage.dataset.ready = 'true'; secondImage.dispatchEvent(new dom.window.Event('error'));
+  assert.equal(main.scrollTop, 2, 'an image error does not override a position the user changed');
   mounted.dispose();
 });
 

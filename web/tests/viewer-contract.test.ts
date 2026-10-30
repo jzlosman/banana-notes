@@ -5,7 +5,7 @@ import {
 } from '../src/viewer/domain/model';
 
 const loaded = (preferences: unknown) => decodeNativeSnapshot({
-  document: { kind: 'loaded', name: 'Readme.md', markdown: '# Read', revision: 'rev-1', resourceBaseURL: 'banana-viewer-resource://document/' },
+  document: { kind: 'loaded', documentID: 'native-document-1', name: 'Readme.md', markdown: '# Read', revision: 'rev-1', resourceBaseURL: 'banana-viewer-resource://document/' },
   preferences,
 });
 
@@ -29,6 +29,7 @@ test('malformed and out-of-range window preferences normalize safely in native u
 });
 
 test('native snapshots reject malformed document contracts instead of coercing them', () => {
-  assert.throws(() => decodeNativeSnapshot({ document: { kind: 'loaded', name: 'x.md', markdown: '', revision: '', resourceBaseURL: 'file:///tmp/' }, preferences: DEFAULT_VIEWER_PREFERENCES }), /document response is invalid/);
+  assert.throws(() => decodeNativeSnapshot({ document: { kind: 'loaded', name: 'x.md', markdown: '# Read', revision: 'rev-1', resourceBaseURL: 'banana-viewer-resource://document/' }, preferences: DEFAULT_VIEWER_PREFERENCES }), /document response is invalid/);
+  assert.throws(() => decodeNativeSnapshot({ document: { kind: 'loaded', documentID: 'native-document-1', name: 'x.md', markdown: '', revision: '', resourceBaseURL: 'file:///tmp/' }, preferences: DEFAULT_VIEWER_PREFERENCES }), /document response is invalid/);
   assert.throws(() => decodeNativeSnapshot({ document: { kind: 'empty' }, preferences: null }), /preferences response is invalid/);
 });

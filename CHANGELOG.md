@@ -1,6 +1,14 @@
 # Changelog
 
-All notable changes to Banana Notes are documented here.
+All notable changes to Banana Notes are documented here. Banana Viewer has its own independently versioned section.
+
+## Banana Viewer
+
+### [0.1.2] - Unreleased
+
+#### Fixed
+
+- Keep the reader's position when the same document reloads, including while relative images finish loading; opening another document starts at the top.
 
 ## [Unreleased]
 

@@ -68,14 +68,24 @@ struct ViewerCoreSelfTest {
         defer { try? FileManager.default.removeItem(at: root) }
         let note = root.appendingPathComponent("sample.MD")
         try Data("# Héllo viewer\n".utf8).write(to: note)
+        let alias = root.appendingPathComponent("alias.md")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: note)
         let result = try ViewerDocumentReader.read(note)
         expect(result.markdown.contains("Héllo"), "valid UTF-8 content is preserved")
         expect(result.canonicalURL == ViewerDocumentReader.canonicalURL(for: note), "document path is canonical")
         expect(result.revision.count == 64, "revision is SHA-256")
+        let documentID = ViewerDocumentReader.documentID(for: result.canonicalURL)
+        expect(documentID.count == 64, "document identity is an opaque SHA-256 of its canonical path")
+        expect(documentID == ViewerDocumentReader.documentID(for: ViewerDocumentReader.canonicalURL(for: root.appendingPathComponent("alias.md"))),
+               "canonical aliases keep one document identity")
+        expect(documentID != ViewerDocumentReader.documentID(for: ViewerDocumentReader.canonicalURL(for: root.appendingPathComponent("other.md"))),
+               "different paths have different document identities")
+        let loaded = ViewerDocument.loaded(documentID: documentID, name: note.lastPathComponent, markdown: result.markdown,
+                                           revision: result.revision, resourceBaseURL: ViewerPolicy.resourceBaseURL)
+        let wire = try JSONSerialization.jsonObject(with: JSONEncoder().encode(loaded)) as! [String: Any]
+        expect(wire["documentID"] as? String == documentID, "loaded snapshots carry the opaque document identity")
         expect(result.resourceRoot.directoryPath == result.canonicalURL.deletingLastPathComponent().path,
                "the document and images share the root pinned before the document read")
-        let alias = root.appendingPathComponent("alias.md")
-        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: note)
         expect(ViewerDocumentReader.canonicalURL(for: alias) == result.canonicalURL,
                "symlink aliases deduplicate to a canonical document URL")
 

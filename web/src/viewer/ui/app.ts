@@ -55,6 +55,8 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   let settingsSaving = 0;
   let fontApplicationRevision = 0;
   let renderedDocumentKey = '';
+  let renderedDocumentID = '';
+  let scrollRestoreCleanup: (() => void) | undefined;
   let renderedSourceKey = '';
   let sourceElement: HTMLPreElement | undefined;
 
@@ -80,7 +82,7 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   };
 
   const loadedDocument = (): Extract<ViewerSnapshot['document'], { kind: 'loaded' }> | undefined => snapshot?.document.kind === 'loaded' ? snapshot.document : undefined;
-  const disposeRenderer = () => { renderer?.destroy(); renderer = undefined; renderedDocumentKey = ''; };
+  const disposeRenderer = () => { scrollRestoreCleanup?.(); scrollRestoreCleanup = undefined; renderer?.destroy(); renderer = undefined; renderedDocumentKey = ''; renderedDocumentID = ''; };
   const disposeSource = () => { sourceElement?.remove(); sourceElement = undefined; renderedSourceKey = ''; };
   const renderEmpty = () => {
     disposeRenderer(); disposeSource(); main.className = 'viewer-body viewer-empty-state quiet-scroll';
@@ -150,17 +152,48 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   const renderReader = () => {
     const current = loadedDocument();
     if (!current) return;
-    const key = `${current.revision}\u0000${current.resourceBaseURL}\u0000${current.markdown}`;
+    const key = `${current.documentID}\u0000${current.revision}\u0000${current.resourceBaseURL}\u0000${current.markdown}`;
     main.className = 'viewer-body viewer-reader quiet-scroll';
     if (renderer && renderedDocumentKey === key && main.contains(renderer.root)) return;
+    const scrollTop = renderer && renderedDocumentID === current.documentID ? main.scrollTop : 0;
     disposeRenderer(); disposeSource();
-    const scrollTop = main.scrollTop;
     const host = document.createElement('article'); host.className = 'viewer-reader-content'; main.replaceChildren(host);
     renderer = renderReadOnlyMarkdown(host, current.markdown, current.resourceBaseURL, href => {
       void run(session.openLink(href), 'This link could not be opened.');
     });
-    renderedDocumentKey = key;
-    main.scrollTop = scrollTop;
+    renderedDocumentKey = key; renderedDocumentID = current.documentID;
+    const pendingImages = new Set([...host.querySelectorAll('img')].filter(image => !image.complete));
+    if (!pendingImages.size || scrollTop === 0) { main.scrollTop = scrollTop; return; }
+
+    let userScrolled = false;
+    let expectedScrollTop: number | undefined;
+    const onScroll = () => { if (expectedScrollTop !== main.scrollTop) userScrolled = true; };
+    const restoreScroll = () => {
+      if (userScrolled) return;
+      main.scrollTop = scrollTop; expectedScrollTop = main.scrollTop;
+    };
+    const onImageFinished = (event: Event) => {
+      const image = event.currentTarget as HTMLImageElement;
+      pendingImages.delete(image);
+      image.removeEventListener('load', onImageFinished);
+      image.removeEventListener('error', onImageFinished);
+      if (!pendingImages.size) { restoreScroll(); cleanup(); }
+    };
+    const cleanup = () => {
+      main.removeEventListener('scroll', onScroll);
+      for (const image of pendingImages) {
+        image.removeEventListener('load', onImageFinished);
+        image.removeEventListener('error', onImageFinished);
+      }
+      if (scrollRestoreCleanup === cleanup) scrollRestoreCleanup = undefined;
+    };
+    scrollRestoreCleanup = cleanup;
+    main.addEventListener('scroll', onScroll);
+    for (const image of pendingImages) {
+      image.addEventListener('load', onImageFinished);
+      image.addEventListener('error', onImageFinished);
+    }
+    restoreScroll();
   };
   const makeSettings = () => {
     if (!snapshot) return;
@@ -258,7 +291,7 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
       snapshot = event.snapshot;
       const documentChanged = previousDocument?.kind !== snapshot.document.kind ||
         previousDocument?.kind === 'loaded' && snapshot.document.kind === 'loaded' &&
-          (previousDocument.revision !== snapshot.document.revision || previousDocument.markdown !== snapshot.document.markdown || previousDocument.resourceBaseURL !== snapshot.document.resourceBaseURL);
+          (previousDocument.documentID !== snapshot.document.documentID || previousDocument.revision !== snapshot.document.revision || previousDocument.markdown !== snapshot.document.markdown || previousDocument.resourceBaseURL !== snapshot.document.resourceBaseURL);
       if (documentChanged) {
         closeFindBar(false);
         if (mode !== 'settings') mode = 'reader';

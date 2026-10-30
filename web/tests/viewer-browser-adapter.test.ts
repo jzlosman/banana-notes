@@ -50,6 +50,11 @@ test('browser fallback stores only its independent preferences and reads support
   select(makeFile('readme.mkd', bytes)); await tick();
   assert.equal(events.at(-1)?.snapshot.document.markdown, '# Keep original\r\n\r\n');
   assert.equal(events.at(-1)?.snapshot.document.name, 'readme.mkd');
+  const firstDocumentID = events.at(-1)?.snapshot.document.documentID;
+  await adapter.reload();
+  assert.equal(events.at(-1)?.snapshot.document.documentID, firstDocumentID, 'reload keeps the selected file identity');
+  select(makeFile('readme.mkd', bytes)); await tick();
+  assert.notEqual(events.at(-1)?.snapshot.document.documentID, firstDocumentID, 'a new file selection gets a different identity even with the same name');
   select(makeFile('bom.md', new Uint8Array([0xef, 0xbb, 0xbf, 0x23]))); await tick();
   assert.equal(events.at(-1)?.snapshot.document.markdown, '\uFEFF#', 'the source BOM remains visible to the Markdown/source views');
   const saved = await adapter.savePreferences({ ...DEFAULT_VIEWER_PREFERENCES, focusedOpacity: 0.6, glass: 0.5 });

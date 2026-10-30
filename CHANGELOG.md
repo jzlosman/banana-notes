@@ -4,7 +4,11 @@ All notable changes to Banana Notes are documented here. Banana Viewer has its o
 
 ## Banana Viewer
 
-### [0.1.2] - Unreleased
+### [0.1.3] - Unreleased
+
+#### Added
+
+- Add a General settings switch for opening Markdown files with Banana Viewer. It remembers the previous app in Viewer preferences, restores it when possible, and stays unavailable when there is no restorable app; another Viewer copy with the same bundle identifier counts as default.
 
 #### Fixed
 

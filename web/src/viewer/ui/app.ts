@@ -209,6 +209,8 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
           settings?.setError(message); showStatus(message); throw error;
         }
       },
+      onQueryDefaultAppStatus: () => session.queryDefaultAppStatus(),
+      onSetDefaultApp: enabled => session.setDefaultApp(enabled),
       onDone: closeSettings,
     });
   };

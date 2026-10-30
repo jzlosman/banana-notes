@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { DEFAULT_VIEWER_PREFERENCES, type ViewerSnapshot } from '../src/viewer/domain/model';
+import { BrowserViewerAdapter } from '../src/viewer/adapters/browser-viewer';
+import { DEFAULT_VIEWER_PREFERENCES, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerSnapshot } from '../src/viewer/domain/model';
 import { ViewerSession } from '../src/viewer/application/session';
 import type { ViewerEvent, ViewerPort } from '../src/viewer/application/ports';
 
@@ -19,11 +20,32 @@ class MemoryPort implements ViewerPort {
   listeners = new Set<(event: ViewerEvent) => void>();
   saved: ViewerSnapshot['preferences'][] = [];
   failNext: Error | undefined;
+  defaultAppStatus: ViewerDefaultAppStatus = { kind: 'available', state: 'off', currentAppName: 'Preview', canToggle: true };
+  defaultAppOutcome: ViewerDefaultAppOutcome = { kind: 'changed' };
+  pendingDefaultAppChange: ReturnType<typeof deferred<ViewerDefaultAppOutcome>> | undefined;
+  defaultAppRequests: boolean[] = [];
+  defaultAppQueries = 0;
+  defaultAppChanges = 0;
+  failDefaultAppQuery = false;
   async bootstrap() { return this.current; }
   async open() { return null; }
   async reload() { return null; }
   async reveal() { return null; }
   async openLink(_href: string) { return null; }
+  async queryDefaultAppStatus() {
+    this.defaultAppQueries++;
+    if (this.failDefaultAppQuery) throw new Error('Launch Services could not be queried.');
+    return this.defaultAppStatus;
+  }
+  async setDefaultApp(enabled: boolean) {
+    this.defaultAppChanges++; this.defaultAppRequests.push(enabled);
+    const pending = this.pendingDefaultAppChange; this.pendingDefaultAppChange = undefined;
+    const outcome = pending ? await pending.promise : this.defaultAppOutcome;
+    if (outcome.kind === 'changed') this.defaultAppStatus = enabled
+      ? { kind: 'available', state: 'on', canToggle: true, previousAppName: 'Preview' }
+      : { kind: 'available', state: 'off', currentAppName: 'Preview', canToggle: true };
+    return outcome;
+  }
   async savePreferences(preferences: ViewerSnapshot['preferences']) {
     this.saved.push(preferences);
     if (this.failNext) { const error = this.failNext; this.failNext = undefined; throw error; }
@@ -35,9 +57,14 @@ class MemoryPort implements ViewerPort {
   publish(event: ViewerEvent) { for (const listener of this.listeners) listener(event); }
 }
 const flush = async () => { for (let index = 0; index < 8; index++) await Promise.resolve(); };
-function app() {
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(yes => { resolve = yes; });
+  return { promise, resolve };
+}
+function app<T extends ViewerPort = MemoryPort>(port: T = new MemoryPort() as unknown as T) {
   const root = dom.window.document.createElement('div'); dom.window.document.body.append(root);
-  const port = new MemoryPort(); const session = new ViewerSession(port); const mounted = mountViewerApp(root as unknown as HTMLElement, session);
+  const session = new ViewerSession(port); const mounted = mountViewerApp(root as unknown as HTMLElement, session);
   return { root, port, session, mounted };
 }
 function clampScrollToContent(main: HTMLElement, maximumForContent?: (reader: HTMLElement | null) => number): void {
@@ -81,9 +108,9 @@ test('preference-only snapshots preserve the mounted renderer; settings Done res
 
   const settingsButton = root.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!; settingsButton.focus(); settingsButton.click();
   assert.equal(root.querySelector('.viewer-settings h1')?.textContent, 'Settings');
-  const selectedTab = root.querySelector<HTMLButtonElement>('#viewer-settings-tab-appearance')!;
+  const selectedTab = root.querySelector<HTMLButtonElement>('#viewer-settings-tab-general')!;
   assert.equal(selectedTab.getAttribute('aria-selected'), 'true');
-  assert.equal(selectedTab.tabIndex, 0, 'initial settings tab has the roving keyboard stop');
+  assert.equal(selectedTab.tabIndex, 0, 'General is the initial settings tab and has the roving keyboard stop');
   assert.equal(root.querySelectorAll('[role="tab"][tabindex="0"]').length, 1);
   const firstTheme = root.querySelector<HTMLButtonElement>('.viewer-theme-option')!;
   assert.equal(firstTheme.getAttribute('aria-label'), 'Use Follow macOS theme');
@@ -92,6 +119,100 @@ test('preference-only snapshots preserve the mounted renderer; settings Done res
   assert.equal(main.scrollTop, 38);
   assert.equal(dom.window.document.activeElement, settingsButton);
   mounted.dispose();
+});
+
+test('General settings renders an accessible default-app switch without offering impossible actions', async () => {
+  const variants: [ViewerDefaultAppStatus, string, string, boolean][] = [
+    [{ kind: 'available', state: 'off', currentAppName: 'Xcode', canToggle: true }, 'Markdown files open in Xcode.', 'false', false],
+    [{ kind: 'available', state: 'off', currentAppName: null, canToggle: true }, 'Markdown files have no default app.', 'false', false],
+    [{ kind: 'available', state: 'on', canToggle: true, previousAppName: 'Xcode' }, 'Turn off to go back to Xcode.', 'true', false],
+    [{ kind: 'available', state: 'on', canToggle: false, previousAppName: null }, 'Change the default app in Finder’s Get Info.', 'true', true],
+    [{ kind: 'unavailable' }, 'Available in the Mac app.', 'false', true],
+  ];
+  for (const [status, expectedText, checked, disabled] of variants) {
+    const port = new MemoryPort(); port.defaultAppStatus = status;
+    const { root, mounted } = app(port); await flush();
+    root.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click(); await flush();
+    assert.equal(root.querySelector<HTMLButtonElement>('#viewer-settings-tab-general')?.getAttribute('aria-selected'), 'true');
+    assert.equal(root.querySelector('#viewer-settings-tab-default-app'), null, 'the former Default app tab is removed');
+    assert.equal(root.querySelector('.viewer-default-app-label')?.textContent, 'Open Markdown files with Banana Viewer');
+    const toggle = root.querySelector<HTMLButtonElement>('.viewer-default-app-switch')!;
+    assert.equal(toggle.tagName, 'BUTTON');
+    assert.equal(toggle.getAttribute('role'), 'switch');
+    assert.equal(toggle.getAttribute('aria-labelledby'), 'viewer-default-app-label');
+    assert.equal(toggle.getAttribute('aria-describedby'), 'viewer-default-app-caption');
+    assert.equal(toggle.getAttribute('aria-checked'), checked);
+    assert.equal(toggle.disabled, disabled);
+    assert.equal(root.querySelector('.viewer-default-app-caption')?.textContent, expectedText);
+    mounted.dispose();
+  }
+});
+
+test('default-app switch announces pending state, toggles both ways, and refreshes when Settings reopens', async () => {
+  const port = new MemoryPort(); const pending = deferred<ViewerDefaultAppOutcome>(); port.pendingDefaultAppChange = pending;
+  const { root, mounted } = app(port); await flush();
+  const settingsButton = root.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!;
+  settingsButton.click(); await flush();
+  assert.equal(port.defaultAppQueries, 1, 'opening Settings queries the current system default');
+  const toggle = root.querySelector<HTMLButtonElement>('.viewer-default-app-switch')!;
+  toggle.click(); await flush();
+  assert.deepEqual(port.defaultAppRequests, [true], 'only the explicit switch click sends the enable command');
+  assert.equal(toggle.getAttribute('aria-checked'), 'true', 'pending state reflects the requested value');
+  assert.equal(toggle.disabled, true);
+  assert.equal(root.querySelector('.viewer-default-app-row')?.getAttribute('aria-busy'), 'true');
+  assert.equal(root.querySelector('.viewer-default-app-caption')?.textContent, 'Changing the default app…');
+  pending.resolve({ kind: 'changed' }); await flush();
+  assert.equal(port.defaultAppQueries, 2, 'status is queried again after the system request');
+  assert.equal(toggle.getAttribute('aria-checked'), 'true');
+  assert.equal(toggle.disabled, false);
+  assert.equal(root.querySelector('.viewer-default-app-caption')?.textContent, 'Turn off to go back to Preview.');
+
+  toggle.click(); await flush();
+  assert.deepEqual(port.defaultAppRequests, [true, false], 'turning the switch off restores the remembered app');
+  assert.equal(toggle.getAttribute('aria-checked'), 'false');
+  assert.equal(root.querySelector('.viewer-default-app-caption')?.textContent, 'Markdown files open in Preview.');
+  assert.equal(port.defaultAppQueries, 3);
+
+  root.querySelector<HTMLButtonElement>('.viewer-done-button')!.click();
+  port.defaultAppStatus = { kind: 'available', state: 'off', currentAppName: null, canToggle: true };
+  settingsButton.click(); await flush();
+  assert.equal(port.defaultAppQueries, 4, 'reopening Settings refreshes changes made outside the app');
+  assert.equal(root.querySelector('.viewer-default-app-caption')?.textContent, 'Markdown files have no default app.');
+  mounted.dispose();
+});
+
+test('failed default-app requests restore the confirmed switch value and use caption error styling', async () => {
+  const port = new MemoryPort(); port.defaultAppOutcome = { kind: 'declinedOrFailed' };
+  const { root, mounted } = app(port); await flush();
+  root.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click(); await flush();
+  const toggle = root.querySelector<HTMLButtonElement>('.viewer-default-app-switch')!;
+  toggle.click(); await flush();
+  assert.equal(port.defaultAppChanges, 1);
+  assert.equal(port.defaultAppQueries, 2);
+  assert.equal(toggle.getAttribute('aria-checked'), 'false', 'a failure returns to the last confirmed value');
+  assert.equal(root.querySelector('.viewer-default-app-caption')?.textContent, 'macOS didn’t change the default app.');
+  assert.ok(root.querySelector('.viewer-default-app-caption')?.classList.contains('is-error'));
+  assert.equal(root.querySelector<HTMLElement>('.viewer-settings-global-error')?.hidden, true, 'the inline caption owns the switch error');
+  mounted.dispose();
+});
+
+test('default-app status query failure leaves the switch disabled and reports locally', async () => {
+  const port = new MemoryPort(); port.failDefaultAppQuery = true;
+  const { root, mounted } = app(port); await flush();
+  root.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click(); await flush();
+  assert.equal(root.querySelector('.viewer-default-app-caption')?.textContent, 'macOS couldn’t check the default app.');
+  assert.equal(root.querySelector<HTMLButtonElement>('.viewer-default-app-switch')?.disabled, true);
+  mounted.dispose();
+});
+
+test('browser preview reports the default app as unavailable', async () => {
+  const adapter = new BrowserViewerAdapter(dom.window as unknown as Window);
+  const { root, mounted } = app(adapter); await flush();
+  root.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click(); await flush();
+  assert.deepEqual(await adapter.queryDefaultAppStatus(), { kind: 'unavailable' });
+  assert.equal(root.querySelector('.viewer-default-app-caption')?.textContent, 'Available in the Mac app.');
+  assert.equal(root.querySelector<HTMLButtonElement>('.viewer-default-app-switch')?.disabled, true);
+  mounted.dispose(); adapter.dispose();
 });
 
 test('reader keeps scroll on a same-document revision and resets for a different document', async () => {

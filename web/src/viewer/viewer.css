@@ -115,6 +115,16 @@ html[data-native='true'] .viewer-source-text { background: transparent; }
 .viewer-range-labels output { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .viewer-range { display: block; width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .viewer-legibility-note { margin: 18px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.viewer-default-app-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 0 14px; border-bottom: 1px solid var(--line); }
+.viewer-default-app-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 4px; min-width: 0; }
+.viewer-default-app-label { color: var(--ink); font-size: 13px; line-height: 1.4; }
+.viewer-default-app-caption { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.viewer-default-app-caption.is-error { color: var(--danger); }
+.viewer-default-app-switch { position: relative; display: block; flex: 0 0 42px; width: 42px; height: 24px; padding: 2px; border: 0; border-radius: 999px; appearance: none; -webkit-appearance: none; background: var(--line); cursor: pointer; transition: background-color 150ms ease, opacity 150ms ease; }
+.viewer-default-app-switch-thumb { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--paper); box-shadow: 0 1px 2px #0000002a; transition: transform 150ms ease; }
+.viewer-default-app-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.viewer-default-app-switch:disabled { cursor: not-allowed; opacity: .55; }
+.viewer-default-app-switch.is-pending { opacity: .55; }
 .viewer-reset-button { padding: 5px 0; color: var(--accent); font-size: 12px; }
 .viewer-reset-button:hover { text-decoration: underline; text-underline-offset: 3px; }
 .viewer-settings-error { margin: 9px 0 0; color: var(--danger); font-size: 12px; line-height: 1.5; }

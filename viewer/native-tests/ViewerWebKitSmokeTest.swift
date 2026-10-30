@@ -31,7 +31,8 @@ struct ViewerWebKitSmokeTest {
 
         let application = NSApplication.shared
         application.setActivationPolicy(.regular)
-        let runtime = try ViewerApplicationRuntime(webDirectory: webDirectory, defaults: defaults)
+        let launchServices = SmokeViewerLaunchServices()
+        let runtime = try ViewerApplicationRuntime(webDirectory: webDirectory, defaults: defaults, launchServices: launchServices)
         defer { runtime.shutdown() }
         runtime.start(launchURLs: [first])
         guard let controller = runtime.controller(for: first) else {
@@ -63,6 +64,67 @@ struct ViewerWebKitSmokeTest {
         guard (bootstrap["document"] as? [String: Any])?["kind"] as? String == "loaded",
               (bootstrap["document"] as? [String: Any])?["name"] as? String == "smoke.md" else {
             throw SmokeFailure.message("Native bootstrap returned an unexpected document snapshot.")
+        }
+
+        _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage({action:'defaultAppStatus'}).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
+        try wait(webView, timeout: 8, description: "native default app status query") {
+            (try? evaluate(webView, "window.__viewerSmokeResult !== null")) as? Bool == true
+        }
+        let defaultAppStatus = try resultObject(webView)
+        guard defaultAppStatus.keys.sorted() == ["canToggle", "currentAppName", "isViewerDefault", "previousAppName"],
+              defaultAppStatus["isViewerDefault"] as? Bool == false,
+              defaultAppStatus["canToggle"] as? Bool == true,
+              defaultAppStatus["currentAppName"] as? String == "Preview",
+              defaultAppStatus["previousAppName"] is NSNull else {
+            throw SmokeFailure.message("Native default app query returned an unexpected or path-bearing status.")
+        }
+
+        _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage({action:'setDefaultApp',enabled:true,extra:'not-a-settings-action'}).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
+        try wait(webView, timeout: 8, description: "rejected malformed default app command") {
+            (try? evaluate(webView, "window.__viewerSmokeResult !== null")) as? Bool == true
+        }
+        let malformed = try evaluate(webView, "JSON.stringify(window.__viewerSmokeResult)") as? String ?? ""
+        guard malformed.contains("default app request is malformed") && launchServices.setCalls.isEmpty else {
+            throw SmokeFailure.message("The native bridge accepted a malformed default app command.")
+        }
+
+        _ = try evaluate(webView, "document.querySelector('[aria-label=\\\"Settings\\\"]').click(); true")
+        try wait(webView, timeout: 8, description: "Settings open") {
+            (try? evaluate(webView, "document.querySelector('.viewer-settings') !== null")) as? Bool == true
+        }
+        let generalSelected = try evaluate(webView, "document.querySelector('#viewer-settings-tab-general')?.getAttribute('aria-selected') === 'true'") as? Bool == true
+        guard generalSelected else {
+            let state = try evaluate(webView, "JSON.stringify({tabs:Array.from(document.querySelectorAll('[role=tab]')).map(tab=>({id:tab.id,text:tab.textContent,selected:tab.getAttribute('aria-selected')})),body:document.body.innerText})") as? String ?? "unavailable"
+            throw SmokeFailure.message("Settings did not open on General: \(state)")
+        }
+        try wait(webView, timeout: 8, description: "default app settings query") {
+            (try? evaluate(webView, "document.querySelector('.viewer-default-app-caption')?.textContent === 'Markdown files open in Preview.'")) as? Bool == true
+        }
+        try captureDefaultAppEvidence(controller, webView: webView, state: "off")
+        launchServices.setDelayNanoseconds = 600_000_000
+        _ = try evaluate(webView, "document.querySelector('.viewer-default-app-switch').click(); true")
+        try wait(webView, timeout: 5, description: "pending default app switch") {
+            (try? evaluate(webView, "(() => { const toggle=document.querySelector('.viewer-default-app-switch'); return toggle?.getAttribute('aria-checked')==='true' && toggle.disabled && document.querySelector('.viewer-default-app-row')?.getAttribute('aria-busy')==='true' && document.querySelector('.viewer-default-app-caption')?.textContent==='Changing the default app…'; })()")) as? Bool == true
+        }
+        try captureDefaultAppEvidence(controller, webView: webView, state: "pending")
+        try wait(webView, timeout: 8, description: "enabled default app switch and status re-query") {
+            (try? evaluate(webView, "(() => { const toggle=document.querySelector('.viewer-default-app-switch'); return toggle?.getAttribute('aria-checked')==='true' && !toggle.disabled && document.querySelector('.viewer-default-app-caption')?.textContent==='Turn off to go back to Preview.'; })()")) as? Bool == true
+        }
+        try captureDefaultAppEvidence(controller, webView: webView, state: "on")
+        guard launchServices.setCalls == launchServices.markdownContentTypeIdentifiers else {
+            throw SmokeFailure.message("Settings did not set every distinct Markdown content type through the injected adapter.")
+        }
+        _ = try evaluate(webView, "document.querySelector('.viewer-default-app-switch').click(); true")
+        try wait(webView, timeout: 8, description: "restored default app switch") {
+            (try? evaluate(webView, "(() => { const toggle=document.querySelector('.viewer-default-app-switch'); return toggle?.getAttribute('aria-checked')==='false' && !toggle.disabled && document.querySelector('.viewer-default-app-caption')?.textContent==='Markdown files open in Preview.'; })()")) as? Bool == true
+        }
+        guard launchServices.setBundleIdentifierCalls == [launchServices.viewerBundleIdentifier!, launchServices.viewerBundleIdentifier!,
+                                                            launchServices.previewBundleIdentifier, launchServices.previewBundleIdentifier] else {
+            throw SmokeFailure.message("Turning the switch off did not restore the previous app for every Markdown content type.")
+        }
+        _ = try evaluate(webView, "document.querySelector('.viewer-done-button').click(); true")
+        try wait(webView, timeout: 8, description: "reader restored after default app settings") {
+            (try? evaluate(webView, "document.querySelector('.viewer-markdown') !== null")) as? Bool == true
         }
 
         _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage({action:'preferences',preferences:{themeID:'system',syntaxThemeID:'app',fontID:'space-mono',fontWeight:400,fontSize:17,focusedOpacity:1,unfocusedOpacity:1,glass:0}}).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
@@ -132,7 +194,27 @@ struct ViewerWebKitSmokeTest {
         try wait(settingsController.webView!, timeout: 20, description: "queued Settings command on a cold window") {
             (try? evaluate(settingsController.webView!, "document.querySelector('.viewer-settings') !== null")) as? Bool == true
         }
-        print("Viewer WebKit smoke passed: rendering, bridge, transparent surface, native glass, relative image, atomic refresh, delete/recovery, multi-URL deduplication, and cold Settings delivery.")
+        print("Viewer WebKit smoke passed: rendering, bridge validation, default-app off/pending/on/restore states through a fake LaunchServices adapter, transparent surface, native glass, relative image, atomic refresh, delete/recovery, multi-URL deduplication, and cold Settings delivery.")
+    }
+
+    private static func captureDefaultAppEvidence(_ controller: ViewerWindowController, webView: WKWebView, state: String) throws {
+        guard let directory = ProcessInfo.processInfo.environment["VIEWER_SMOKE_SCREENSHOT_DIR"],
+              let window = controller.window else { return }
+        let folder = URL(fileURLWithPath: directory, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        _ = try evaluate(webView, "(() => { const toggle=document.querySelector('.viewer-default-app-switch'); const thumb=document.querySelector('.viewer-default-app-switch-thumb'); toggle?.style.setProperty('transition','none','important'); thumb?.style.setProperty('transition','none','important'); return true; })()")
+        _ = NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.updateWindows()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        let destination = folder.appendingPathComponent("banana-viewer-default-\(state).png")
+        let capture = Process()
+        capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        capture.arguments = ["-x", "-l", String(window.windowNumber), destination.path]
+        try capture.run(); capture.waitUntilExit()
+        guard capture.terminationStatus == 0 else {
+            throw SmokeFailure.message("Could not capture the \(state) default-app Settings state.")
+        }
     }
 
     private static func verifyClosedControllerCleanup(_ runtime: ViewerApplicationRuntime, document: URL) throws {
@@ -208,4 +290,38 @@ struct ViewerWebKitSmokeTest {
 enum SmokeFailure: LocalizedError {
     case message(String)
     var errorDescription: String? { if case .message(let value) = self { return value }; return nil }
+}
+
+@MainActor
+private final class SmokeViewerLaunchServices: ViewerLaunchServices {
+    let viewerBundleIdentifier: ViewerBundleIdentifier? = ViewerBundleIdentifier("com.jzlosman.banana-viewer")
+    let previewBundleIdentifier = ViewerBundleIdentifier("com.apple.Preview")!
+    let markdownContentTypeIdentifiers = ["test.viewer-markdown", "test.viewer-md"]
+    var setCalls: [String] = []
+    var setBundleIdentifierCalls: [ViewerBundleIdentifier] = []
+    var setDelayNanoseconds: UInt64 = 0
+    private var applications: [String: ViewerDefaultApplication]
+    private let registeredApplications: [ViewerBundleIdentifier: ViewerDefaultApplication]
+
+    init() {
+        let preview = ViewerDefaultApplication(bundleIdentifier: previewBundleIdentifier, displayName: "Preview")
+        let viewer = ViewerDefaultApplication(bundleIdentifier: viewerBundleIdentifier, displayName: "Banana Viewer (build copy)")
+        applications = ["test.viewer-markdown": preview, "test.viewer-md": preview]
+        registeredApplications = [previewBundleIdentifier: preview, viewerBundleIdentifier!: viewer]
+    }
+
+    func currentApplication(forContentTypeIdentifier identifier: String) -> ViewerDefaultApplication? {
+        applications[identifier]
+    }
+
+    func application(forBundleIdentifier identifier: ViewerBundleIdentifier) -> ViewerDefaultApplication? {
+        registeredApplications[identifier]
+    }
+
+    func setDefaultApplication(bundleIdentifier: ViewerBundleIdentifier, forContentTypeIdentifier identifier: String) async -> Bool {
+        if setDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: setDelayNanoseconds) }
+        setCalls.append(identifier); setBundleIdentifierCalls.append(bundleIdentifier)
+        applications[identifier] = registeredApplications[bundleIdentifier]
+        return applications[identifier] != nil
+    }
 }

@@ -1,4 +1,4 @@
-import { normalizeViewerPreferences, type ViewerCommand, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
+import { normalizeViewerPreferences, type ViewerCommand, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
 import type { ViewerEvent, ViewerPort } from './ports';
 
 export type ViewerSessionEvent = ViewerEvent | { kind: 'preferences-saving' } | { kind: 'preferences-saved' };
@@ -34,6 +34,8 @@ export class ViewerSession {
   reload(): Promise<null> { return this.port.reload(); }
   reveal(): Promise<null> { return this.port.reveal(); }
   openLink(href: string): Promise<null> { return this.port.openLink(href); }
+  queryDefaultAppStatus(): Promise<ViewerDefaultAppStatus> { return this.port.queryDefaultAppStatus(); }
+  setDefaultApp(enabled: boolean): Promise<ViewerDefaultAppOutcome> { return this.port.setDefaultApp(enabled); }
 
   updatePreferences(patch: Partial<ViewerPreferences>): Promise<ViewerSnapshot> {
     const operation = this.preferenceTail.then(async () => {

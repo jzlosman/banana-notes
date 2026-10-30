@@ -6,17 +6,19 @@ final class ViewerApplicationRuntime {
     let webDirectory: URL
     let catalog: ViewerCatalog
     let preferencesStore: ViewerPreferencesStore
+    private let defaultApplicationManager: ViewerDefaultApplicationManager
     private let menu = ViewerMenuController()
     private(set) var windowControllers: [ViewerWindowController] = []
     private var windowsByDocumentPath: [String: ViewerWindowController] = [:]
     private var started = false
 
-    init(webDirectory: URL, defaults: UserDefaults = .standard) throws {
+    init(webDirectory: URL, defaults: UserDefaults = .standard, launchServices: ViewerLaunchServices? = nil) throws {
         self.webDirectory = webDirectory
         let themes = try Data(contentsOf: webDirectory.appendingPathComponent("theme-catalog.json"))
         let fonts = try Data(contentsOf: webDirectory.appendingPathComponent("note-font-catalog.json"))
         catalog = try ViewerCatalog(themeData: themes, fontData: fonts)
         preferencesStore = ViewerPreferencesStore(defaults: defaults, catalog: catalog)
+        defaultApplicationManager = ViewerDefaultApplicationManager(launchServices: launchServices ?? SystemViewerLaunchServices(), memory: preferencesStore)
     }
 
     func start(launchURLs: [URL] = []) {
@@ -121,7 +123,8 @@ final class ViewerApplicationRuntime {
     @discardableResult
     private func createWindow() -> ViewerWindowController {
         let controller = ViewerWindowController(webDirectory: webDirectory, catalog: catalog,
-                                                preferencesStore: preferencesStore)
+                                                preferencesStore: preferencesStore,
+                                                defaultApplicationManager: defaultApplicationManager)
         controller.onOpenDocument = { [weak self] in self?.open([$0]) }
         controller.onOpenPanel = { [weak self] in self?.presentOpenPanel() }
         controller.onPreferencesUpdated = { [weak self] in self?.broadcastPreferences() }

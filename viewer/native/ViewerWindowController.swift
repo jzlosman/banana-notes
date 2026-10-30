@@ -7,6 +7,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
     private let webDirectory: URL
     private let catalog: ViewerCatalog
     private let preferencesStore: ViewerPreferencesStore
+    private let defaultApplicationManager: ViewerDefaultApplicationManager
     private var resourceHandler: ViewerResourceSchemeHandler!
     private var userContentController: WKUserContentController!
     private var bridgeMessageHandler: ViewerBridgeMessageHandler!
@@ -29,11 +30,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
     private(set) var webView: WKWebView!
     var documentURL: URL? { currentURL }
 
-    init(webDirectory: URL, catalog: ViewerCatalog, preferencesStore: ViewerPreferencesStore) {
+    init(webDirectory: URL, catalog: ViewerCatalog, preferencesStore: ViewerPreferencesStore,
+         defaultApplicationManager: ViewerDefaultApplicationManager) {
         self.webDirectory = webDirectory
         self.indexURL = webDirectory.appendingPathComponent("viewer.html")
         self.catalog = catalog
         self.preferencesStore = preferencesStore
+        self.defaultApplicationManager = defaultApplicationManager
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -242,6 +245,18 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
             case "reveal":
                 revealDocument()
                 replyHandler(NSNull(), nil)
+            case "defaultAppStatus":
+                guard body.count == 1 else { replyHandler(nil, "The default app request is malformed."); return }
+                replyHandler(try viewerFoundationValue(defaultApplicationManager.status()), nil)
+            case "setDefaultApp":
+                guard body.count == 2, let enabled = body["enabled"] as? Bool else {
+                    replyHandler(nil, "The default app request is malformed."); return
+                }
+                Task { @MainActor in
+                    let outcome = await defaultApplicationManager.setDefault(enabled: enabled)
+                    do { replyHandler(try viewerFoundationValue(outcome), nil) }
+                    catch { replyHandler(nil, "macOS didn't change the default app.") }
+                }
             default:
                 replyHandler(nil, "This viewer action is not supported.")
             }

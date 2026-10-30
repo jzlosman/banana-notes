@@ -1,13 +1,16 @@
 import { Check, Search } from 'lucide';
 import { themes } from '../../domain/themes';
 import type { NoteFontState } from '../../domain/note-font';
-import type { ViewerPreferences } from '../domain/model';
+import type { ViewerDefaultAppOutcome, ViewerDefaultAppStatus, ViewerPreferences } from '../domain/model';
 import { renderIcon } from '../../ui/icon';
 import { installThemeGridKeyboard, updateThemeGridTabStop } from '../../ui/theme-grid';
+
+type DefaultAppViewState = ViewerDefaultAppStatus | { kind: 'loading' } | { kind: 'error'; message: string };
 
 export type ViewerSettingsView = {
   element: HTMLElement;
   update(preferences: ViewerPreferences): void;
+  updateDefaultAppStatus(status: DefaultAppViewState): void;
   setError(message: string): void;
   clearError(): void;
   focus(): void;
@@ -19,6 +22,8 @@ type SettingsOptions = {
   preferences: ViewerPreferences;
   fonts: NoteFontState;
   onChange(patch: Partial<ViewerPreferences>): Promise<void>;
+  onQueryDefaultAppStatus(): Promise<ViewerDefaultAppStatus>;
+  onSetDefaultApp(enabled: boolean): Promise<ViewerDefaultAppOutcome>;
   onDone(): void;
 };
 
@@ -45,10 +50,10 @@ export function renderViewerSettings(options: SettingsOptions): ViewerSettingsVi
 
   const tabs = doc.createElement('div'); tabs.className = 'viewer-settings-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Viewer settings');
   const panels = doc.createElement('div'); panels.className = 'viewer-settings-panels quiet-scroll';
-  const names = ['Appearance', 'Text', 'Window'] as const;
+  const names = ['General', 'Appearance', 'Text', 'Window'] as const;
   const tabButtons = new Map<string, HTMLButtonElement>();
   const tabPanels = new Map<string, HTMLElement>();
-  let activeTab = 'Appearance';
+  let activeTab = 'General';
   const selectTab = (name: string, focus = false) => {
     activeTab = name;
     for (const [key, tab] of tabButtons) {
@@ -58,15 +63,16 @@ export function renderViewerSettings(options: SettingsOptions): ViewerSettingsVi
     if (focus) tabButtons.get(name)?.focus();
   };
   for (const name of names) {
-    const tab = button(doc, name, 'viewer-settings-tab'); tab.id = `viewer-settings-tab-${name.toLowerCase()}`;
-    tab.setAttribute('role', 'tab'); tab.setAttribute('aria-controls', `viewer-settings-panel-${name.toLowerCase()}`);
+    const tabID = name.toLowerCase().replaceAll(' ', '-');
+    const tab = button(doc, name, 'viewer-settings-tab'); tab.id = `viewer-settings-tab-${tabID}`;
+    tab.setAttribute('role', 'tab'); tab.setAttribute('aria-controls', `viewer-settings-panel-${tabID}`);
     tab.addEventListener('click', () => selectTab(name));
     tab.addEventListener('keydown', event => {
       const index = names.indexOf(name);
       const next = event.key === 'ArrowRight' ? (index + 1) % names.length : event.key === 'ArrowLeft' ? (index + names.length - 1) % names.length : -1;
       if (next >= 0) { event.preventDefault(); selectTab(names[next], true); }
     });
-    const panel = doc.createElement('div'); panel.id = `viewer-settings-panel-${name.toLowerCase()}`; panel.className = 'viewer-settings-panel';
+    const panel = doc.createElement('div'); panel.id = `viewer-settings-panel-${tabID}`; panel.className = 'viewer-settings-panel';
     panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', tab.id); panel.hidden = name !== activeTab;
     tabButtons.set(name, tab); tabPanels.set(name, panel); tabs.append(tab); panels.append(panel);
   }
@@ -197,11 +203,30 @@ export function renderViewerSettings(options: SettingsOptions): ViewerSettingsVi
   reset.addEventListener('click', () => void options.onChange({ focusedOpacity: 1, unfocusedOpacity: 1, glass: 0 }).catch(error => view.setError(errorText(error))));
   windowSection.append(legibility, reset); windowPanel.append(windowSection);
 
+  const generalPanel = tabPanels.get('General')!;
+  const generalSection = section(doc, 'General');
+  const defaultAppRow = doc.createElement('div'); defaultAppRow.className = 'viewer-default-app-row';
+  const defaultAppCopy = doc.createElement('div'); defaultAppCopy.className = 'viewer-default-app-copy';
+  const defaultAppLabel = doc.createElement('span'); defaultAppLabel.className = 'viewer-default-app-label';
+  defaultAppLabel.id = 'viewer-default-app-label'; defaultAppLabel.textContent = 'Open Markdown files with Banana Viewer';
+  const defaultAppCaption = doc.createElement('p'); defaultAppCaption.className = 'viewer-default-app-caption';
+  defaultAppCaption.id = 'viewer-default-app-caption'; defaultAppCaption.setAttribute('role', 'status'); defaultAppCaption.setAttribute('aria-live', 'polite');
+  defaultAppCopy.append(defaultAppLabel, defaultAppCaption);
+  const defaultAppSwitch = button(doc, '', 'viewer-default-app-switch');
+  defaultAppSwitch.setAttribute('role', 'switch'); defaultAppSwitch.setAttribute('aria-labelledby', defaultAppLabel.id);
+  defaultAppSwitch.setAttribute('aria-describedby', defaultAppCaption.id);
+  const defaultAppThumb = doc.createElement('span'); defaultAppThumb.className = 'viewer-default-app-switch-thumb'; defaultAppThumb.setAttribute('aria-hidden', 'true');
+  defaultAppSwitch.append(defaultAppThumb);
+  defaultAppRow.append(defaultAppCopy, defaultAppSwitch); generalSection.append(defaultAppRow); generalPanel.append(generalSection);
+
   const error = doc.createElement('p'); error.className = 'viewer-settings-error viewer-settings-global-error'; error.setAttribute('role', 'alert'); error.hidden = true;
   const footer = doc.createElement('p'); footer.className = 'viewer-settings-footer'; footer.textContent = 'These settings apply only to Banana Viewer. Banana Notes keeps its own preferences.';
   root.append(header, tabs, panels, error, footer);
 
   let currentPreferences = options.preferences;
+  let currentDefaultAppStatus: DefaultAppViewState = { kind: 'loading' };
+  let pendingDefaultAppValue: boolean | undefined;
+  let defaultAppError: string | undefined;
   function setFontPreview(): void {
     const font = options.fonts.fonts.find(item => item.id === currentPreferences.fontID) ?? options.fonts.fonts[0];
     preview.style.fontFamily = font.kind === 'system' ? font.family : `"${font.family}", ui-monospace, Menlo, monospace`;
@@ -219,10 +244,45 @@ export function renderViewerSettings(options: SettingsOptions): ViewerSettingsVi
       controls.input.value = String(Math.round(value)); controls.output.value = `${Math.round(value)}%`;
     }
     error.hidden = true;
+    renderDefaultAppState();
+  }
+  function updateDefaultAppStatus(status: DefaultAppViewState): void {
+    currentDefaultAppStatus = status;
+    defaultAppError = undefined;
+    renderDefaultAppState();
+  }
+  function renderDefaultAppState(): void {
+    const status = currentDefaultAppStatus;
+    const canToggle = status.kind === 'available' && status.canToggle;
+    const checked = pendingDefaultAppValue ?? (status.kind === 'available' && status.state === 'on');
+    defaultAppSwitch.setAttribute('aria-checked', String(checked));
+    const accentColor = doc.defaultView?.getComputedStyle(tabButtons.get('General')!).color;
+    defaultAppSwitch.style.backgroundColor = checked && accentColor ? accentColor : '';
+    defaultAppThumb.style.transform = checked ? 'translateX(18px)' : 'translateX(0)';
+    defaultAppSwitch.disabled = pendingDefaultAppValue !== undefined || !canToggle;
+    defaultAppSwitch.style.opacity = defaultAppSwitch.disabled ? '0.55' : '1';
+    defaultAppSwitch.classList.toggle('is-on', checked);
+    defaultAppSwitch.classList.toggle('is-pending', pendingDefaultAppValue !== undefined);
+    defaultAppRow.setAttribute('aria-busy', String(pendingDefaultAppValue !== undefined));
+    defaultAppCaption.classList.toggle('is-error', defaultAppError !== undefined || status.kind === 'error');
+
+    if (pendingDefaultAppValue !== undefined) defaultAppCaption.textContent = 'Changing the default app…';
+    else if (defaultAppError) defaultAppCaption.textContent = defaultAppError;
+    else if (status.kind === 'loading') defaultAppCaption.textContent = 'Checking…';
+    else if (status.kind === 'error') defaultAppCaption.textContent = status.message;
+    else if (status.kind === 'unavailable') defaultAppCaption.textContent = 'Available in the Mac app.';
+    else if (status.state === 'on') {
+      defaultAppCaption.textContent = status.canToggle
+        ? status.previousAppName ? `Turn off to go back to ${status.previousAppName}.` : 'Turn off to restore the previous app.'
+        : 'Change the default app in Finder’s Get Info.';
+    } else if (!status.canToggle) defaultAppCaption.textContent = 'Markdown file types aren’t available on this Mac.';
+    else defaultAppCaption.textContent = status.currentAppName
+      ? `Markdown files open in ${status.currentAppName}.` : 'Markdown files have no default app.';
   }
   const view: ViewerSettingsView = {
     element: root,
     update,
+    updateDefaultAppStatus,
     setError(message) { error.textContent = message; error.hidden = false; },
     clearError() { error.hidden = true; },
     focus() { tabButtons.get(activeTab)?.focus(); },
@@ -230,6 +290,29 @@ export function renderViewerSettings(options: SettingsOptions): ViewerSettingsVi
   };
   selectTab(activeTab);
   update(currentPreferences);
+  updateDefaultAppStatus({ kind: 'loading' });
+  void options.onQueryDefaultAppStatus().then(updateDefaultAppStatus, () => {
+    updateDefaultAppStatus({ kind: 'error', message: 'macOS couldn’t check the default app.' });
+  });
+  defaultAppSwitch.addEventListener('click', () => {
+    const confirmed = currentDefaultAppStatus;
+    if (confirmed.kind !== 'available' || !confirmed.canToggle || pendingDefaultAppValue !== undefined) return;
+    const enabled = confirmed.state === 'off';
+    pendingDefaultAppValue = enabled; defaultAppError = undefined; renderDefaultAppState();
+    void (async () => {
+      let outcome: ViewerDefaultAppOutcome;
+      try { outcome = await options.onSetDefaultApp(enabled); }
+      catch { outcome = { kind: 'declinedOrFailed' }; }
+      let refreshed: ViewerDefaultAppStatus | undefined;
+      try { refreshed = await options.onQueryDefaultAppStatus(); } catch { /* Keep the last confirmed state. */ }
+      pendingDefaultAppValue = undefined;
+      if (refreshed) currentDefaultAppStatus = refreshed;
+      const changed = outcome.kind === 'changed' && refreshed?.kind === 'available' &&
+        (enabled ? refreshed.state === 'on' : refreshed.state === 'off');
+      defaultAppError = changed ? undefined : refreshed ? 'macOS didn’t change the default app.' : 'macOS couldn’t check the default app.';
+      renderDefaultAppState();
+    })();
+  });
   return view;
 }
 

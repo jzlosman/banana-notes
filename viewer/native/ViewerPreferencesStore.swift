@@ -2,11 +2,12 @@ import Foundation
 
 /// The containing app's bundle identifier supplies an isolated UserDefaults domain.
 /// This adapter stores only viewer settings and recent viewer documents.
-final class ViewerPreferencesStore {
+final class ViewerPreferencesStore: ViewerDefaultApplicationMemory {
     private let defaults: UserDefaults
     private let catalog: ViewerCatalog
     private let key = "viewerPreferences.v1"
     private let recentsKey = "viewerRecentDocuments.v1"
+    private let previousDefaultAppKey = "viewerPreviousDefaultAppBundleIdentifier.v1"
 
     init(defaults: UserDefaults = .standard, catalog: ViewerCatalog) {
         self.defaults = defaults
@@ -34,6 +35,20 @@ final class ViewerPreferencesStore {
                   seen.insert(url.path).inserted else { return nil }
             return url
         }
+    }
+
+    var previousDefaultApplicationBundleIdentifier: ViewerBundleIdentifier? {
+        guard let rawValue = defaults.string(forKey: previousDefaultAppKey) else { return nil }
+        guard let identifier = ViewerBundleIdentifier(rawValue) else {
+            defaults.removeObject(forKey: previousDefaultAppKey)
+            return nil
+        }
+        return identifier
+    }
+
+    func rememberPreviousDefaultApplication(_ identifier: ViewerBundleIdentifier?) {
+        if let identifier { defaults.set(identifier.rawValue, forKey: previousDefaultAppKey) }
+        else { defaults.removeObject(forKey: previousDefaultAppKey) }
     }
 
     func clearRecentDocuments() { defaults.removeObject(forKey: recentsKey) }

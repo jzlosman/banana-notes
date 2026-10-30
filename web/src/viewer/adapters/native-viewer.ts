@@ -1,5 +1,5 @@
 import type { ViewerPort, ViewerEvent } from '../application/ports';
-import { decodeNativeSnapshot, isSafeViewerLink, isViewerCommand, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
+import { decodeNativeDefaultAppOutcome, decodeNativeDefaultAppStatus, decodeNativeSnapshot, isSafeViewerLink, isViewerCommand, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
 
 type ViewerMessage =
   | { action: 'bootstrap' }
@@ -7,7 +7,9 @@ type ViewerMessage =
   | { action: 'reload' }
   | { action: 'preferences'; preferences: ViewerPreferences }
   | { action: 'openLink'; href: string }
-  | { action: 'reveal' };
+  | { action: 'reveal' }
+  | { action: 'defaultAppStatus' }
+  | { action: 'setDefaultApp'; enabled: boolean };
 
 type ViewerHandler = { postMessage(message: ViewerMessage): Promise<unknown> };
 
@@ -32,6 +34,14 @@ export class NativeViewerAdapter implements ViewerPort {
 
   async savePreferences(preferences: ViewerPreferences): Promise<ViewerSnapshot> {
     return decodeNativeSnapshot(await this.handler.postMessage({ action: 'preferences', preferences }));
+  }
+
+  async queryDefaultAppStatus(): Promise<ViewerDefaultAppStatus> {
+    return decodeNativeDefaultAppStatus(await this.handler.postMessage({ action: 'defaultAppStatus' }));
+  }
+
+  async setDefaultApp(enabled: boolean): Promise<ViewerDefaultAppOutcome> {
+    return decodeNativeDefaultAppOutcome(await this.handler.postMessage({ action: 'setDefaultApp', enabled }));
   }
 
   async openLink(href: string): Promise<null> {

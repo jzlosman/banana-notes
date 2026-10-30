@@ -1,5 +1,5 @@
 import type { ViewerPort, ViewerEvent } from '../application/ports';
-import { DEFAULT_VIEWER_PREFERENCES, isSafeViewerLink, normalizeViewerPreferences, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
+import { DEFAULT_VIEWER_PREFERENCES, isSafeViewerLink, normalizeViewerPreferences, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
 
 const PREFERENCES_KEY = 'banana-viewer-preferences-v1';
 const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
@@ -59,6 +59,10 @@ export class BrowserViewerAdapter implements ViewerPort {
     this.emit({ kind: 'snapshot', snapshot: this.snapshot });
     return this.snapshot;
   }
+
+  async queryDefaultAppStatus(): Promise<ViewerDefaultAppStatus> { return { kind: 'unavailable' }; }
+
+  async setDefaultApp(_enabled: boolean): Promise<ViewerDefaultAppOutcome> { return { kind: 'unavailable' }; }
 
   async openLink(href: string): Promise<null> {
     if (!isSafeViewerLink(href) || href.startsWith('#')) throw new Error('This link cannot be opened.');

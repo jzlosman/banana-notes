@@ -24,16 +24,6 @@ html[data-native='true'] .viewer-source-text { background: transparent; }
   border-bottom: 1px solid var(--line);
   background: var(--chrome);
 }
-.viewer-open-button {
-  min-height: 29px;
-  padding: 4px 7px;
-  margin-left: -7px;
-  border-radius: 5px;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 500;
-}
-.viewer-open-button:hover:not(:disabled) { background: var(--hover); }
 .viewer-toolbar-spacer { flex: 1 1 auto; }
 .viewer-editing-label { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .viewer-unsaved-dot { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--accent); vertical-align: middle; }

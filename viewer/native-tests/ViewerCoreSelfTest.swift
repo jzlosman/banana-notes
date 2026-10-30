@@ -17,6 +17,8 @@ struct ViewerCoreSelfTest {
         try testResourceAndLinkPolicies()
         print("Viewer resource/link policy cases passed.")
         try testPreferencePersistence(catalog: catalog)
+        testRecentDocumentMenuBuilder()
+        testMenuAnchorRect()
         try testPendingOpenURLs()
         try await testDefaultApplication()
         print("Viewer default app decisions, bundle identity, and fake LaunchServices cases passed.")
@@ -308,6 +310,50 @@ struct ViewerCoreSelfTest {
                "recents are unique and newest first")
         store.clearRecentDocuments()
         expect(store.recentDocumentURLs.isEmpty, "clear recents removes viewer-owned recent list")
+    }
+
+    private static func testRecentDocumentMenuBuilder() {
+        let first = URL(fileURLWithPath: "/tmp/Folder B/Shared.md")
+        let current = URL(fileURLWithPath: "/tmp/Folder A/Shared.md")
+        let unique = URL(fileURLWithPath: "/tmp/Folder A/Notes.md")
+        let missing = URL(fileURLWithPath: "/tmp/Folder A/Missing.md")
+        let existing = Set([first.path, current.path, unique.path])
+        let items = ViewerRecentDocumentMenuBuilder.build(
+            recentURLs: [first, current, unique, missing],
+            fileExists: { existing.contains($0.path) }, currentDocumentURL: current)
+        expect(items.map(\.url) == [first, current, unique], "recent menu preserves newest-first order and drops files that no longer exist")
+        expect(items[0].hasDuplicateFilename && items[1].hasDuplicateFilename && !items[2].hasDuplicateFilename,
+               "both matching filenames are marked for folder disambiguation")
+        expect(items[0].fallbackTitle == "Shared.md — Folder B" && items[1].fallbackTitle == "Shared.md — Folder A",
+               "duplicate titles include each parent folder name")
+        expect(items[0].isCurrentDocument == false && items[1].isCurrentDocument && !items[2].isCurrentDocument,
+               "the current window document is marked without changing recency order")
+        expect(ViewerRecentDocumentMenuBuilder.build(recentURLs: [missing], fileExists: { _ in false }, currentDocumentURL: nil).isEmpty,
+               "no existing recent documents produces the empty-state item list")
+
+        let capInput = [URL(fileURLWithPath: "/tmp/Missing.md")] + (0..<11).map { URL(fileURLWithPath: "/tmp/recent-\($0).md") }
+        let capped = ViewerRecentDocumentMenuBuilder.build(
+            recentURLs: capInput, fileExists: { $0.lastPathComponent != "Missing.md" }, currentDocumentURL: nil)
+        expect(capped.count == 10 && capped.first?.filename == "recent-0.md" && capped.last?.filename == "recent-9.md",
+               "the ten-item cap applies after missing files are removed")
+        print("Viewer recent-document menu ordering, cap, existence, duplicate names, and current marking passed.")
+    }
+
+    private static func testMenuAnchorRect() {
+        let valid = ViewerMenuAnchorRect(wireValue: ["x": 30, "y": 25, "width": 30, "height": 20])
+        expect(valid?.clamped(to: CGRect(x: 0, y: 0, width: 40, height: 30)) == CGRect(x: 30, y: 25, width: 10, height: 5),
+               "open-menu geometry is clamped to the viewport")
+        let partial = ViewerMenuAnchorRect(wireValue: ["x": -5, "y": -2, "width": 12, "height": 10])
+        expect(partial?.clamped(to: CGRect(x: 0, y: 0, width: 40, height: 30)) == CGRect(x: 0, y: 0, width: 12, height: 10),
+               "partially offscreen menu anchors are clamped into the viewport")
+        expect(ViewerMenuAnchorRect(wireValue: ["x": NSNumber(value: Double.nan), "y": 0, "width": 30, "height": 30]) == nil,
+               "non-finite menu geometry is rejected")
+        expect(ViewerMenuAnchorRect(wireValue: ["x": true, "y": 0, "width": 30, "height": 30]) == nil,
+               "boolean menu geometry is rejected instead of being coerced to a number")
+        expect(ViewerMenuAnchorRect(wireValue: ["x": 0, "y": 0, "width": 0, "height": 30]) == nil,
+               "zero-area menu geometry is rejected")
+        expect(ViewerMenuAnchorRect(wireValue: ["x": 0, "y": 0, "width": 30, "height": 30, "path": "/tmp/private.md"]) == nil,
+               "unexpected menu payload keys are rejected")
     }
 
     private static func testPendingOpenURLs() throws {

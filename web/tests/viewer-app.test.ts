@@ -28,8 +28,15 @@ class MemoryPort implements ViewerPort {
   defaultAppQueries = 0;
   defaultAppChanges = 0;
   failDefaultAppQuery = false;
+  supportsNativeOpenMenu = false;
+  openMenuRequests: Array<{ x: number; y: number; width: number; height: number }> = [];
+  pendingOpenMenu: ReturnType<typeof deferred<null>> | undefined;
   async bootstrap() { return this.current; }
   async open() { return null; }
+  async openMenu(anchor: { x: number; y: number; width: number; height: number }) {
+    this.openMenuRequests.push({ ...anchor });
+    return this.pendingOpenMenu ? this.pendingOpenMenu.promise : null;
+  }
   async reload() { return null; }
   async discardAndReload() { return null; }
   async unlockDocument() { this.current = { ...this.current, editing: { kind: 'unlocked', dirty: false } }; this.publish({ kind: 'snapshot', snapshot: this.current }); return this.current; }
@@ -85,6 +92,51 @@ function clampScrollToContent(main: HTMLElement, maximumForContent?: (reader: HT
   });
 }
 
+test('toolbar Open is an accessible folder icon that sends only its geometry to the native menu', async () => {
+  const port = new MemoryPort(); port.supportsNativeOpenMenu = true;
+  const { root, mounted } = app(port); await flush();
+  const toolbar = root.querySelector<HTMLElement>('.viewer-toolbar')!;
+  const button = toolbar.querySelector<HTMLButtonElement>('[aria-label="Open"]')!;
+  assert.ok(button.classList.contains('viewer-icon-button'));
+  assert.equal(button.textContent, '');
+  assert.equal(button.querySelector('svg')?.getAttribute('aria-hidden'), 'true');
+  assert.equal(button.title, 'Open (⌘O)');
+  assert.equal(button.getAttribute('aria-haspopup'), 'menu');
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  assert.equal(toolbar.textContent?.includes('Open…'), false, 'the old text label is gone from the toolbar');
+
+  const anchor = { x: 18.5, y: 4, width: 30, height: 30 };
+  Object.defineProperty(button, 'getBoundingClientRect', { value: () => anchor, configurable: true });
+  const pending = deferred<null>(); port.pendingOpenMenu = pending;
+  button.click();
+  assert.deepEqual(port.openMenuRequests, [anchor]);
+  assert.equal(button.getAttribute('aria-expanded'), 'true', 'the native menu is expanded while its request is active');
+  pending.resolve(null); await flush();
+  assert.equal(button.getAttribute('aria-expanded'), 'false', 'the expanded state clears after the menu closes');
+  mounted.dispose();
+
+  const emptyPort = new MemoryPort(); emptyPort.current = { ...emptyPort.current, document: { kind: 'empty' } };
+  const { root: emptyRoot, mounted: emptyMounted } = app(emptyPort); await flush();
+  assert.equal(emptyRoot.querySelector('.viewer-empty-open')?.textContent, 'Open…⌘O', 'the empty-state button remains unchanged');
+  emptyMounted.dispose();
+});
+
+test('browser toolbar Open opens the file picker instead of a native menu', async () => {
+  const adapter = new BrowserViewerAdapter(dom.window as unknown as Window);
+  let pickerRequests = 0;
+  const input = dom.window.document.querySelector<HTMLInputElement>('input[type="file"]')!;
+  input.click = () => { pickerRequests++; };
+  const { root, mounted } = app(adapter); await flush();
+  const button = root.querySelector<HTMLButtonElement>('.viewer-toolbar [aria-label="Open"]')!;
+  assert.equal(button.title, 'Open (⌘O)');
+  assert.equal(button.getAttribute('aria-haspopup'), null, 'the browser fallback does not advertise a native menu');
+  assert.equal(button.getAttribute('aria-expanded'), null);
+  button.click(); await flush();
+  assert.equal(pickerRequests, 1);
+  assert.equal(button.getAttribute('aria-expanded'), null, 'the browser fallback has no native menu state');
+  mounted.dispose(); adapter.dispose();
+});
+
 test('locked documents expose no editable textbox; unlock and lock toggle rich editing without focusing it', async () => {
   const { root, port, mounted } = app(); await flush();
   const current = port.current.document;
@@ -112,7 +164,7 @@ test('document HTML stays inert and cannot invoke the native save bridge', async
   const current = port.current.document;
   assert.equal(current.kind, 'loaded');
   if (current.kind !== 'loaded') throw new Error('Expected loaded fixture.');
-  const payload = '<script>window.webkit.messageHandlers.viewer.postMessage({action:"saveDocument"})</script>\n\n<img src=x onerror="window.webkit.messageHandlers.viewer.postMessage({action:\'saveDocument\'})">';
+  const payload = '<script>window.webkit.messageHandlers.viewer.postMessage({action:"openMenu",rect:{x:0,y:0,width:30,height:30}})</script>\n\n<img src=x onerror="window.webkit.messageHandlers.viewer.postMessage({action:\'openMenu\',rect:{x:0,y:0,width:30,height:30}})">';
   port.current = { ...port.current, document: { ...current, markdown: payload } };
   port.publish({ kind: 'snapshot', snapshot: port.current }); await flush();
   assert.equal(root.querySelector('script'), null);
@@ -120,6 +172,7 @@ test('document HTML stays inert and cannot invoke the native save bridge', async
   assert.equal(root.querySelector('[contenteditable="true"]'), null);
   assert.match(root.querySelector('.viewer-markdown')?.textContent ?? '', /<script>/);
   assert.deepEqual(port.documentSaves, []);
+  assert.deepEqual(port.openMenuRequests, [], 'document content cannot trigger the privileged native menu command');
   mounted.dispose();
 });
 

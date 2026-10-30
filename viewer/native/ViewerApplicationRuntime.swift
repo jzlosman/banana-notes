@@ -7,13 +7,15 @@ final class ViewerApplicationRuntime {
     let catalog: ViewerCatalog
     let preferencesStore: ViewerPreferencesStore
     private let defaultApplicationManager: ViewerDefaultApplicationManager
-    private let menu = ViewerMenuController()
+    private let menu: ViewerMenuController
     private(set) var windowControllers: [ViewerWindowController] = []
     private var windowsByDocumentPath: [String: ViewerWindowController] = [:]
     private weak var presentedController: ViewerWindowController?
     private var started = false
 
-    init(webDirectory: URL, defaults: UserDefaults = .standard, launchServices: ViewerLaunchServices? = nil) throws {
+    init(webDirectory: URL, defaults: UserDefaults = .standard, launchServices: ViewerLaunchServices? = nil,
+         menuPresenter: ViewerMenuPresenter? = nil) throws {
+        self.menu = ViewerMenuController(presenter: menuPresenter)
         self.webDirectory = webDirectory
         let themes = try Data(contentsOf: webDirectory.appendingPathComponent("theme-catalog.json"))
         let fonts = try Data(contentsOf: webDirectory.appendingPathComponent("note-font-catalog.json"))
@@ -141,6 +143,7 @@ final class ViewerApplicationRuntime {
 
     private func present(_ controller: ViewerWindowController) {
         presentedController = controller
+        menu.currentDocumentURL = controller.documentURL
         controller.show()
         menu.setEditingState(controller.currentEditingState)
     }
@@ -155,6 +158,15 @@ final class ViewerApplicationRuntime {
                                                 defaultApplicationManager: defaultApplicationManager)
         controller.onOpenDocument = { [weak self] in self?.open([$0]) }
         controller.onOpenPanel = { [weak self] in self?.presentOpenPanel() }
+        controller.onOpenMenu = { [weak self, weak controller] point in
+            guard let self, let controller else { return }
+            self.menu.currentDocumentURL = controller.documentURL
+            self.menu.presentOpenMenu(at: point, in: controller.webView, currentDocumentURL: controller.documentURL)
+        }
+        controller.onWindowBecameKey = { [weak self, weak controller] _ in
+            guard let self, let controller else { return }
+            self.menu.currentDocumentURL = controller.documentURL
+        }
         controller.onPreferencesUpdated = { [weak self] in self?.broadcastPreferences() }
         controller.onEditingStateChanged = { [weak self, weak controller] state in
             guard let self, let controller, self.activeController === controller else { return }

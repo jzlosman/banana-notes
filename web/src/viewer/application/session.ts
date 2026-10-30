@@ -1,6 +1,6 @@
 import { normalizeViewerPreferences, type ViewerCommand, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot, type DocumentWriteResult } from '../domain/model';
 import { canSave, lock, markDirty, unlock } from '../domain/editing';
-import type { ViewerEvent, ViewerPort } from './ports';
+import type { ViewerEvent, ViewerOpenMenuAnchor, ViewerPort } from './ports';
 
 export type ViewerSessionEvent = ViewerEvent | { kind: 'preferences-saving' } | { kind: 'preferences-saved' };
 
@@ -19,6 +19,7 @@ export class ViewerSession {
   }
 
   get snapshot(): ViewerSnapshot | undefined { return this.snapshotValue; }
+  get supportsNativeOpenMenu(): boolean { return this.port.supportsNativeOpenMenu; }
 
   subscribe(listener: (event: ViewerSessionEvent) => void): () => void {
     this.listeners.add(listener);
@@ -32,6 +33,7 @@ export class ViewerSession {
   }
 
   open(): Promise<null> { return this.port.open(); }
+  openMenu(anchor: ViewerOpenMenuAnchor): Promise<null> { return this.port.openMenu(anchor); }
   reload(): Promise<null> { return this.port.reload(); }
   discardAndReload(): Promise<null> { return this.port.discardAndReload(); }
   reveal(): Promise<null> { return this.port.reveal(); }

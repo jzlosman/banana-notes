@@ -1,4 +1,4 @@
-import type { ViewerPort, ViewerEvent } from '../application/ports';
+import type { ViewerPort, ViewerEvent, ViewerOpenMenuAnchor } from '../application/ports';
 import { DEFAULT_VIEWER_PREFERENCES, isSafeViewerLink, normalizeViewerPreferences, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
 
 const PREFERENCES_KEY = 'banana-viewer-preferences-v1';
@@ -7,6 +7,7 @@ const SUPPORTED_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd']);
 
 /** Isolated browser fallback: it reads one explicitly chosen file and stores only Viewer preferences. */
 export class BrowserViewerAdapter implements ViewerPort {
+  readonly supportsNativeOpenMenu = false;
   private snapshot: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES }, editing: { kind: 'unavailable' }, externalChange: false };
   private readonly listeners = new Set<(event: ViewerEvent) => void>();
   private readonly input: HTMLInputElement;
@@ -46,6 +47,8 @@ export class BrowserViewerAdapter implements ViewerPort {
     this.input.click();
     return null;
   }
+
+  async openMenu(_anchor: ViewerOpenMenuAnchor): Promise<null> { return this.open(); }
 
   async reload(): Promise<null> {
     if (this.currentFile) await this.readFile(this.currentFile, false);

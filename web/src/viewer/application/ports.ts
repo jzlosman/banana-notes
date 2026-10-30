@@ -1,5 +1,7 @@
 import type { ViewerCommand, ViewerDefaultAppOutcome, ViewerDefaultAppStatus, ViewerPreferences, ViewerSnapshot, DocumentWriteResult } from '../domain/model';
 
+export type ViewerOpenMenuAnchor = Readonly<{ x: number; y: number; width: number; height: number }>;
+
 export type ViewerEvent =
   | { kind: 'snapshot'; snapshot: ViewerSnapshot }
   | { kind: 'command'; command: ViewerCommand }
@@ -7,8 +9,10 @@ export type ViewerEvent =
 
 /** Native shell or isolated browser fallback; neither adapter exposes a note-library capability. */
 export interface ViewerPort {
+  readonly supportsNativeOpenMenu: boolean;
   bootstrap(): Promise<ViewerSnapshot>;
   open(): Promise<null>;
+  openMenu(anchor: ViewerOpenMenuAnchor): Promise<null>;
   reload(): Promise<null>;
   discardAndReload(): Promise<null>;
   unlockDocument(): Promise<ViewerSnapshot>;

@@ -1,7 +1,20 @@
 import AppKit
 
 @MainActor
+protocol ViewerMenuPresenter {
+    func present(_ menu: NSMenu, at point: NSPoint, in view: NSView)
+}
+
+@MainActor
+final class AppKitViewerMenuPresenter: ViewerMenuPresenter {
+    func present(_ menu: NSMenu, at point: NSPoint, in view: NSView) {
+        _ = menu.popUp(positioning: nil, at: point, in: view)
+    }
+}
+
+@MainActor
 final class ViewerMenuController: NSObject {
+    private let presenter: ViewerMenuPresenter
     var openDocument: (() -> Void)?
     var reloadDocument: (() -> Void)?
     var revealDocument: (() -> Void)?
@@ -10,11 +23,17 @@ final class ViewerMenuController: NSObject {
     var sendCommand: ((String) -> Void)?
     var clearRecentDocuments: (() -> Void)?
     var recentURLs: [URL] = [] { didSet { rebuildRecentMenu() } }
+    var currentDocumentURL: URL? { didSet { rebuildRecentMenu() } }
 
     private var recentMenu: NSMenu?
     private var editingItem: NSMenuItem?
     private var saveItem: NSMenuItem?
     private var editingState: ViewerEditingState = .locked
+
+    init(presenter: ViewerMenuPresenter? = nil) {
+        self.presenter = presenter ?? AppKitViewerMenuPresenter()
+        super.init()
+    }
 
     func install() {
         let mainMenu = NSMenu()
@@ -123,26 +142,73 @@ final class ViewerMenuController: NSObject {
         return result
     }
 
+    func presentOpenMenu(at point: NSPoint, in view: NSView, currentDocumentURL: URL?) {
+        let items = recentMenuItems(currentDocumentURL: currentDocumentURL)
+        let menu = NSMenu(title: "Open")
+        if items.isEmpty {
+            let empty = NSMenuItem(title: "No Recent Documents", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        } else {
+            items.map(makeRecentMenuItem).forEach(menu.addItem)
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("Open…", #selector(open), key: "o"))
+        menu.addItem(.separator())
+        let clear = NSMenuItem(title: "Clear Recents", action: #selector(clearRecent), keyEquivalent: "")
+        clear.target = self
+        menu.addItem(clear)
+        presenter.present(menu, at: point, in: view)
+    }
+
     private func rebuildRecentMenu() {
         guard let recentMenu else { return }
         recentMenu.removeAllItems()
-        if recentURLs.isEmpty {
+        let items = recentMenuItems(currentDocumentURL: currentDocumentURL)
+        if items.isEmpty {
             let empty = NSMenuItem(title: "No Recent Documents", action: nil, keyEquivalent: "")
             empty.isEnabled = false
             recentMenu.addItem(empty)
             return
         }
-        for url in recentURLs {
-            let item = NSMenuItem(title: url.lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
-            item.representedObject = url
-            item.target = self
-            item.toolTip = url.path
-            recentMenu.addItem(item)
-        }
+        items.map(makeRecentMenuItem).forEach(recentMenu.addItem)
         let clear = NSMenuItem(title: "Clear Menu", action: #selector(clearRecent), keyEquivalent: "")
         clear.target = self
         recentMenu.addItem(.separator())
         recentMenu.addItem(clear)
+    }
+
+    private func recentMenuItems(currentDocumentURL: URL?) -> [ViewerRecentDocumentMenuItem] {
+        ViewerRecentDocumentMenuBuilder.build(recentURLs: recentURLs, fileExists: { url in
+            var isDirectory = ObjCBool(false)
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+        }, currentDocumentURL: currentDocumentURL)
+    }
+
+    private func makeRecentMenuItem(_ model: ViewerRecentDocumentMenuItem) -> NSMenuItem {
+        let title: String
+        if model.hasDuplicateFilename {
+            if #available(macOS 14.4, *) { title = model.filename }
+            else { title = model.fallbackTitle }
+        } else { title = model.filename }
+        let result = NSMenuItem(title: title, action: #selector(openRecent(_:)), keyEquivalent: "")
+        result.representedObject = model.url
+        result.target = self
+        result.toolTip = abbreviatedPath(model.url.path)
+        let icon = NSWorkspace.shared.icon(forFile: model.url.path)
+        icon.size = NSSize(width: 16, height: 16)
+        result.image = icon
+        result.state = model.isCurrentDocument ? .on : .off
+        if model.hasDuplicateFilename {
+            if #available(macOS 14.4, *) { result.subtitle = model.parentFolderName }
+        }
+        return result
+    }
+
+    private func abbreviatedPath(_ path: String) -> String {
+        let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
+        guard path == home || path.hasPrefix(home + "/") else { return path }
+        return "~" + path.dropFirst(home.count)
     }
 
     @objc private func clearRecent() { recentURLs = []; clearRecentDocuments?() }

@@ -24,7 +24,11 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   const fonts = resolveNoteFontState(rawFonts);
   const shell = document.createElement('div'); shell.className = 'viewer-shell';
   const toolbar = document.createElement('header'); toolbar.className = 'viewer-toolbar'; toolbar.setAttribute('aria-label', 'Document controls');
-  const openButton = document.createElement('button'); openButton.type = 'button'; openButton.className = 'viewer-open-button'; openButton.textContent = 'Open…'; openButton.title = 'Open a Markdown file (⌘O)'; openButton.setAttribute('aria-label', 'Open a Markdown file');
+  const openButton = iconButton(FolderOpen, 'Open', 'Open (⌘O)');
+  if (session.supportsNativeOpenMenu) {
+    openButton.setAttribute('aria-haspopup', 'menu');
+    openButton.setAttribute('aria-expanded', 'false');
+  }
   const spacer = document.createElement('span'); spacer.className = 'viewer-toolbar-spacer';
   const editingLabel = document.createElement('span'); editingLabel.className = 'viewer-editing-label'; editingLabel.textContent = 'Editing'; editingLabel.hidden = true; editingLabel.setAttribute('aria-live', 'polite');
   const lockButton = iconButton(Lock, 'Unlock to Edit', 'Unlock to Edit (⌘E)');
@@ -403,7 +407,14 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
     catch (error) { showStatus(messageOf(error, fallback)); return undefined; }
   };
 
-  openButton.addEventListener('click', () => void run(session.open(), 'The file picker could not be opened.'));
+  openButton.addEventListener('click', () => {
+    const rect = openButton.getBoundingClientRect();
+    if (session.supportsNativeOpenMenu) openButton.setAttribute('aria-expanded', 'true');
+    const operation = session.openMenu({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    void run(operation, 'The file picker could not be opened.').finally(() => {
+      if (session.supportsNativeOpenMenu) openButton.setAttribute('aria-expanded', 'false');
+    });
+  });
   findButton.addEventListener('click', openFind);
   lockButton.addEventListener('click', () => void toggleEditing());
   sourceButton.addEventListener('click', toggleSource);

@@ -30,6 +30,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
 
     var onOpenDocument: ((URL) -> Void)?
     var onOpenPanel: (() -> Void)?
+    var onOpenMenu: ((NSPoint) -> Void)?
+    var onWindowBecameKey: ((ViewerWindowController) -> Void)?
     var onPreferencesUpdated: (() -> Void)?
     var onEditingStateChanged: ((ViewerEditingState) -> Void)?
     var onClose: (() -> Void)?
@@ -160,7 +162,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         NSWorkspace.shared.activateFileViewerSelecting([currentURL])
     }
 
-    func windowDidBecomeKey(_ notification: Notification) { applyWindowEffects(); onEditingStateChanged?(editingState) }
+    func windowDidBecomeKey(_ notification: Notification) {
+        applyWindowEffects()
+        onWindowBecameKey?(self)
+        onEditingStateChanged?(editingState)
+    }
     func windowDidResignKey(_ notification: Notification) { applyWindowEffects() }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
@@ -220,6 +226,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         onOpenPanel = nil
         onPreferencesUpdated = nil
         onEditingStateChanged = nil
+        onOpenMenu = nil
+        onWindowBecameKey = nil
         onClose = nil
         close?()
     }
@@ -277,6 +285,18 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
             case "open":
                 replyHandler(NSNull(), nil)
                 onOpenPanel?()
+            case "openMenu":
+                guard exactKeys(body, ["action", "rect"]),
+                      let rawRect = body["rect"],
+                      let anchor = ViewerMenuAnchorRect(wireValue: rawRect)?.clamped(to: webView.bounds) else {
+                    replyHandler(nil, "The viewer menu request is malformed.")
+                    return
+                }
+                let point = webView.isFlipped
+                    ? NSPoint(x: webView.bounds.minX + anchor.minX, y: webView.bounds.minY + anchor.maxY)
+                    : NSPoint(x: webView.bounds.minX + anchor.minX, y: webView.bounds.maxY - anchor.maxY)
+                onOpenMenu?(point)
+                replyHandler(NSNull(), nil)
             case "reload":
                 reloadDocument()
                 replyHandler(NSNull(), nil)

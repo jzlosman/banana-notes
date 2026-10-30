@@ -18,6 +18,11 @@ test('native adapter validates snapshots, default-app messages, and commands at 
   adapter.subscribe(event => received.push(event));
   const result = await adapter.bootstrap();
   assert.deepEqual(result.preferences, DEFAULT_VIEWER_PREFERENCES);
+  const anchor = { x: 12.5, y: 8, width: 30, height: 30 };
+  nextSnapshot = null;
+  assert.equal(await adapter.openMenu(anchor), null);
+  assert.deepEqual(calls.at(-1), { action: 'openMenu', rect: anchor }, 'the bridge sends only the button geometry, never document paths');
+  nextSnapshot = snapshot();
   const requested = { ...DEFAULT_VIEWER_PREFERENCES, focusedOpacity: 0.6, unfocusedOpacity: 0.35, glass: 0.5 };
   nextSnapshot = snapshot(requested);
   const saved = await adapter.savePreferences(requested);

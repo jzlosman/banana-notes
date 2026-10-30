@@ -11,6 +11,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 class StubPort implements ViewerPort {
+  readonly supportsNativeOpenMenu = false;
   current: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES }, editing: { kind: 'locked' }, externalChange: false };
   pending: Array<ReturnType<typeof deferred<ViewerSnapshot>>> = [];
   requested: any[] = [];
@@ -19,6 +20,7 @@ class StubPort implements ViewerPort {
   listener?: (event: ViewerEvent) => void;
   async bootstrap() { return this.current; }
   async open() { return null; }
+  async openMenu(_anchor: { x: number; y: number; width: number; height: number }) { return null; }
   async reload() { return null; }
   async openLink(_href: string) { return null; }
   async queryDefaultAppStatus() { this.defaultAppQueries++; return { kind: 'available' as const, state: 'off' as const, currentAppName: 'Preview', canToggle: true }; }

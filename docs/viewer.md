@@ -30,7 +30,10 @@ To install the companion, copy `build/Banana Viewer.app` into Applications. Bana
 
 ## Reading files
 
-Use **File → Open…** (⌘O), Finder’s **Open With**, or the Terminal command above. Each file has its own ordinary Mac window; opening the same file again brings its existing window forward. Closing a window does not quit Banana Notes or affect its floating panel.
+In Banana Viewer, click the toolbar folder button to open the native recent-documents menu, or choose **File → Open…** (⌘O), Finder’s **Open With**, or the Terminal command above. The toolbar menu lists up to 10 recent files that still exist; choose **Open…** there to browse for another file, or **Clear Recents** to remove the list. In the browser preview, the same toolbar button opens the browser’s file picker. Each native document has its own ordinary Mac window; opening the same file again brings its existing window forward. Closing a window does not quit Banana Notes or affect its floating panel.
+
+![Toolbar folder button in a synthetic Banana Viewer document](media/viewer-open/toolbar-folder-button.png)
+![Native recent-documents menu with synthetic filenames](media/viewer-open/recent-documents-menu.png)
 
 - Every document opens **locked**: rendered Markdown has no caret, task checkboxes are inert, and links open with one click. Lock state is per window and is never saved as a preference.
 - Click the lock button or choose **Edit → Unlock to Edit** (⌘E) to edit in place. Rich editing keeps the current page and scroll position; task checkboxes work, and links open with ⌘-click. If rich editing cannot faithfully represent a document, Viewer opens its editable Markdown source instead with a brief notice.

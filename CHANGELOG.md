@@ -8,6 +8,7 @@ All notable changes to Banana Notes are documented here. Banana Viewer has its o
 
 #### Added
 
+- Replace the toolbar’s **Open…** text with a folder icon and native menu of up to 10 existing recent documents, with duplicate-name disambiguation, **Open…**, and **Clear Recents** actions.
 - Add a General settings switch for making Banana Viewer the Markdown default. It remembers the previous app in Viewer preferences and restores it when possible.
 - Open documents locked by default, with one-click rich or source editing, explicit Save, per-window dirty tracking and external-change conflict handling. Rich saves patch changed line hunks into the original bytes while preserving untouched content.
 

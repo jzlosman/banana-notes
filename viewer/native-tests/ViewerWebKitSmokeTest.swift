@@ -28,6 +28,14 @@ struct ViewerWebKitSmokeTest {
         let discardDocument = root.appendingPathComponent("discard.md")
         let discardBytes = Data("# Viewer discard document\n".utf8)
         try writeAtomically(discardBytes, to: discardDocument)
+        let recentDirectoryA = root.appendingPathComponent("recent-a", isDirectory: true)
+        let recentDirectoryB = root.appendingPathComponent("recent-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: recentDirectoryA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: recentDirectoryB, withIntermediateDirectories: true)
+        let recentA = recentDirectoryA.appendingPathComponent("Shared.md")
+        let recentB = recentDirectoryB.appendingPathComponent("Shared.md")
+        try Data("# Recent A\n".utf8).write(to: recentA)
+        try Data("# Recent B\n".utf8).write(to: recentB)
 
         let suite = "com.jzlosman.banana-viewer.smoke.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else {
@@ -42,8 +50,11 @@ struct ViewerWebKitSmokeTest {
               !launchDelegate.applicationShouldRestoreApplicationState(application) else {
             throw SmokeFailure.message("Banana Viewer must not persist AppKit window state without implementing restoration.")
         }
+        defaults.set([recentA.path, recentB.path], forKey: "viewerRecentDocuments.v1")
         let launchServices = SmokeViewerLaunchServices()
-        let runtime = try ViewerApplicationRuntime(webDirectory: webDirectory, defaults: defaults, launchServices: launchServices)
+        let menuPresenter = RecordingViewerMenuPresenter()
+        let runtime = try ViewerApplicationRuntime(webDirectory: webDirectory, defaults: defaults,
+                                                  launchServices: launchServices, menuPresenter: menuPresenter)
         defer { runtime.shutdown() }
         var pendingLaunchURLs = ViewerPendingOpenURLs()
         pendingLaunchURLs.append(contentsOf: [first])
@@ -83,6 +94,58 @@ struct ViewerWebKitSmokeTest {
               (bootstrap["document"] as? [String: Any])?["name"] as? String == "smoke.md",
               (bootstrap["editing"] as? [String: Any])?["kind"] as? String == "locked" else {
             throw SmokeFailure.message("Native bootstrap did not open the document locked.")
+        }
+        let openButtonReady = try evaluate(webView, "(() => { const button=document.querySelector('.viewer-toolbar [aria-label=\\\"Open\\\"]'); return !!button && button.title==='Open (⌘O)' && button.getAttribute('aria-haspopup')==='menu' && button.getAttribute('aria-expanded')==='false' && !!button.querySelector('svg'); })()") as? Bool == true
+        guard openButtonReady else { throw SmokeFailure.message("The WebKit toolbar Open control does not expose its icon-menu accessibility contract.") }
+        _ = try evaluate(webView, "document.querySelector('.viewer-toolbar [aria-label=\\\"Open\\\"]')?.click(); true")
+        try wait(webView, timeout: 8, description: "native recent-document menu request") { menuPresenter.lastMenu != nil }
+        guard let openMenu = menuPresenter.lastMenu, let openMenuView = menuPresenter.lastView,
+              let menuPoint = menuPresenter.lastPoint, openMenuView === webView,
+              menuPoint.x >= webView.bounds.minX, menuPoint.x <= webView.bounds.maxX,
+              menuPoint.y >= webView.bounds.minY, menuPoint.y <= webView.bounds.maxY,
+              openMenu.items.count == 7,
+              openMenu.items[0].title == "smoke.md", openMenu.items[0].state == .on,
+              openMenu.items[0].image?.size == NSSize(width: 16, height: 16),
+              openMenu.items[1].title == "Shared.md", openMenu.items[2].title == "Shared.md",
+              openMenu.items[3].isSeparatorItem, openMenu.items[4].title == "Open…",
+              openMenu.items[4].keyEquivalent == "o", openMenu.items[4].keyEquivalentModifierMask.contains(.command),
+              openMenu.items[5].isSeparatorItem, openMenu.items[6].title == "Clear Recents" else {
+            throw SmokeFailure.message("The native toolbar menu did not build its synthetic recent documents and actions correctly.")
+        }
+        if #available(macOS 14.4, *) {
+            guard openMenu.items[1].subtitle == "recent-a", openMenu.items[2].subtitle == "recent-b" else {
+                throw SmokeFailure.message("Duplicate recent filenames were not disambiguated with native menu subtitles.")
+            }
+        }
+        let recentSubmenu = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Open Recent")?.submenu
+        guard recentSubmenu?.items.prefix(3).map({ $0.title }) == openMenu.items.prefix(3).map({ $0.title }) else {
+            throw SmokeFailure.message("File → Open Recent and the toolbar menu drifted in recent-document labels.")
+        }
+        guard let clearAction = openMenu.items.last, clearAction.title == "Clear Recents",
+              let clearSelector = clearAction.action, let clearTarget = clearAction.target,
+              NSApp.sendAction(clearSelector, to: clearTarget, from: clearAction),
+              defaults.stringArray(forKey: "viewerRecentDocuments.v1") == nil else {
+            throw SmokeFailure.message("Clear Recents did not clear the viewer-owned recent list.")
+        }
+        try postBridge(webView, message: ["action": "openMenu", "rect": ["x": true, "y": 0, "width": 30, "height": 30]])
+        let invalidNumberReply = try evaluate(webView, "window.__viewerSmokeResult?.error") as? String
+        guard invalidNumberReply?.contains("malformed") == true, menuPresenter.lastMenu === openMenu else {
+            throw SmokeFailure.message("The native bridge accepted boolean toolbar geometry.")
+        }
+        try postBridge(webView, message: ["action": "openMenu", "rect": ["x": 0, "y": 0, "width": 30, "height": 30, "path": "/tmp/not-a-real-document.md"]])
+        let unexpectedKeyReply = try evaluate(webView, "window.__viewerSmokeResult?.error") as? String
+        guard unexpectedKeyReply?.contains("malformed") == true, menuPresenter.lastMenu === openMenu else {
+            throw SmokeFailure.message("The native bridge accepted extra rectangle fields.")
+        }
+        let emptyMenuPresenter = RecordingViewerMenuPresenter()
+        let emptyMenuController = ViewerMenuController(presenter: emptyMenuPresenter)
+        emptyMenuController.presentOpenMenu(at: menuPoint, in: webView, currentDocumentURL: nil)
+        guard let emptyMenu = emptyMenuPresenter.lastMenu,
+              emptyMenu.items.count == 5,
+              emptyMenu.items[0].title == "No Recent Documents", !emptyMenu.items[0].isEnabled,
+              emptyMenu.items[1].isSeparatorItem, emptyMenu.items[2].title == "Open…",
+              emptyMenu.items[3].isSeparatorItem, emptyMenu.items[4].title == "Clear Recents" else {
+            throw SmokeFailure.message("The empty toolbar menu did not keep its Open and Clear Recents actions.")
         }
         let initialRevision = (bootstrap["document"] as? [String: Any])?["revision"] as? String ?? ""
         let lockedUI = try evaluate(webView, "document.querySelector('[aria-label=\\\"Unlock to Edit\\\"]')?.getAttribute('aria-pressed') === 'false' && document.querySelector('[contenteditable=\\\"true\\\"]') === null") as? Bool == true
@@ -377,7 +440,7 @@ struct ViewerWebKitSmokeTest {
         try wait(settingsController.webView!, timeout: 20, description: "queued Settings command on a cold window") {
             (try? evaluate(settingsController.webView!, "document.querySelector('.viewer-settings') !== null")) as? Bool == true
         }
-        print("Viewer WebKit smoke passed: locked-by-default editing, Command-S and sheet-driven close/reopen, unsaved discard, runtime bookkeeping, startup URL buffering, default-app query cadence and switch/restore, rendering, native glass, relative images, refresh/recovery, multi-URL deduplication, and cold Settings delivery.")
+        print("Viewer WebKit smoke passed: native recent-document menu command and shared menu labels, locked-by-default editing, Command-S and sheet-driven close/reopen, unsaved discard, runtime bookkeeping, startup URL buffering, default-app query cadence and switch/restore, rendering, native glass, relative images, refresh/recovery, multi-URL deduplication, and cold Settings delivery.")
     }
 
     private static func captureDefaultAppEvidence(_ controller: ViewerWindowController, webView: WKWebView, state: String) throws {
@@ -600,6 +663,19 @@ struct ViewerWebKitSmokeTest {
             destination.path.withCString { target in Darwin.rename(source, target) }
         }
         guard result == 0 else { throw SmokeFailure.message("Could not atomically replace synthetic document.") }
+    }
+}
+
+@MainActor
+private final class RecordingViewerMenuPresenter: ViewerMenuPresenter {
+    private(set) var lastMenu: NSMenu?
+    private(set) var lastPoint: NSPoint?
+    private(set) weak var lastView: NSView?
+
+    func present(_ menu: NSMenu, at point: NSPoint, in view: NSView) {
+        lastMenu = menu
+        lastPoint = point
+        lastView = view
     }
 }
 

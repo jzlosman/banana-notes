@@ -47,8 +47,13 @@ final class ViewerApplicationRuntime {
         for url in urls where url.isFileURL {
             let canonical = ViewerDocumentReader.canonicalURL(for: url)
             if let existing = windowsByDocumentPath[canonical.path] {
-                present(existing)
-                continue
+                if existing.window != nil {
+                    present(existing)
+                    continue
+                }
+                windowsByDocumentPath.removeValue(forKey: canonical.path)
+                windowControllers.removeAll { $0 === existing }
+                if presentedController === existing { presentedController = nil }
             }
             let controller: ViewerWindowController
             if let empty = windowControllers.first(where: { $0.documentURL == nil }) {

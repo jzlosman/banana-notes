@@ -51,6 +51,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
                               backing: .buffered, defer: false)
         window.title = "Banana Viewer"
         window.minSize = NSSize(width: 380, height: 400)
+        window.isRestorable = false
         window.isReleasedWhenClosed = false
         window.center()
         window.delegate = nil
@@ -532,7 +533,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
                 self.pendingExternalResult = nil
                 self.reloadDocument(discardingEdits: true)
                 if termination != nil { termination?(true) }
-                else if !locking { self.window?.performClose(nil) }
+                else if !locking {
+                    DispatchQueue.main.async { [weak self] in self?.window?.performClose(nil) }
+                }
             default: termination?(false)
             }
         }

@@ -84,6 +84,7 @@ if [[ "$MODE" == "deterministic" ]]; then
     "$ROOT/viewer/native/ViewerRasterResourceReader.swift"
     "$ROOT/viewer/native/ViewerPreferencesStore.swift"
     "$ROOT/viewer/native/ViewerDefaultApplication.swift"
+    "$ROOT/viewer/native/ViewerPendingOpenURLs.swift"
   )
   build_module core "$LIB_DIR/libBananaViewerCore.a" "${CORE_SOURCES[@]}"
   swiftc -swift-version 5 -target "$TARGET" -Onone -gnone -parse-as-library \

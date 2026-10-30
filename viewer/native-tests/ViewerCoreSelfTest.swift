@@ -16,6 +16,7 @@ struct ViewerCoreSelfTest {
         try testResourceAndLinkPolicies()
         print("Viewer resource/link policy cases passed.")
         try testPreferencePersistence(catalog: catalog)
+        try testPendingOpenURLs()
         try await testDefaultApplication()
         print("Viewer default app decisions, bundle identity, and fake LaunchServices cases passed.")
         print("Viewer core policies, bounded reads, and isolated preferences passed.")
@@ -294,6 +295,16 @@ struct ViewerCoreSelfTest {
                "recents are unique and newest first")
         store.clearRecentDocuments()
         expect(store.recentDocumentURLs.isEmpty, "clear recents removes viewer-owned recent list")
+    }
+
+    private static func testPendingOpenURLs() throws {
+        var pending = ViewerPendingOpenURLs()
+        let first = URL(fileURLWithPath: "/tmp/first.md")
+        let second = URL(fileURLWithPath: "/tmp/second.md")
+        pending.append(contentsOf: [first])
+        pending.append(contentsOf: [second])
+        expect(pending.drain() == [first, second], "file-open requests received before launch are drained in arrival order")
+        expect(pending.drain().isEmpty, "draining pending file-open requests prevents replay")
     }
 
     private static func testDefaultApplication() async throws {

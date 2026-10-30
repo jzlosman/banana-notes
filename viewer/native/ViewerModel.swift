@@ -77,6 +77,12 @@ enum ViewerEditingState: Equatable, Encodable {
     var isDirty: Bool { if case .unlocked(dirty: true) = self { return true }; return false }
 }
 
+enum ViewerWindowTitle {
+    static func make(filename: String, editingState: ViewerEditingState) -> String {
+        "\(editingState.isDirty ? "*" : "")\(filename) — Banana Viewer"
+    }
+}
+
 enum ViewerSaveResult: Encodable, Equatable {
     case saved(revision: String)
     case conflict

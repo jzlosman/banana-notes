@@ -462,7 +462,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         case .empty: name = "Banana Viewer"
         }
         window.isDocumentEdited = editingState.isDirty
-        window.title = editingState.isDirty ? "\(name) — Edited — Banana Viewer" : "\(name) — Banana Viewer"
+        window.title = ViewerWindowTitle.make(filename: name, editingState: editingState)
         onEditingStateChanged?(editingState)
     }
 

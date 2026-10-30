@@ -156,13 +156,20 @@ test('dirty source edits enable explicit Save and write the exact textarea text'
   root.querySelector<HTMLButtonElement>('[aria-label="Source"]')!.click();
   root.querySelector<HTMLButtonElement>('[aria-label="Unlock to Edit"]')!.click(); await flush();
   const editor = root.querySelector<HTMLTextAreaElement>('.viewer-source-editor')!;
+  const editingLabel = root.querySelector<HTMLElement>('.viewer-editing-label')!;
+  assert.equal(editingLabel.textContent, 'Editing');
+  assert.equal(editingLabel.getAttribute('aria-live'), 'polite');
   editor.value = source.replace('A [link]', 'Changed [link]');
   editor.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await flush();
   assert.deepEqual(port.current.editing, { kind: 'unlocked', dirty: true });
-  assert.equal(root.querySelector<HTMLElement>('.viewer-editing-label')?.hidden, false);
+  assert.equal(editingLabel.hidden, false);
+  assert.equal(editingLabel.textContent, 'Unsaved');
+  assert.ok(editingLabel.querySelector('.viewer-unsaved-dot'), 'dirty label includes its status dot');
   port.publish({ kind: 'command', command: 'save' }); await flush();
   assert.equal(port.documentSaves.at(-1), editor.value, 'source mode saves the exact textarea value');
   assert.deepEqual(port.current.editing, { kind: 'unlocked', dirty: false });
+  assert.equal(editingLabel.textContent, 'Editing');
+  assert.equal(editingLabel.querySelector('.viewer-unsaved-dot'), null);
   mounted.dispose();
 });
 
@@ -339,7 +346,8 @@ test('toolbar controls coexist and General Settings preserves unlocked dirty sou
   assert.deepEqual(port.current.editing, { kind: 'unlocked', dirty: true });
 
   const toolbar = root.querySelector<HTMLElement>('.viewer-toolbar')!;
-  assert.equal(toolbar.querySelector('.viewer-editing-label')?.textContent, 'Editing');
+  assert.equal(toolbar.querySelector('.viewer-editing-label')?.textContent, 'Unsaved');
+  assert.ok(toolbar.querySelector('.viewer-unsaved-dot'));
   assert.equal(toolbar.querySelector<HTMLButtonElement>('[aria-label="Lock"]')?.nextElementSibling?.getAttribute('aria-label'), 'Find');
   assert.ok(toolbar.querySelector('[aria-label="Settings"]'));
 

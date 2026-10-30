@@ -36,6 +36,7 @@ html[data-native='true'] .viewer-source-text { background: transparent; }
 .viewer-open-button:hover:not(:disabled) { background: var(--hover); }
 .viewer-toolbar-spacer { flex: 1 1 auto; }
 .viewer-editing-label { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.viewer-unsaved-dot { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 .viewer-icon-button { width: 30px; height: 30px; color: var(--muted); }
 .viewer-icon-button:hover:not(:disabled), .viewer-icon-button.active { color: var(--ink); background: var(--hover); }
 .viewer-icon-button.active { color: var(--accent); }

@@ -7,6 +7,7 @@ import Darwin
 struct ViewerCoreSelfTest {
     static func main() async throws {
         let catalog = try makeCatalog()
+        testWindowTitles()
         try testPreferences(catalog: catalog)
         print("Viewer preference policy cases passed.")
         try testDocuments()
@@ -26,6 +27,18 @@ struct ViewerCoreSelfTest {
         let themes = Data(##"[{"id":"banana-dark","appearance":"dark","colors":{"paper":"#1c1a15"}}]"##.utf8)
         let fonts = Data(#"[{"id":"space-mono","kind":"bundled","weights":[400]},{"id":"avenir","kind":"system","weights":[400,500]},{"id":"google-font","kind":"google","weights":[400]}]"#.utf8)
         return try ViewerCatalog(themeData: themes, fontData: fonts)
+    }
+
+    private static func testWindowTitles() {
+        expect(ViewerWindowTitle.make(filename: "Notes.md", editingState: .locked) == "Notes.md — Banana Viewer",
+               "locked document title has no unsaved marker")
+        expect(ViewerWindowTitle.make(filename: "Notes.md", editingState: .unlocked(dirty: false)) == "Notes.md — Banana Viewer",
+               "clean unlocked document title has no unsaved marker")
+        expect(ViewerWindowTitle.make(filename: "Notes.md", editingState: .unlocked(dirty: true)) == "*Notes.md — Banana Viewer",
+               "dirty document title prefixes the filename with an asterisk")
+        expect(ViewerWindowTitle.make(filename: "東京 notes.md", editingState: .unlocked(dirty: true)) == "*東京 notes.md — Banana Viewer",
+               "dirty title preserves spaces and unicode in the filename")
+        print("Viewer window title cases passed.")
     }
 
     private static func testPreferences(catalog: ViewerCatalog) throws {

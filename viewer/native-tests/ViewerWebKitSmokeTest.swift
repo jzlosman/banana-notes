@@ -109,12 +109,14 @@ struct ViewerWebKitSmokeTest {
             throw SmokeFailure.message("The Edit menu did not reflect the unlocked per-window state.")
         }
         try replaceEditorText(webView, from: "Viewer smoke initial", to: "Viewer smoke edited")
-        try wait(webView, timeout: 8, description: "dirty edit state") { controller.window?.isDocumentEdited == true }
+        try wait(webView, timeout: 8, description: "dirty edit state") {
+            controller.window?.isDocumentEdited == true && controller.window?.title.hasPrefix("*") == true
+        }
         try postBridge(webView, message: ["action": "bootstrap"])
         let dirtySnapshot = try resultObject(webView)
         guard (dirtySnapshot["editing"] as? [String: Any])?["dirty"] as? Bool == true,
               controller.window?.isDocumentEdited == true,
-              controller.window?.title.contains("Edited") == true,
+              controller.window?.title == "*smoke.md — Banana Viewer",
               NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Save")?.isEnabled == true else {
             throw SmokeFailure.message("A dirty edit did not update the native edited marker, title, and Save menu.")
         }
@@ -125,7 +127,7 @@ struct ViewerWebKitSmokeTest {
             return clean && saved
         }
         guard controller.window?.isDocumentEdited == false,
-              controller.window?.title.contains("Edited") == false,
+              controller.window?.title.hasPrefix("*") == false,
               NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Save")?.isEnabled == false else {
             throw SmokeFailure.message("Command-S did not clear the dirty native state.")
         }
@@ -195,7 +197,7 @@ struct ViewerWebKitSmokeTest {
             let saved = (try? String(contentsOf: first, encoding: .utf8))?.contains("Viewer smoke kept local edit") == true
             return controller.window?.isDocumentEdited == false && saved
         }
-        guard controller.window?.title.contains("Edited") == false,
+        guard controller.window?.title.hasPrefix("*") == false,
               let saved = try? String(contentsOf: first, encoding: .utf8),
               saved.contains("Viewer smoke kept local edit"), !saved.contains("Second external version") else {
             throw SmokeFailure.message("Confirming replacement did not save the local version and clear dirty state.")

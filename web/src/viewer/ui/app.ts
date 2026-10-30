@@ -26,7 +26,7 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
   const toolbar = document.createElement('header'); toolbar.className = 'viewer-toolbar'; toolbar.setAttribute('aria-label', 'Document controls');
   const openButton = document.createElement('button'); openButton.type = 'button'; openButton.className = 'viewer-open-button'; openButton.textContent = 'Open…'; openButton.title = 'Open a Markdown file (⌘O)'; openButton.setAttribute('aria-label', 'Open a Markdown file');
   const spacer = document.createElement('span'); spacer.className = 'viewer-toolbar-spacer';
-  const editingLabel = document.createElement('span'); editingLabel.className = 'viewer-editing-label'; editingLabel.textContent = 'Editing'; editingLabel.hidden = true;
+  const editingLabel = document.createElement('span'); editingLabel.className = 'viewer-editing-label'; editingLabel.textContent = 'Editing'; editingLabel.hidden = true; editingLabel.setAttribute('aria-live', 'polite');
   const lockButton = iconButton(Lock, 'Unlock to Edit', 'Unlock to Edit (⌘E)');
   lockButton.setAttribute('aria-pressed', 'false');
   const findButton = iconButton(Search, 'Find', 'Find in document (⌘F)');
@@ -298,6 +298,11 @@ export function mountViewerApp(appRoot: HTMLElement, session: ViewerSession, raw
     lockButton.setAttribute('aria-pressed', String(unlocked));
     lockButton.title = editingAvailable ? (unlocked ? 'Lock (⌘E)' : 'Unlock to Edit (⌘E)') : 'Editing is available in the Mac app';
     editingLabel.hidden = !unlocked;
+    editingLabel.replaceChildren();
+    if (snapshot.editing.kind === 'unlocked' && snapshot.editing.dirty) {
+      const dot = document.createElement('span'); dot.className = 'viewer-unsaved-dot'; dot.setAttribute('aria-hidden', 'true');
+      editingLabel.append(dot, document.createTextNode('Unsaved'));
+    } else editingLabel.textContent = 'Editing';
     conflictBanner.hidden = !snapshot.externalChange;
     if (!editingAvailable) lockButton.setAttribute('aria-description', 'Editing is available in the Mac app');
     else lockButton.removeAttribute('aria-description');

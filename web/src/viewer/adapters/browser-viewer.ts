@@ -7,7 +7,7 @@ const SUPPORTED_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd']);
 
 /** Isolated browser fallback: it reads one explicitly chosen file and stores only Viewer preferences. */
 export class BrowserViewerAdapter implements ViewerPort {
-  private snapshot: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES } };
+  private snapshot: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES }, editing: { kind: 'unavailable' }, externalChange: false };
   private readonly listeners = new Set<(event: ViewerEvent) => void>();
   private readonly input: HTMLInputElement;
   private currentFile: File | undefined;
@@ -51,6 +51,13 @@ export class BrowserViewerAdapter implements ViewerPort {
     if (this.currentFile) await this.readFile(this.currentFile, false);
     return null;
   }
+  async discardAndReload(): Promise<null> { return this.reload(); }
+
+  async unlockDocument(): Promise<ViewerSnapshot> { throw this.editingUnavailable(); }
+  async lockDocument(): Promise<ViewerSnapshot> { throw this.editingUnavailable(); }
+  async setDocumentDirty(_dirty: boolean): Promise<ViewerSnapshot> { throw this.editingUnavailable(); }
+  async keepDocumentEdits(): Promise<ViewerSnapshot> { throw this.editingUnavailable(); }
+  async saveDocument(_expectedRevision: string, _markdown: string): Promise<never> { throw this.editingUnavailable(); }
 
   async savePreferences(preferences: ViewerPreferences): Promise<ViewerSnapshot> {
     const confirmed = normalizeViewerPreferences(preferences);
@@ -124,6 +131,7 @@ export class BrowserViewerAdapter implements ViewerPort {
       this.snapshot = {
         ...this.snapshot,
         document: { kind: 'loaded', documentID: this.currentDocumentID, name: file.name, markdown, revision: `browser-${++this.revision}`, resourceBaseURL: base },
+        editing: { kind: 'unavailable' }, externalChange: false,
       };
       this.emit({ kind: 'snapshot', snapshot: this.snapshot });
     } catch (error) {
@@ -133,6 +141,8 @@ export class BrowserViewerAdapter implements ViewerPort {
       this.emit({ kind: 'snapshot', snapshot: this.snapshot });
     }
   }
+
+  private editingUnavailable(): Error { return new Error('Editing is available in the Mac app.'); }
 
   private emit(event: ViewerEvent): void { for (const listener of this.listeners) listener(event); }
 }

@@ -32,13 +32,15 @@ To install the companion, copy `build/Banana Viewer.app` into Applications. Bana
 
 Use **File → Open…** (⌘O), Finder’s **Open With**, or the Terminal command above. Each file has its own ordinary Mac window; opening the same file again brings its existing window forward. Closing a window does not quit Banana Notes or affect its floating panel.
 
-- Read rendered Markdown, including code blocks, tables, and task lists.
-- Use Find (⌘F) to search the current document.
-- Switch to the read-only source view (⇧⌘M) to inspect the original Markdown.
-- Reload (⌘R) or let the viewer detect changes made by another editor.
+- Every document opens **locked**: rendered Markdown has no caret, task checkboxes are inert, and links open with one click. Lock state is per window and is never saved as a preference.
+- Click the lock button or choose **Edit → Unlock to Edit** (⌘E) to edit in place. Rich editing keeps the current page and scroll position; task checkboxes work, and links open with ⌘-click. If rich editing cannot faithfully represent a document, Viewer opens its editable Markdown source instead with a brief notice.
+- In source view (⇧⌘M), unlocking makes the original Markdown directly editable.
+- Save explicitly with **File → Save** (⌘S). Viewer never autosaves. Dirty windows show the native edited dot and “— Edited” in the title; locking or closing asks whether to Save, Don’t Save, or Cancel.
+- If a dirty document changes on disk, Viewer pauses reload and offers **Reload** (discard edits) or **Keep My Edits**. Saving after keeping edits asks once before replacing the on-disk version.
+- Use Find (⌘F) to search the current document, Reload (⌘R) to refresh, or let a locked or clean window detect external changes.
 - Change text size with ⌘+, ⌘−, or ⌘0.
 
-This first version is a **viewer, not an editor**. It has no Save command and does not rewrite, import, move, or delete files. Task checkboxes are read-only. Unsupported content remains available in source view.
+Viewer writes only after an explicit Save from an unlocked, dirty native window. Rich saves patch changed line hunks into the original file, retaining untouched source lines, line endings, final-newline state, and UTF-8 encoding. Source-mode saves write the exact text shown in the source editor. Files are not imported, moved, or deleted. Browser preview editing is unavailable.
 
 Relative raster images resolve inside the document’s folder, including nested folders. Parent traversal, symlink escapes, arbitrary filesystem images, and remote image downloads are blocked. External web links open only after an explicit click. Keep images beside the document rather than linking to files outside its folder. In the browser preview, local image access is limited by the browser’s file picker; the native app is the full file-viewing experience.
 
@@ -56,7 +58,7 @@ Viewer preferences use its own `com.jzlosman.banana-viewer` identity. There is n
 
 The bounded context is an external file document, not a library note. The source file is authoritative. The native file adapter owns bounded reads, change detection, and document-scoped resource access; deterministic policies validate file types, preferences, and allowed resources. The application composes these capabilities independently of the notes application.
 
-The web composition root is `web/src/viewer/main.ts`; the native companion lives in `viewer/native/`. Shared components retain their existing defaults for Banana Notes. Document content is untrusted: it cannot execute arbitrary HTML/scripts, invoke native bridge actions, or silently start network requests. Preference commands are separate from document queries; there is no document-write capability.
+The web composition root is `web/src/viewer/main.ts`; the native companion lives in `viewer/native/`. Shared components retain their existing defaults for Banana Notes. Document content is untrusted: it cannot execute arbitrary HTML/scripts, invoke native bridge actions, or silently start network requests. Preference and document-write commands are separate from document queries. The native write capability accepts only bundled-viewer main-frame requests, requires the window to be unlocked, validates the expected on-disk revision, enforces the existing document-root and 8 MB limits, and atomically replaces the canonical file while preserving POSIX permissions. Browser preview models writes as unavailable.
 
 The normal `npm run build` still builds Banana Notes. `npm run build:viewer` builds the companion. Both use the shared web asset/font/license pipeline. Generated application bundles remain under ignored `build/`.
 

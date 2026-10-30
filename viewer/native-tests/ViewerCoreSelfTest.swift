@@ -9,6 +9,7 @@ struct ViewerCoreSelfTest {
         try testPreferences(catalog: catalog)
         print("Viewer preference policy cases passed.")
         try testDocuments()
+        try testAtomicDocumentWriter()
         try testRootSwapBeforePinning()
         print("Viewer document policy cases passed.")
         try testResourceAndLinkPolicies()
@@ -116,6 +117,58 @@ struct ViewerCoreSelfTest {
         expect(before != after, "replacement is observable through the fingerprint")
         let replaced = try ViewerDocumentReader.read(note)
         expect(replaced.markdown.contains("replacement"), "replacement content is readable")
+    }
+
+    private static func testAtomicDocumentWriter() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let document = root.appendingPathComponent("writer.md")
+        let original = Data("# Keep\r\n\r\nFirst paragraph\r\n\r\nLast line".utf8)
+        try original.write(to: document)
+        try FileManager.default.setAttributes([.posixPermissions: 0o640], ofItemAtPath: document.path)
+        let canonical = ViewerDocumentReader.canonicalURL(for: document)
+        let reader = try ViewerRasterResourceReader(canonicalDocumentDirectory: canonical.deletingLastPathComponent())
+        let initial = try ViewerDocumentReader.read(canonicalURL: canonical, using: reader)
+        let noOp = ViewerDocumentWriter.save(canonicalURL: canonical, using: reader, expectedRevision: initial.revision,
+                                            markdown: initial.markdown, isUnlocked: true)
+        expect(noOp == .saved(revision: initial.revision), "no-op save returns the existing revision")
+        let noOpStat = try FileManager.default.attributesOfItem(atPath: document.path)
+        expect((noOpStat[.systemFileNumber] as? NSNumber)?.uint64Value == UInt64(initial.fingerprint.inode),
+               "no-op save does not replace the source file")
+
+        let changed = "# Keep\r\n\r\nChanged paragraph\r\n\r\nLast line"
+        let saved = ViewerDocumentWriter.save(canonicalURL: canonical, using: reader, expectedRevision: initial.revision,
+                                              markdown: changed, isUnlocked: true)
+        guard case .saved(let revision) = saved else { fatalError("Viewer writer failed to save: \(saved)") }
+        let savedBytes = try Data(contentsOf: document)
+        expect(savedBytes == Data(changed.utf8), "writer saves exact CRLF and trailing-newline state")
+        let permissions = try FileManager.default.attributesOfItem(atPath: document.path)[.posixPermissions] as? NSNumber
+        expect(permissions?.intValue == 0o640, "atomic replacement preserves POSIX permissions")
+        let savedRead = try ViewerDocumentReader.read(canonicalURL: canonical, using: reader)
+        expect(revision == savedRead.revision,
+               "saved revision matches the exact file bytes")
+
+        let current = try ViewerDocumentReader.read(canonicalURL: canonical, using: reader)
+        try Data("external version\n".utf8).write(to: document)
+        let conflict = ViewerDocumentWriter.save(canonicalURL: canonical, using: reader, expectedRevision: current.revision,
+                                                 markdown: "my edits\n", isUnlocked: true)
+        expect(conflict == .conflict, "stale expected revision is a typed conflict")
+        let conflictBytes = try String(contentsOf: document, encoding: .utf8)
+        expect(conflictBytes == "external version\n", "conflict never overwrites the external version")
+
+        let disk = try Data(contentsOf: document)
+        let locked = ViewerDocumentWriter.save(canonicalURL: canonical, using: reader, expectedRevision: current.revision,
+                                              markdown: "blocked\n", isUnlocked: false)
+        expect(locked == .failed(reason: .unknown), "writer refuses a locked window")
+        let lockedBytes = try Data(contentsOf: document)
+        expect(lockedBytes == disk, "locked rejection leaves disk unchanged")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: document.path)
+        let readOnly = try ViewerDocumentReader.read(canonicalURL: canonical, using: reader)
+        let denied = ViewerDocumentWriter.save(canonicalURL: canonical, using: reader, expectedRevision: readOnly.revision,
+                                               markdown: "not writable\n", isUnlocked: true)
+        expect(denied == .failed(reason: .readOnlyFile), "read-only file reports an allowlisted failure")
+        print("Viewer atomic writer, permissions, conflict and lock guards passed.")
     }
 
     private static func testRootSwapBeforePinning() throws {

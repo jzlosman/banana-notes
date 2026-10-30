@@ -1,10 +1,16 @@
 import type { ViewerPort, ViewerEvent } from '../application/ports';
-import { decodeNativeSnapshot, isSafeViewerLink, isViewerCommand, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
+import { decodeNativeSnapshot, isSafeViewerLink, isViewerCommand, type DocumentWriteResult, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
 
 type ViewerMessage =
   | { action: 'bootstrap' }
   | { action: 'open' }
   | { action: 'reload' }
+  | { action: 'reloadDiscardingEdits' }
+  | { action: 'unlockDocument' }
+  | { action: 'lockDocument' }
+  | { action: 'documentDirty'; dirty: boolean }
+  | { action: 'keepDocumentEdits' }
+  | { action: 'saveDocument'; expectedRevision: string; markdown: string }
   | { action: 'preferences'; preferences: ViewerPreferences }
   | { action: 'openLink'; href: string }
   | { action: 'reveal' };
@@ -28,7 +34,29 @@ export class NativeViewerAdapter implements ViewerPort {
 
   async open(): Promise<null> { return this.expectNull({ action: 'open' }); }
   async reload(): Promise<null> { return this.expectNull({ action: 'reload' }); }
+  async discardAndReload(): Promise<null> { return this.expectNull({ action: 'reloadDiscardingEdits' }); }
   async reveal(): Promise<null> { return this.expectNull({ action: 'reveal' }); }
+  async unlockDocument(): Promise<ViewerSnapshot> { return this.expectSnapshot({ action: 'unlockDocument' }); }
+  async lockDocument(): Promise<ViewerSnapshot> { return this.expectSnapshot({ action: 'lockDocument' }); }
+  async setDocumentDirty(dirty: boolean): Promise<ViewerSnapshot> { return this.expectSnapshot({ action: 'documentDirty', dirty }); }
+  async keepDocumentEdits(): Promise<ViewerSnapshot> { return this.expectSnapshot({ action: 'keepDocumentEdits' }); }
+
+  async saveDocument(expectedRevision: string, markdown: string): Promise<DocumentWriteResult> {
+    if (typeof expectedRevision !== 'string' || !/^[0-9a-f]{64}$/.test(expectedRevision) ||
+        typeof markdown !== 'string' || new TextEncoder().encode(markdown).byteLength > 8 * 1024 * 1024) {
+      throw new Error('The document save request is invalid.');
+    }
+    const value = await this.handler.postMessage({ action: 'saveDocument', expectedRevision, markdown });
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('The native save response was invalid.');
+    const result = value as Record<string, unknown>;
+    if (result.kind === 'saved' && typeof result.revision === 'string' && result.revision.length > 0 && result.revision.length <= 512) {
+      return { kind: 'saved', revision: result.revision };
+    }
+    if (result.kind === 'conflict') return { kind: 'conflict' };
+    const reasons = ['readOnlyFile', 'permissionDenied', 'tooLarge', 'unknown'];
+    if (result.kind === 'failed' && reasons.includes(String(result.reason))) return { kind: 'failed', reason: result.reason as Extract<DocumentWriteResult, { kind: 'failed' }>['reason'] };
+    throw new Error('The native save response was invalid.');
+  }
 
   async savePreferences(preferences: ViewerPreferences): Promise<ViewerSnapshot> {
     return decodeNativeSnapshot(await this.handler.postMessage({ action: 'preferences', preferences }));
@@ -57,7 +85,11 @@ export class NativeViewerAdapter implements ViewerPort {
     };
   }
 
-  private async expectNull(message: Exclude<ViewerMessage, { action: 'bootstrap' | 'preferences' }>): Promise<null> {
+  private async expectSnapshot(message: Extract<ViewerMessage, { action: 'unlockDocument' | 'lockDocument' | 'documentDirty' | 'keepDocumentEdits' }>): Promise<ViewerSnapshot> {
+    return decodeNativeSnapshot(await this.handler.postMessage(message));
+  }
+
+  private async expectNull(message: Extract<ViewerMessage, { action: 'open' | 'reload' | 'reloadDiscardingEdits' | 'openLink' | 'reveal' }>): Promise<null> {
     const result = await this.handler.postMessage(message);
     if (result !== null) throw new Error(`The native ${message.action} response was invalid.`);
     return null;

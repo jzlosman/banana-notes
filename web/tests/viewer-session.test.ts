@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ViewerSession } from '../src/viewer/application/session';
+import { canSave, lock, markDirty, unlock } from '../src/viewer/domain/editing';
 import { DEFAULT_VIEWER_PREFERENCES, type ViewerSnapshot } from '../src/viewer/domain/model';
 import type { ViewerEvent, ViewerPort } from '../src/viewer/application/ports';
 
@@ -10,18 +11,35 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 class StubPort implements ViewerPort {
-  current: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES } };
+  current: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES }, editing: { kind: 'locked' }, externalChange: false };
   pending: Array<ReturnType<typeof deferred<ViewerSnapshot>>> = [];
   requested: any[] = [];
   listener?: (event: ViewerEvent) => void;
   async bootstrap() { return this.current; }
   async open() { return null; }
   async reload() { return null; }
-  async reveal() { return null; }
   async openLink(_href: string) { return null; }
+  async reveal() { return null; }
+  async discardAndReload() { return null; }
+  async unlockDocument() { this.current = { ...this.current, editing: { kind: 'unlocked', dirty: false } }; return this.current; }
+  async lockDocument() { this.current = { ...this.current, editing: { kind: 'locked' } }; return this.current; }
+  async setDocumentDirty(dirty: boolean) { this.current = { ...this.current, editing: { kind: 'unlocked', dirty } }; return this.current; }
+  async keepDocumentEdits() { return this.current; }
+  async saveDocument(_expectedRevision: string, _markdown: string) { return { kind: 'saved' as const, revision: 'saved' }; }
   async savePreferences(preferences: any) { this.requested.push(preferences); const request = deferred<ViewerSnapshot>(); this.pending.push(request); return request.promise; }
   subscribe(listener: (event: ViewerEvent) => void) { this.listener = listener; return () => { this.listener = undefined; }; }
 }
+
+test('locked, clean and dirty are valid state transitions; dirty cannot transition directly to locked', () => {
+  const initial = { kind: 'locked' as const };
+  const clean = unlock(initial);
+  assert.deepEqual(clean, { kind: 'unlocked', dirty: false });
+  const dirty = markDirty(clean, true);
+  assert.equal(canSave(dirty), true);
+  assert.throws(() => lock(dirty), /unsaved edits/);
+  assert.deepEqual(lock(markDirty(dirty, false)), { kind: 'locked' });
+  assert.throws(() => markDirty(initial, true), /locked document/);
+});
 
 test('preference commands serialize and merge on the latest confirmed snapshot; failures are surfaced', async () => {
   const port = new StubPort(); const session = new ViewerSession(port); const events: string[] = [];
@@ -33,7 +51,7 @@ test('preference commands serialize and merge on the latest confirmed snapshot; 
   assert.equal(port.requested.length, 1);
   assert.equal(port.requested[0].themeID, 'banana-light');
   assert.equal(port.requested[0].glass, 0);
-  const confirmedFirst: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...port.requested[0] } };
+  const confirmedFirst: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...port.requested[0] }, editing: { kind: 'locked' }, externalChange: false };
   port.pending[0].resolve(confirmedFirst); await first;
   await Promise.resolve(); await Promise.resolve();
   assert.equal(port.requested.length, 2);

@@ -5,7 +5,7 @@ import { NativeViewerAdapter } from '../src/viewer/adapters/native-viewer';
 import { DEFAULT_VIEWER_PREFERENCES } from '../src/viewer/domain/model';
 
 function snapshot(preferences = DEFAULT_VIEWER_PREFERENCES) {
-  return { document: { kind: 'empty' }, preferences };
+  return { document: { kind: 'empty' }, preferences, editing: { kind: 'locked' }, externalChange: false };
 }
 
 test('native adapter sends full fractional preferences and validates snapshots and commands at the boundary', async () => {
@@ -29,10 +29,16 @@ test('native adapter sends full fractional preferences and validates snapshots a
   dom.window.dispatchEvent(new dom.window.CustomEvent('banana-viewer-command', { detail: 'zoomIn' }));
   assert.deepEqual(received.slice(-2).map(event => event.kind), ['snapshot', 'command']);
   assert.equal(received.at(-1).command, 'zoomIn');
-  dom.window.dispatchEvent(new dom.window.CustomEvent('banana-viewer-command', { detail: 'save' }));
+  dom.window.dispatchEvent(new dom.window.CustomEvent('banana-viewer-command', { detail: 'not-supported' }));
   assert.equal(received.at(-1).kind, 'fault');
   assert.match(received.at(-1).message, /command was invalid/);
   await assert.rejects(adapter.openLink('javascript:alert(1)'), /cannot be opened/);
+  nextSnapshot = { kind: 'saved', revision: 'a'.repeat(64) };
+  assert.deepEqual(await adapter.saveDocument('b'.repeat(64), '# Saved'), { kind: 'saved', revision: 'a'.repeat(64) });
+  assert.deepEqual(calls.at(-1), { action: 'saveDocument', expectedRevision: 'b'.repeat(64), markdown: '# Saved' });
+  nextSnapshot = { kind: 'failed', reason: 'token-like-error' };
+  await assert.rejects(adapter.saveDocument('b'.repeat(64), '# Saved'), /save response was invalid/);
+  await assert.rejects(adapter.saveDocument('bad', '# Saved'), /request is invalid/);
   adapter.subscribe(() => {})();
   dom.window.close();
 });

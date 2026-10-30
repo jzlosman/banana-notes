@@ -19,7 +19,7 @@ while (completed < totalRuns) {
   console.log(`Markdown property batch ${batch}/${batches}: ${runs} runs per property`);
 
   const code = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [tsx, '--test', 'web/tests/markdown-roundtrip.test.ts'], {
+    const child = spawn(process.execPath, [tsx, '--test', 'web/tests/markdown-roundtrip.test.ts', 'web/tests/viewer-editing-pbt.test.ts'], {
       cwd: process.cwd(),
       env: { ...process.env, MARKDOWN_PBT_RUNS: String(runs) },
       stdio: 'inherit',

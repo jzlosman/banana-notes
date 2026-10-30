@@ -38,6 +38,14 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let runtime else { return .terminateNow }
+        runtime.confirmTermination { accepted in
+            sender.reply(toApplicationShouldTerminate: accepted)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) { runtime?.shutdown() }
 
     private func commandLineFileURLs() -> [URL] {

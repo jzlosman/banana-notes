@@ -12,6 +12,9 @@ final class ViewerMenuController: NSObject {
     var recentURLs: [URL] = [] { didSet { rebuildRecentMenu() } }
 
     private var recentMenu: NSMenu?
+    private var editingItem: NSMenuItem?
+    private var saveItem: NSMenuItem?
+    private var editingState: ViewerEditingState = .locked
 
     func install() {
         let mainMenu = NSMenu()
@@ -34,6 +37,9 @@ final class ViewerMenuController: NSObject {
         recentItem.submenu = recentMenu
         fileMenu.addItem(recentItem)
         fileMenu.addItem(.separator())
+        saveItem = item("Save", #selector(save), key: "s")
+        saveItem?.isEnabled = false
+        fileMenu.addItem(saveItem!)
         fileMenu.addItem(item("Reload", #selector(reload), key: "r"))
         fileMenu.addItem(item("Reveal in Finder", #selector(reveal)))
         fileMenu.addItem(.separator())
@@ -46,6 +52,9 @@ final class ViewerMenuController: NSObject {
         editMenu.addItem(NSMenuItem(title: "Undo", action: nil, keyEquivalent: "z"))
         editMenu.addItem(NSMenuItem(title: "Redo", action: nil, keyEquivalent: "Z"))
         editMenu.items.last?.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editingItem = item("Unlock to Edit", #selector(toggleEditing), key: "e")
+        editMenu.addItem(editingItem!)
         editMenu.addItem(.separator())
         for (title, selector, key) in [("Cut", "cut:", "x"), ("Copy", "copy:", "c"),
                                        ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
@@ -86,6 +95,14 @@ final class ViewerMenuController: NSObject {
     @objc private func reveal() { revealDocument?() }
     @objc private func close() { closeWindow?() }
     @objc private func settings() { sendCommand?("settings") }
+    @objc private func toggleEditing() { sendCommand?("toggleEditing") }
+    @objc private func save() { sendCommand?("save") }
+
+    func setEditingState(_ state: ViewerEditingState) {
+        editingState = state
+        editingItem?.title = state.isUnlocked ? "Lock Editing" : "Unlock to Edit"
+        saveItem?.isEnabled = state.isDirty
+    }
     @objc private func find() { sendCommand?("find") }
     @objc private func zoomIn() { sendCommand?("zoomIn") }
     @objc private func zoomOut() { sendCommand?("zoomOut") }

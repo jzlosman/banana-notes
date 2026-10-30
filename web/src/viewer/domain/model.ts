@@ -1,4 +1,5 @@
 import { resolveFontSize, DEFAULT_FONT_SIZE } from '../../domain/font-size';
+import type { ViewerEditState, DocumentWriteResult } from './editing';
 import { themes, resolveThemeID, SYSTEM_THEME } from '../../domain/themes';
 import fontCatalog from '../../domain/note-font-catalog.json' with { type: 'json' };
 
@@ -18,8 +19,14 @@ export type ViewerPreferences = {
   glass: number;
 };
 
-export type ViewerSnapshot = { document: ViewerDocument; preferences: ViewerPreferences };
-export type ViewerCommand = 'settings' | 'find' | 'source' | 'zoomIn' | 'zoomOut' | 'zoomReset';
+export type ViewerSnapshot = {
+  document: ViewerDocument;
+  preferences: ViewerPreferences;
+  editing: ViewerEditState | { kind: 'unavailable' };
+  externalChange: boolean;
+};
+export type ViewerCommand = 'settings' | 'find' | 'source' | 'zoomIn' | 'zoomOut' | 'zoomReset' | 'toggleEditing' | 'save' | 'saveForClose';
+export type { DocumentWriteResult };
 
 export const DEFAULT_VIEWER_PREFERENCES: ViewerPreferences = {
   themeID: SYSTEM_THEME,
@@ -96,11 +103,18 @@ export function decodeNativeSnapshot(value: unknown): ViewerSnapshot {
   if (!snapshot.preferences || typeof snapshot.preferences !== 'object' || Array.isArray(snapshot.preferences)) {
     throw new Error('The Banana Viewer preferences response is invalid.');
   }
-  return { document: decodedDocument, preferences: normalizeViewerPreferences(snapshot.preferences) };
+  const rawEditing = record(snapshot.editing);
+  const editing: ViewerEditState = rawEditing.kind === 'locked'
+    ? { kind: 'locked' }
+    : rawEditing.kind === 'unlocked' && typeof rawEditing.dirty === 'boolean'
+      ? { kind: 'unlocked', dirty: rawEditing.dirty }
+      : (() => { throw new Error('The Banana Viewer editing response is invalid.'); })();
+  if (typeof snapshot.externalChange !== 'boolean') throw new Error('The Banana Viewer external-change response is invalid.');
+  return { document: decodedDocument, preferences: normalizeViewerPreferences(snapshot.preferences), editing, externalChange: snapshot.externalChange };
 }
 
 export function isViewerCommand(value: unknown): value is ViewerCommand {
-  return value === 'settings' || value === 'find' || value === 'source' || value === 'zoomIn' || value === 'zoomOut' || value === 'zoomReset';
+  return value === 'settings' || value === 'find' || value === 'source' || value === 'zoomIn' || value === 'zoomOut' || value === 'zoomReset' || value === 'toggleEditing' || value === 'save' || value === 'saveForClose';
 }
 
 export function isSafeViewerLink(value: unknown): value is string {

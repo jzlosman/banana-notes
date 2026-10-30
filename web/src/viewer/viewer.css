@@ -35,6 +35,7 @@ html[data-native='true'] .viewer-source-text { background: transparent; }
 }
 .viewer-open-button:hover:not(:disabled) { background: var(--hover); }
 .viewer-toolbar-spacer { flex: 1 1 auto; }
+.viewer-editing-label { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .viewer-icon-button { width: 30px; height: 30px; color: var(--muted); }
 .viewer-icon-button:hover:not(:disabled), .viewer-icon-button.active { color: var(--ink); background: var(--hover); }
 .viewer-icon-button.active { color: var(--accent); }
@@ -43,6 +44,9 @@ html[data-native='true'] .viewer-source-text { background: transparent; }
 .viewer-reader-content { width: min(100%, 75ch); min-height: 100%; margin: 0 auto; }
 .viewer-markdown.markdown-editor { min-height: 0; padding: 0; caret-color: transparent; cursor: default; }
 .viewer-markdown.markdown-editor a { cursor: pointer; }
+.viewer-markdown.markdown-editor[data-viewer-readonly='false'] { caret-color: var(--ink); cursor: text; }
+.viewer-markdown.markdown-editor[data-viewer-readonly='false'] a { cursor: text; }
+.viewer-markdown.markdown-editor[data-viewer-readonly='false'] input[type='checkbox'] { cursor: pointer; }
 .viewer-markdown.markdown-editor li[data-checked] > label { padding-top: 6px; }
 .viewer-markdown.markdown-editor li[data-checked] > label input { cursor: default; opacity: 1; }
 .viewer-markdown.markdown-editor li[data-checked] > div > p,
@@ -50,6 +54,13 @@ html[data-native='true'] .viewer-source-text { background: transparent; }
 .viewer-markdown.markdown-editor .raw-markdown-block { overflow-x: auto; padding: 12px 14px; border-radius: 6px; background: var(--chrome); color: var(--muted); white-space: pre-wrap; }
 .viewer-body.viewer-source-view { display: block; overflow: auto; scroll-behavior: auto; }
 .viewer-source-text { min-width: 100%; width: max-content; margin: 0; padding: 30px 44px 38px; color: var(--ink); background: var(--paper); font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; tab-size: 2; }
+.viewer-source-editor { box-sizing: border-box; width: 100%; min-height: 100%; border: 0; outline: 0; resize: none; overflow: auto; }
+.viewer-source-note { margin: 0; padding: 7px 44px 0; color: var(--muted); font-size: 11px; }
+.viewer-source-note[hidden] { display: none; }
+.viewer-conflict-banner { display: flex; align-items: center; gap: 12px; min-height: 37px; flex: 0 0 auto; padding: 5px 20px; border-bottom: 1px solid var(--line); background: var(--accent-soft); color: var(--ink); font-size: 12px; }
+.viewer-conflict-banner[hidden] { display: none; }
+.viewer-conflict-banner span { margin-right: auto; }
+.viewer-conflict-banner .text-button { color: var(--accent); font-size: 12px; }
 .viewer-find-bar { min-height: 36px; flex: 0 0 36px; margin: 7px 20px 0; padding: 3px 6px 3px 9px; gap: 7px; }
 .viewer-find-bar input { flex: 1; width: 0; font-size: 12px; }
 .viewer-find-count { min-width: 65px; color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -127,6 +138,7 @@ html[data-native='true'] .viewer-source-text { background: transparent; }
   .viewer-toolbar { padding: 0 20px; }
   .viewer-body.viewer-reader { padding: 24px; }
   .viewer-source-text { padding: 24px; }
+  .viewer-source-note { padding-right: 24px; padding-left: 24px; }
   .viewer-settings { padding: 20px 24px 12px; }
   .viewer-settings-tabs { gap: 16px; }
   .viewer-theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

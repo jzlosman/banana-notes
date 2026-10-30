@@ -1,9 +1,28 @@
 import { Editor } from '@tiptap/core';
 import { markdownExtensions } from '../../ui/editor-schema';
 import { installMarkdownSource } from '../../ui/editor/markdown-source';
+import { richTextContainsMarkdownWords } from '../../domain/markdown-visibility';
 import { isResolvedViewerImageSource, isSafeViewerLink, resolveViewerImageSource } from '../domain/model';
 
-export type ReadOnlyMarkdownRenderer = { root: HTMLElement; destroy(): void };
+export type ViewerMarkdownGuard = { kind: 'rich'; editor: Editor } | { kind: 'source' };
+
+export function guardViewerMarkdownEditor(source: string, editor: Editor): ViewerMarkdownGuard {
+  const visible = editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n', node => {
+    if (node.type.name === 'rawMarkdownBlock') return String(node.attrs.source ?? '');
+    if (node.type.name === 'image') return String(node.attrs.alt ?? '');
+    return '';
+  });
+  if (richTextContainsMarkdownWords(source, visible)) return { kind: 'rich', editor };
+  editor.destroy();
+  return { kind: 'source' };
+}
+
+export type ReadOnlyMarkdownRenderer = {
+  root: HTMLElement;
+  editor: Editor;
+  setEditable(editable: boolean, onChange?: (markdown: string) => void): void;
+  destroy(): void;
+};
 
 function headingSlug(title: string): string {
   return title.normalize('NFC').toLocaleLowerCase()
@@ -47,13 +66,20 @@ export function renderReadOnlyMarkdown(host: HTMLElement, markdown: string, reso
     input.setAttribute('aria-readonly', 'true');
   });
 
+  let editable = false;
+  let onChange: ((markdown: string) => void) | undefined;
+  const onUpdate = () => { if (editable) onChange?.(editor.getMarkdown()); };
   const onClick = (event: MouseEvent) => {
     const target = event.target;
     if (!(target instanceof root.ownerDocument.defaultView!.Element)) return;
     const anchor = target.closest<HTMLAnchorElement>('a[href]');
     if (!anchor || !root.contains(anchor)) return;
-    event.preventDefault();
     const href = anchor.getAttribute('href') ?? '';
+    if (editable) {
+      if ((event.metaKey || event.ctrlKey) && isSafeViewerLink(href)) { event.preventDefault(); onOpenLink(href); }
+      return;
+    }
+    event.preventDefault();
     if (href.startsWith('#')) {
       let fragment: string;
       try { fragment = decodeURIComponent(href.slice(1)); } catch { return; }
@@ -67,9 +93,9 @@ export function renderReadOnlyMarkdown(host: HTMLElement, markdown: string, reso
     if (!isSafeViewerLink(href)) return;
     onOpenLink(href);
   };
-  const preventMutation = (event: Event) => event.preventDefault();
+  const preventMutation = (event: Event) => { if (!editable) event.preventDefault(); };
   const preventMutationShortcut = (event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && ['v', 'x'].includes(event.key.toLowerCase())) event.preventDefault();
+    if (!editable && (event.metaKey || event.ctrlKey) && ['v', 'x'].includes(event.key.toLowerCase())) event.preventDefault();
   };
   root.addEventListener('click', onClick);
   root.addEventListener('beforeinput', preventMutation);
@@ -81,6 +107,22 @@ export function renderReadOnlyMarkdown(host: HTMLElement, markdown: string, reso
 
   return {
     root,
+    editor,
+    setEditable(value, callback) {
+      if (editable === value && (!value || onChange === callback)) return;
+      editable = value;
+      onChange = callback;
+      editor.setEditable(value);
+      root.setAttribute('aria-readonly', String(!value));
+      root.dataset.viewerReadonly = String(!value);
+      root.setAttribute('contenteditable', String(value));
+      root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(input => {
+        input.disabled = !value;
+        input.tabIndex = value ? 0 : -1;
+        if (value) input.removeAttribute('aria-readonly'); else input.setAttribute('aria-readonly', 'true');
+      });
+      if (value) editor.on('update', onUpdate); else editor.off('update', onUpdate);
+    },
     destroy() {
       root.removeEventListener('click', onClick);
       root.removeEventListener('beforeinput', preventMutation);
@@ -89,7 +131,8 @@ export function renderReadOnlyMarkdown(host: HTMLElement, markdown: string, reso
       root.removeEventListener('drop', preventMutation);
       root.removeEventListener('dragover', preventMutation);
       root.removeEventListener('keydown', preventMutationShortcut);
-      editor.destroy();
+      editor.off('update', onUpdate);
+      if (!editor.isDestroyed) editor.destroy();
       root.remove();
     },
   };

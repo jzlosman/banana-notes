@@ -79,6 +79,7 @@ if [[ "$MODE" == "deterministic" ]]; then
   CORE_SOURCES=(
     "$ROOT/viewer/native/ViewerModel.swift"
     "$ROOT/viewer/native/ViewerDocumentReader.swift"
+    "$ROOT/viewer/native/ViewerDocumentWriter.swift"
     "$ROOT/viewer/native/ViewerPolicies.swift"
     "$ROOT/viewer/native/ViewerRasterResourceReader.swift"
     "$ROOT/viewer/native/ViewerPreferencesStore.swift"

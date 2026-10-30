@@ -4,6 +4,12 @@ All notable changes to Banana Notes are documented here. Banana Viewer has its o
 
 ## Banana Viewer
 
+### [0.2.0] - Unreleased
+
+#### Added
+
+- Open documents locked by default, with one-click rich or source editing, explicit Save, per-window dirty tracking and external-change conflict handling. Rich saves patch only changed line hunks into the original bytes; Viewer remains an independently versioned companion and this entry does not publish a release.
+
 ### [0.1.2] - Unreleased
 
 #### Fixed

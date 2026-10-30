@@ -65,6 +65,16 @@ test('browser fallback stores only its independent preferences and reads support
   adapter.dispose(); dom.window.close();
 });
 
+test('browser preview explicitly reports editing unavailable and never fakes writes', async () => {
+  const { dom, adapter, select } = setup();
+  const snapshot = await adapter.bootstrap();
+  assert.deepEqual(snapshot.editing, { kind: 'unavailable' });
+  select(makeFile('read-only.md', new TextEncoder().encode('# Read only'))); await tick();
+  await assert.rejects(adapter.unlockDocument(), /available in the Mac app/);
+  await assert.rejects(adapter.saveDocument('browser-1', '# Changed'), /available in the Mac app/);
+  adapter.dispose(); dom.window.close();
+});
+
 test('browser fallback enforces extension, 8 MiB and fatal UTF-8 boundaries', async () => {
   const { dom, adapter, select, events } = setup();
   const unsupported = makeFile('notes.txt', new TextEncoder().encode('not Markdown'));

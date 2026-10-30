@@ -15,13 +15,20 @@ const { mountViewerApp } = await import('../src/viewer/ui/app');
 const source = 'A [link](https://example.test/needle) and hel**lo**\r\n';
 
 class MemoryPort implements ViewerPort {
-  current: ViewerSnapshot = { document: { kind: 'loaded', documentID: 'document-1', name: 'Example.md', markdown: source, revision: 'r1', resourceBaseURL: 'banana-viewer-resource://document/' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES } };
+  current: ViewerSnapshot = { document: { kind: 'loaded', documentID: 'document-1', name: 'Example.md', markdown: source, revision: 'r1', resourceBaseURL: 'banana-viewer-resource://document/' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES }, editing: { kind: 'locked' }, externalChange: false };
   listeners = new Set<(event: ViewerEvent) => void>();
   saved: ViewerSnapshot['preferences'][] = [];
+  documentSaves: string[] = [];
   failNext: Error | undefined;
   async bootstrap() { return this.current; }
   async open() { return null; }
   async reload() { return null; }
+  async discardAndReload() { return null; }
+  async unlockDocument() { this.current = { ...this.current, editing: { kind: 'unlocked', dirty: false } }; this.publish({ kind: 'snapshot', snapshot: this.current }); return this.current; }
+  async lockDocument() { this.current = { ...this.current, editing: { kind: 'locked' } }; this.publish({ kind: 'snapshot', snapshot: this.current }); return this.current; }
+  async setDocumentDirty(dirty: boolean) { this.current = { ...this.current, editing: { kind: 'unlocked', dirty } }; this.publish({ kind: 'snapshot', snapshot: this.current }); return this.current; }
+  async keepDocumentEdits() { this.current = { ...this.current, externalChange: false }; this.publish({ kind: 'snapshot', snapshot: this.current }); return this.current; }
+  async saveDocument(_expectedRevision: string, markdown: string) { this.documentSaves.push(markdown); const current = this.current.document; if (current.kind === 'loaded') this.current = { ...this.current, document: { ...current, markdown, revision: `${current.revision}-saved` }, editing: { kind: 'unlocked', dirty: false } }; this.publish({ kind: 'snapshot', snapshot: this.current }); return { kind: 'saved' as const, revision: this.current.document.kind === 'loaded' ? this.current.document.revision : 'saved' }; }
   async reveal() { return null; }
   async openLink(_href: string) { return null; }
   async savePreferences(preferences: ViewerSnapshot['preferences']) {
@@ -50,6 +57,98 @@ function clampScrollToContent(main: HTMLElement, maximumForContent?: (reader: HT
     set: (value: number) => { position = Math.max(0, Math.min(value, maximum())); },
   });
 }
+
+test('locked documents expose no editable textbox; unlock and lock toggle rich editing without focusing it', async () => {
+  const { root, port, mounted } = app(); await flush();
+  const current = port.current.document;
+  assert.equal(current.kind, 'loaded');
+  if (current.kind !== 'loaded') throw new Error('Expected loaded fixture.');
+  port.current = { ...port.current, document: { ...current, markdown: '- [ ] A task' } };
+  port.publish({ kind: 'snapshot', snapshot: port.current }); await flush();
+  const lock = root.querySelector<HTMLButtonElement>('[aria-label="Unlock to Edit"]')!;
+  assert.equal(root.querySelector('[contenteditable="true"]'), null);
+  const checkbox = Array.from(root.getElementsByTagName('input')).find(input => input.type === 'checkbox') as HTMLInputElement;
+  assert.equal(checkbox?.disabled, true);
+  lock.click(); await flush();
+  assert.equal(root.querySelector<HTMLButtonElement>('[aria-label="Lock"]')?.getAttribute('aria-pressed'), 'true');
+  assert.equal(root.querySelector('[contenteditable="true"]'), root.querySelector('.viewer-markdown'));
+  assert.equal((Array.from(root.getElementsByTagName('input')).find(input => input.type === 'checkbox') as HTMLInputElement).disabled, false);
+  assert.notEqual(dom.window.document.activeElement, root.querySelector('[contenteditable="true"]'));
+  root.querySelector<HTMLButtonElement>('[aria-label="Lock"]')!.click(); await flush();
+  assert.equal(root.querySelector('[contenteditable="true"]'), null);
+  assert.equal((Array.from(root.getElementsByTagName('input')).find(input => input.type === 'checkbox') as HTMLInputElement).disabled, true);
+  mounted.dispose();
+});
+
+test('document HTML stays inert and cannot invoke the native save bridge', async () => {
+  const { root, port, mounted } = app(); await flush();
+  const current = port.current.document;
+  assert.equal(current.kind, 'loaded');
+  if (current.kind !== 'loaded') throw new Error('Expected loaded fixture.');
+  const payload = '<script>window.webkit.messageHandlers.viewer.postMessage({action:"saveDocument"})</script>\n\n<img src=x onerror="window.webkit.messageHandlers.viewer.postMessage({action:\'saveDocument\'})">';
+  port.current = { ...port.current, document: { ...current, markdown: payload } };
+  port.publish({ kind: 'snapshot', snapshot: port.current }); await flush();
+  assert.equal(root.querySelector('script'), null);
+  assert.equal(root.querySelector('img[onerror]'), null);
+  assert.equal(root.querySelector('[contenteditable="true"]'), null);
+  assert.match(root.querySelector('.viewer-markdown')?.textContent ?? '', /<script>/);
+  assert.deepEqual(port.documentSaves, []);
+  mounted.dispose();
+});
+
+test('source-view unlock exposes a plain editable Markdown textarea', async () => {
+  const { root, port, mounted } = app(); await flush();
+  root.querySelector<HTMLButtonElement>('[aria-label="Source"]')!.click();
+  root.querySelector<HTMLButtonElement>('[aria-label="Unlock to Edit"]')!.click(); await flush();
+  const textarea = root.querySelector<HTMLTextAreaElement>('.viewer-source-editor');
+  assert.ok(textarea instanceof dom.window.HTMLTextAreaElement);
+  assert.equal(textarea.value, source.replace(/\r\n/g, '\n'));
+  assert.equal(textarea.getAttribute('contenteditable'), null);
+  assert.match(root.querySelector<HTMLElement>('.viewer-source-note')?.textContent ?? '', /Editing Markdown source/);
+  assert.deepEqual(port.current.editing, { kind: 'unlocked', dirty: false });
+  mounted.dispose();
+});
+
+test('switching an unlocked rich reader to Source preserves its document as editable Markdown', async () => {
+  const { root, port, mounted } = app(); await flush();
+  root.querySelector<HTMLButtonElement>('[aria-label="Unlock to Edit"]')!.click(); await flush();
+  assert.ok(root.querySelector('.viewer-markdown[contenteditable="true"]'));
+  root.querySelector<HTMLButtonElement>('[aria-label="Source"]')!.click(); await flush();
+  const editor = root.querySelector<HTMLTextAreaElement>('.viewer-source-editor')!;
+  assert.equal(editor.value, source.replace(/\r\n/g, '\n'));
+  assert.deepEqual(port.current.editing, { kind: 'unlocked', dirty: false });
+  editor.value = editor.value.replace('A [link]', 'Changed [link]');
+  editor.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await flush();
+  port.publish({ kind: 'command', command: 'save' }); await flush();
+  assert.equal(port.documentSaves.at(-1), editor.value);
+  mounted.dispose();
+});
+
+test('dirty source edits enable explicit Save and write the exact textarea text', async () => {
+  const { root, port, mounted } = app(); await flush();
+  root.querySelector<HTMLButtonElement>('[aria-label="Source"]')!.click();
+  root.querySelector<HTMLButtonElement>('[aria-label="Unlock to Edit"]')!.click(); await flush();
+  const editor = root.querySelector<HTMLTextAreaElement>('.viewer-source-editor')!;
+  editor.value = source.replace('A [link]', 'Changed [link]');
+  editor.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await flush();
+  assert.deepEqual(port.current.editing, { kind: 'unlocked', dirty: true });
+  assert.equal(root.querySelector<HTMLElement>('.viewer-editing-label')?.hidden, false);
+  port.publish({ kind: 'command', command: 'save' }); await flush();
+  assert.equal(port.documentSaves.at(-1), editor.value, 'source mode saves the exact textarea value');
+  assert.deepEqual(port.current.editing, { kind: 'unlocked', dirty: false });
+  mounted.dispose();
+});
+
+test('dirty external revisions display the conflict banner without replacing the editing surface', async () => {
+  const { root, port, mounted } = app(); await flush();
+  root.querySelector<HTMLButtonElement>('[aria-label="Unlock to Edit"]')!.click(); await flush();
+  const editor = root.querySelector('.viewer-markdown'); assert.ok(editor);
+  port.current = { ...port.current, editing: { kind: 'unlocked', dirty: true }, externalChange: true };
+  port.publish({ kind: 'snapshot', snapshot: port.current }); await flush();
+  assert.equal(root.querySelector('.viewer-conflict-banner')?.textContent?.includes('This file changed on disk.'), true);
+  assert.strictEqual(root.querySelector('.viewer-markdown'), editor);
+  mounted.dispose();
+});
 
 test('reader find counts visible text, crosses formatting, and source search uses original Markdown', async () => {
   const { root, mounted } = app(); await flush();
@@ -91,6 +190,17 @@ test('preference-only snapshots preserve the mounted renderer; settings Done res
   root.querySelector<HTMLButtonElement>('.viewer-done-button')!.click();
   assert.equal(main.scrollTop, 38);
   assert.equal(dom.window.document.activeElement, settingsButton);
+  mounted.dispose();
+});
+
+test('settings restores the same unlocked editor surface', async () => {
+  const { root, port, mounted } = app(); await flush();
+  root.querySelector<HTMLButtonElement>('[aria-label="Unlock to Edit"]')!.click(); await flush();
+  const editor = root.querySelector('.viewer-markdown[contenteditable="true"]'); assert.ok(editor);
+  root.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click();
+  root.querySelector<HTMLButtonElement>('.viewer-done-button')!.click();
+  assert.strictEqual(root.querySelector('.viewer-markdown'), editor);
+  assert.deepEqual(port.current.editing, { kind: 'unlocked', dirty: false });
   mounted.dispose();
 });
 

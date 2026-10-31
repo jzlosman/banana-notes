@@ -30,7 +30,7 @@ function setup() {
   const adapter = new BrowserViewerAdapter(dom.window as unknown as Window);
   const events: Array<{ kind: string; snapshot?: any }> = [];
   adapter.subscribe(event => events.push(event as any));
-  const input = dom.window.document.querySelector('input[type=file]')!;
+  const input = dom.window.document.querySelector<HTMLInputElement>('input[type=file]')!;
   const select = (file: File) => {
     Object.defineProperty(input, 'files', { value: [file], configurable: true });
     input.dispatchEvent(new dom.window.Event('change'));
@@ -62,6 +62,15 @@ test('browser fallback stores only its independent preferences and reads support
   assert.equal(dom.window.localStorage.getItem('banana-viewer-preferences-v1') !== null, true);
   assert.equal(dom.window.localStorage.getItem('foldnote-preview-v1'), '{"notes":[]}');
   assert.equal(dom.window.localStorage.length, 2);
+  adapter.dispose(); dom.window.close();
+});
+
+test('browser preview maps the recent-menu affordance to its supported file picker', async () => {
+  const { dom, adapter, input } = setup();
+  let pickerRequests = 0; input.click = () => { pickerRequests++; };
+  assert.equal(adapter.supportsNativeOpenMenu, false);
+  await adapter.openMenu({ x: 10, y: 5, width: 30, height: 30 });
+  assert.equal(pickerRequests, 1);
   adapter.dispose(); dom.window.close();
 });
 

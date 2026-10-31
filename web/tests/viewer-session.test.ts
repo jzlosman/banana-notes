@@ -11,14 +11,20 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 class StubPort implements ViewerPort {
+  readonly supportsNativeOpenMenu = false;
   current: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES }, editing: { kind: 'locked' }, externalChange: false };
   pending: Array<ReturnType<typeof deferred<ViewerSnapshot>>> = [];
   requested: any[] = [];
+  defaultAppQueries = 0;
+  defaultAppChanges = 0;
   listener?: (event: ViewerEvent) => void;
   async bootstrap() { return this.current; }
   async open() { return null; }
+  async openMenu(_anchor: { x: number; y: number; width: number; height: number }) { return null; }
   async reload() { return null; }
   async openLink(_href: string) { return null; }
+  async queryDefaultAppStatus() { this.defaultAppQueries++; return { kind: 'available' as const, state: 'off' as const, currentAppName: 'Preview', canToggle: true }; }
+  async setDefaultApp(_enabled: boolean) { this.defaultAppChanges++; return { kind: 'changed' as const }; }
   async reveal() { return null; }
   async discardAndReload() { return null; }
   async unlockDocument() { this.current = { ...this.current, editing: { kind: 'unlocked', dirty: false } }; return this.current; }
@@ -29,6 +35,17 @@ class StubPort implements ViewerPort {
   async savePreferences(preferences: any) { this.requested.push(preferences); const request = deferred<ViewerSnapshot>(); this.pending.push(request); return request.promise; }
   subscribe(listener: (event: ViewerEvent) => void) { this.listener = listener; return () => { this.listener = undefined; }; }
 }
+
+test('default-app status queries and change commands stay separate through the session', async () => {
+  const port = new StubPort(); const session = new ViewerSession(port);
+  await session.bootstrap();
+  assert.deepEqual(await session.queryDefaultAppStatus(), { kind: 'available', state: 'off', currentAppName: 'Preview', canToggle: true });
+  assert.equal(port.defaultAppQueries, 1);
+  assert.deepEqual(await session.setDefaultApp(true), { kind: 'changed' });
+  assert.equal(port.defaultAppChanges, 1);
+  assert.equal(port.defaultAppQueries, 1, 'a command does not silently masquerade as a status query');
+  session.dispose();
+});
 
 test('locked, clean and dirty are valid state transitions; dirty cannot transition directly to locked', () => {
   const initial = { kind: 'locked' as const };

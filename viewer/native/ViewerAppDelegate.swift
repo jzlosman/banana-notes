@@ -3,7 +3,7 @@ import AppKit
 @MainActor
 final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
     private var runtime: ViewerApplicationRuntime?
-    private var pendingURLs: [URL] = []
+    private var pendingURLs = ViewerPendingOpenURLs()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let resources = Bundle.main.resourceURL else {
@@ -19,8 +19,7 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
         do {
             let runtime = try ViewerApplicationRuntime(webDirectory: webDirectory)
             self.runtime = runtime
-            runtime.start(launchURLs: commandLineFileURLs() + pendingURLs)
-            pendingURLs.removeAll()
+            runtime.start(launchURLs: commandLineFileURLs() + pendingURLs.drain())
         } catch {
             fail("Banana Viewer could not load its bundled catalogs: \(error.localizedDescription)")
         }
@@ -30,6 +29,10 @@ final class ViewerAppDelegate: NSObject, NSApplicationDelegate {
         guard let runtime else { pendingURLs.append(contentsOf: urls); return }
         runtime.open(urls)
     }
+
+    func applicationShouldSaveApplicationState(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         runtime?.reopen()

@@ -6,18 +6,22 @@ final class ViewerApplicationRuntime {
     let webDirectory: URL
     let catalog: ViewerCatalog
     let preferencesStore: ViewerPreferencesStore
-    private let menu = ViewerMenuController()
+    private let defaultApplicationManager: ViewerDefaultApplicationManager
+    private let menu: ViewerMenuController
     private(set) var windowControllers: [ViewerWindowController] = []
     private var windowsByDocumentPath: [String: ViewerWindowController] = [:]
     private weak var presentedController: ViewerWindowController?
     private var started = false
 
-    init(webDirectory: URL, defaults: UserDefaults = .standard) throws {
+    init(webDirectory: URL, defaults: UserDefaults = .standard, launchServices: ViewerLaunchServices? = nil,
+         menuPresenter: ViewerMenuPresenter? = nil) throws {
+        self.menu = ViewerMenuController(presenter: menuPresenter)
         self.webDirectory = webDirectory
         let themes = try Data(contentsOf: webDirectory.appendingPathComponent("theme-catalog.json"))
         let fonts = try Data(contentsOf: webDirectory.appendingPathComponent("note-font-catalog.json"))
         catalog = try ViewerCatalog(themeData: themes, fontData: fonts)
         preferencesStore = ViewerPreferencesStore(defaults: defaults, catalog: catalog)
+        defaultApplicationManager = ViewerDefaultApplicationManager(launchServices: launchServices ?? SystemViewerLaunchServices(), memory: preferencesStore)
     }
 
     func start(launchURLs: [URL] = []) {
@@ -45,8 +49,13 @@ final class ViewerApplicationRuntime {
         for url in urls where url.isFileURL {
             let canonical = ViewerDocumentReader.canonicalURL(for: url)
             if let existing = windowsByDocumentPath[canonical.path] {
-                present(existing)
-                continue
+                if existing.window != nil {
+                    present(existing)
+                    continue
+                }
+                windowsByDocumentPath.removeValue(forKey: canonical.path)
+                windowControllers.removeAll { $0 === existing }
+                if presentedController === existing { presentedController = nil }
             }
             let controller: ViewerWindowController
             if let empty = windowControllers.first(where: { $0.documentURL == nil }) {
@@ -134,6 +143,7 @@ final class ViewerApplicationRuntime {
 
     private func present(_ controller: ViewerWindowController) {
         presentedController = controller
+        menu.currentDocumentURL = controller.documentURL
         controller.show()
         menu.setEditingState(controller.currentEditingState)
     }
@@ -144,9 +154,19 @@ final class ViewerApplicationRuntime {
     @discardableResult
     private func createWindow() -> ViewerWindowController {
         let controller = ViewerWindowController(webDirectory: webDirectory, catalog: catalog,
-                                                preferencesStore: preferencesStore)
+                                                preferencesStore: preferencesStore,
+                                                defaultApplicationManager: defaultApplicationManager)
         controller.onOpenDocument = { [weak self] in self?.open([$0]) }
         controller.onOpenPanel = { [weak self] in self?.presentOpenPanel() }
+        controller.onOpenMenu = { [weak self, weak controller] point in
+            guard let self, let controller else { return }
+            self.menu.currentDocumentURL = controller.documentURL
+            self.menu.presentOpenMenu(at: point, in: controller.webView, currentDocumentURL: controller.documentURL)
+        }
+        controller.onWindowBecameKey = { [weak self, weak controller] _ in
+            guard let self, let controller else { return }
+            self.menu.currentDocumentURL = controller.documentURL
+        }
         controller.onPreferencesUpdated = { [weak self] in self?.broadcastPreferences() }
         controller.onEditingStateChanged = { [weak self, weak controller] state in
             guard let self, let controller, self.activeController === controller else { return }

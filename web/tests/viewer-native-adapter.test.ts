@@ -8,7 +8,7 @@ function snapshot(preferences = DEFAULT_VIEWER_PREFERENCES) {
   return { document: { kind: 'empty' }, preferences, editing: { kind: 'locked' }, externalChange: false };
 }
 
-test('native adapter sends full fractional preferences and validates snapshots and commands at the boundary', async () => {
+test('native adapter validates snapshots, default-app messages, and commands at the boundary', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>');
   const calls: unknown[] = [];
   let nextSnapshot: unknown = snapshot();
@@ -18,11 +18,29 @@ test('native adapter sends full fractional preferences and validates snapshots a
   adapter.subscribe(event => received.push(event));
   const result = await adapter.bootstrap();
   assert.deepEqual(result.preferences, DEFAULT_VIEWER_PREFERENCES);
+  const anchor = { x: 12.5, y: 8, width: 30, height: 30 };
+  nextSnapshot = null;
+  assert.equal(await adapter.openMenu(anchor), null);
+  assert.deepEqual(calls.at(-1), { action: 'openMenu', rect: anchor }, 'the bridge sends only the button geometry, never document paths');
+  nextSnapshot = snapshot();
   const requested = { ...DEFAULT_VIEWER_PREFERENCES, focusedOpacity: 0.6, unfocusedOpacity: 0.35, glass: 0.5 };
   nextSnapshot = snapshot(requested);
   const saved = await adapter.savePreferences(requested);
   assert.deepEqual((calls.at(-1) as any).preferences, requested);
   assert.deepEqual(saved.preferences, requested);
+
+  nextSnapshot = { isViewerDefault: false, currentAppName: 'Preview', canToggle: true, previousAppName: null };
+  assert.deepEqual(await adapter.queryDefaultAppStatus(), { kind: 'available', state: 'off', currentAppName: 'Preview', canToggle: true });
+  assert.equal((calls.at(-1) as any).action, 'defaultAppStatus');
+  nextSnapshot = 'changed';
+  assert.deepEqual(await adapter.setDefaultApp(true), { kind: 'changed' });
+  assert.deepEqual(calls.at(-1), { action: 'setDefaultApp', enabled: true });
+  nextSnapshot = { isViewerDefault: true, currentAppName: null, canToggle: true, previousAppName: 'Preview' };
+  assert.deepEqual(await adapter.queryDefaultAppStatus(), { kind: 'available', state: 'on', canToggle: true, previousAppName: 'Preview' });
+  nextSnapshot = { isViewerDefault: true, currentAppName: null, canToggle: false, previousAppName: 'Preview', applicationURL: '/Applications/Banana Viewer.app' };
+  await assert.rejects(adapter.queryDefaultAppStatus(), /default app response is invalid/);
+  nextSnapshot = '/Applications/Banana Viewer.app';
+  await assert.rejects(adapter.setDefaultApp(false), /default app result is invalid/);
   assert.equal(calls.at(0) instanceof Object && (calls.at(0) as any).action, 'bootstrap');
 
   dom.window.dispatchEvent(new dom.window.CustomEvent('banana-viewer-state', { detail: snapshot(requested) }));
@@ -31,6 +49,9 @@ test('native adapter sends full fractional preferences and validates snapshots a
   assert.equal(received.at(-1).command, 'zoomIn');
   dom.window.dispatchEvent(new dom.window.CustomEvent('banana-viewer-command', { detail: 'not-supported' }));
   assert.equal(received.at(-1).kind, 'fault');
+  assert.match(received.at(-1).message, /command was invalid/);
+  dom.window.dispatchEvent(new dom.window.CustomEvent('banana-viewer-command', { detail: 'setDefaultApp' }));
+  assert.equal(received.at(-1).kind, 'fault', 'the native menu-command channel cannot invoke the settings-only system command');
   assert.match(received.at(-1).message, /command was invalid/);
   await assert.rejects(adapter.openLink('javascript:alert(1)'), /cannot be opened/);
   nextSnapshot = { kind: 'saved', revision: 'a'.repeat(64) };

@@ -23,6 +23,19 @@ struct ViewerWebKitSmokeTest {
         try writeAtomically(initialBytes, to: first)
         let second = root.appendingPathComponent("second.md")
         try writeAtomically(Data("# Second window document\n".utf8), to: second)
+        let lifecycleDocument = root.appendingPathComponent("lifecycle.md")
+        try writeAtomically(Data("# Viewer lifecycle document\n".utf8), to: lifecycleDocument)
+        let discardDocument = root.appendingPathComponent("discard.md")
+        let discardBytes = Data("# Viewer discard document\n".utf8)
+        try writeAtomically(discardBytes, to: discardDocument)
+        let recentDirectoryA = root.appendingPathComponent("recent-a", isDirectory: true)
+        let recentDirectoryB = root.appendingPathComponent("recent-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: recentDirectoryA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: recentDirectoryB, withIntermediateDirectories: true)
+        let recentA = recentDirectoryA.appendingPathComponent("Shared.md")
+        let recentB = recentDirectoryB.appendingPathComponent("Shared.md")
+        try Data("# Recent A\n".utf8).write(to: recentA)
+        try Data("# Recent B\n".utf8).write(to: recentB)
 
         let suite = "com.jzlosman.banana-viewer.smoke.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else {
@@ -32,9 +45,20 @@ struct ViewerWebKitSmokeTest {
 
         let application = NSApplication.shared
         application.setActivationPolicy(.regular)
-        let runtime = try ViewerApplicationRuntime(webDirectory: webDirectory, defaults: defaults)
+        let launchDelegate = ViewerAppDelegate()
+        guard !launchDelegate.applicationShouldSaveApplicationState(application),
+              !launchDelegate.applicationShouldRestoreApplicationState(application) else {
+            throw SmokeFailure.message("Banana Viewer must not persist AppKit window state without implementing restoration.")
+        }
+        defaults.set([recentA.path, recentB.path], forKey: "viewerRecentDocuments.v1")
+        let launchServices = SmokeViewerLaunchServices()
+        let menuPresenter = RecordingViewerMenuPresenter()
+        let runtime = try ViewerApplicationRuntime(webDirectory: webDirectory, defaults: defaults,
+                                                  launchServices: launchServices, menuPresenter: menuPresenter)
         defer { runtime.shutdown() }
-        runtime.start(launchURLs: [first])
+        var pendingLaunchURLs = ViewerPendingOpenURLs()
+        pendingLaunchURLs.append(contentsOf: [first])
+        runtime.start(launchURLs: pendingLaunchURLs.drain())
         guard let controller = runtime.controller(for: first) else {
             throw SmokeFailure.message("The first synthetic document did not open.")
         }
@@ -56,6 +80,10 @@ struct ViewerWebKitSmokeTest {
         try wait(webView, timeout: 20, description: "relative image load") {
             (try? evaluate(webView, "Array.from(document.images).some(image => image.complete && image.naturalWidth > 0)")) as? Bool == true
         }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        guard launchServices.currentApplicationQueryCount == 0 else {
+            throw SmokeFailure.message("Launch Services was queried before the user opened Settings.")
+        }
 
         _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage({action:'bootstrap'}).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
         try wait(webView, timeout: 8, description: "native promise bridge bootstrap") {
@@ -66,6 +94,58 @@ struct ViewerWebKitSmokeTest {
               (bootstrap["document"] as? [String: Any])?["name"] as? String == "smoke.md",
               (bootstrap["editing"] as? [String: Any])?["kind"] as? String == "locked" else {
             throw SmokeFailure.message("Native bootstrap did not open the document locked.")
+        }
+        let openButtonReady = try evaluate(webView, "(() => { const button=document.querySelector('.viewer-toolbar [aria-label=\\\"Open\\\"]'); return !!button && button.title==='Open (⌘O)' && button.getAttribute('aria-haspopup')==='menu' && button.getAttribute('aria-expanded')==='false' && !!button.querySelector('svg'); })()") as? Bool == true
+        guard openButtonReady else { throw SmokeFailure.message("The WebKit toolbar Open control does not expose its icon-menu accessibility contract.") }
+        _ = try evaluate(webView, "document.querySelector('.viewer-toolbar [aria-label=\\\"Open\\\"]')?.click(); true")
+        try wait(webView, timeout: 8, description: "native recent-document menu request") { menuPresenter.lastMenu != nil }
+        guard let openMenu = menuPresenter.lastMenu, let openMenuView = menuPresenter.lastView,
+              let menuPoint = menuPresenter.lastPoint, openMenuView === webView,
+              menuPoint.x >= webView.bounds.minX, menuPoint.x <= webView.bounds.maxX,
+              menuPoint.y >= webView.bounds.minY, menuPoint.y <= webView.bounds.maxY,
+              openMenu.items.count == 7,
+              openMenu.items[0].title == "smoke.md", openMenu.items[0].state == .on,
+              openMenu.items[0].image?.size == NSSize(width: 16, height: 16),
+              openMenu.items[1].title == "Shared.md", openMenu.items[2].title == "Shared.md",
+              openMenu.items[3].isSeparatorItem, openMenu.items[4].title == "Open…",
+              openMenu.items[4].keyEquivalent == "o", openMenu.items[4].keyEquivalentModifierMask.contains(.command),
+              openMenu.items[5].isSeparatorItem, openMenu.items[6].title == "Clear Recents" else {
+            throw SmokeFailure.message("The native toolbar menu did not build its synthetic recent documents and actions correctly.")
+        }
+        if #available(macOS 14.4, *) {
+            guard openMenu.items[1].subtitle == "recent-a", openMenu.items[2].subtitle == "recent-b" else {
+                throw SmokeFailure.message("Duplicate recent filenames were not disambiguated with native menu subtitles.")
+            }
+        }
+        let recentSubmenu = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Open Recent")?.submenu
+        guard recentSubmenu?.items.prefix(3).map({ $0.title }) == openMenu.items.prefix(3).map({ $0.title }) else {
+            throw SmokeFailure.message("File → Open Recent and the toolbar menu drifted in recent-document labels.")
+        }
+        guard let clearAction = openMenu.items.last, clearAction.title == "Clear Recents",
+              let clearSelector = clearAction.action, let clearTarget = clearAction.target,
+              NSApp.sendAction(clearSelector, to: clearTarget, from: clearAction),
+              defaults.stringArray(forKey: "viewerRecentDocuments.v1") == nil else {
+            throw SmokeFailure.message("Clear Recents did not clear the viewer-owned recent list.")
+        }
+        try postBridge(webView, message: ["action": "openMenu", "rect": ["x": true, "y": 0, "width": 30, "height": 30]])
+        let invalidNumberReply = try evaluate(webView, "window.__viewerSmokeResult?.error") as? String
+        guard invalidNumberReply?.contains("malformed") == true, menuPresenter.lastMenu === openMenu else {
+            throw SmokeFailure.message("The native bridge accepted boolean toolbar geometry.")
+        }
+        try postBridge(webView, message: ["action": "openMenu", "rect": ["x": 0, "y": 0, "width": 30, "height": 30, "path": "/tmp/not-a-real-document.md"]])
+        let unexpectedKeyReply = try evaluate(webView, "window.__viewerSmokeResult?.error") as? String
+        guard unexpectedKeyReply?.contains("malformed") == true, menuPresenter.lastMenu === openMenu else {
+            throw SmokeFailure.message("The native bridge accepted extra rectangle fields.")
+        }
+        let emptyMenuPresenter = RecordingViewerMenuPresenter()
+        let emptyMenuController = ViewerMenuController(presenter: emptyMenuPresenter)
+        emptyMenuController.presentOpenMenu(at: menuPoint, in: webView, currentDocumentURL: nil)
+        guard let emptyMenu = emptyMenuPresenter.lastMenu,
+              emptyMenu.items.count == 5,
+              emptyMenu.items[0].title == "No Recent Documents", !emptyMenu.items[0].isEnabled,
+              emptyMenu.items[1].isSeparatorItem, emptyMenu.items[2].title == "Open…",
+              emptyMenu.items[3].isSeparatorItem, emptyMenu.items[4].title == "Clear Recents" else {
+            throw SmokeFailure.message("The empty toolbar menu did not keep its Open and Clear Recents actions.")
         }
         let initialRevision = (bootstrap["document"] as? [String: Any])?["revision"] as? String ?? ""
         let lockedUI = try evaluate(webView, "document.querySelector('[aria-label=\\\"Unlock to Edit\\\"]')?.getAttribute('aria-pressed') === 'false' && document.querySelector('[contenteditable=\\\"true\\\"]') === null") as? Bool == true
@@ -92,12 +172,14 @@ struct ViewerWebKitSmokeTest {
             throw SmokeFailure.message("The Edit menu did not reflect the unlocked per-window state.")
         }
         try replaceEditorText(webView, from: "Viewer smoke initial", to: "Viewer smoke edited")
-        try wait(webView, timeout: 8, description: "dirty edit state") { controller.window?.isDocumentEdited == true }
+        try wait(webView, timeout: 8, description: "dirty edit state") {
+            controller.window?.isDocumentEdited == true && controller.window?.title.hasPrefix("*") == true
+        }
         try postBridge(webView, message: ["action": "bootstrap"])
         let dirtySnapshot = try resultObject(webView)
         guard (dirtySnapshot["editing"] as? [String: Any])?["dirty"] as? Bool == true,
               controller.window?.isDocumentEdited == true,
-              controller.window?.title.contains("Edited") == true,
+              controller.window?.title == "*smoke.md — Banana Viewer",
               NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Save")?.isEnabled == true else {
             throw SmokeFailure.message("A dirty edit did not update the native edited marker, title, and Save menu.")
         }
@@ -108,7 +190,7 @@ struct ViewerWebKitSmokeTest {
             return clean && saved
         }
         guard controller.window?.isDocumentEdited == false,
-              controller.window?.title.contains("Edited") == false,
+              controller.window?.title.hasPrefix("*") == false,
               NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu?.item(withTitle: "Save")?.isEnabled == false else {
             throw SmokeFailure.message("Command-S did not clear the dirty native state.")
         }
@@ -178,10 +260,79 @@ struct ViewerWebKitSmokeTest {
             let saved = (try? String(contentsOf: first, encoding: .utf8))?.contains("Viewer smoke kept local edit") == true
             return controller.window?.isDocumentEdited == false && saved
         }
-        guard controller.window?.title.contains("Edited") == false,
+        guard controller.window?.title.hasPrefix("*") == false,
               let saved = try? String(contentsOf: first, encoding: .utf8),
               saved.contains("Viewer smoke kept local edit"), !saved.contains("Second external version") else {
             throw SmokeFailure.message("Confirming replacement did not save the local version and clear dirty state.")
+        }
+
+        _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage({action:'defaultAppStatus'}).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
+        try wait(webView, timeout: 8, description: "native default app status query") {
+            (try? evaluate(webView, "window.__viewerSmokeResult !== null")) as? Bool == true
+        }
+        let defaultAppStatus = try resultObject(webView)
+        guard launchServices.currentApplicationQueryCount == launchServices.markdownContentTypeIdentifiers.count else {
+            throw SmokeFailure.message("The default-app status bridge did not perform exactly one query per content type.")
+        }
+        guard defaultAppStatus.keys.sorted() == ["canToggle", "currentAppName", "isViewerDefault", "previousAppName"],
+              defaultAppStatus["isViewerDefault"] as? Bool == false,
+              defaultAppStatus["canToggle"] as? Bool == true,
+              defaultAppStatus["currentAppName"] as? String == "Preview",
+              defaultAppStatus["previousAppName"] is NSNull else {
+            throw SmokeFailure.message("Native default app query returned an unexpected or path-bearing status.")
+        }
+
+        _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage({action:'setDefaultApp',enabled:true,extra:'not-a-settings-action'}).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
+        try wait(webView, timeout: 8, description: "rejected malformed default app command") {
+            (try? evaluate(webView, "window.__viewerSmokeResult !== null")) as? Bool == true
+        }
+        let malformed = try evaluate(webView, "JSON.stringify(window.__viewerSmokeResult)") as? String ?? ""
+        guard malformed.contains("default app request is malformed") && launchServices.setCalls.isEmpty else {
+            throw SmokeFailure.message("The native bridge accepted a malformed default app command.")
+        }
+
+        _ = try evaluate(webView, "document.querySelector('[aria-label=\\\"Settings\\\"]').click(); true")
+        try wait(webView, timeout: 8, description: "Settings open") {
+            (try? evaluate(webView, "document.querySelector('.viewer-settings') !== null")) as? Bool == true
+        }
+        let generalSelected = try evaluate(webView, "document.querySelector('#viewer-settings-tab-general')?.getAttribute('aria-selected') === 'true'") as? Bool == true
+        guard generalSelected else {
+            let state = try evaluate(webView, "JSON.stringify({tabs:Array.from(document.querySelectorAll('[role=tab]')).map(tab=>({id:tab.id,text:tab.textContent,selected:tab.getAttribute('aria-selected')})),body:document.body.innerText})") as? String ?? "unavailable"
+            throw SmokeFailure.message("Settings did not open on General: \(state)")
+        }
+        try wait(webView, timeout: 8, description: "default app settings query") {
+            (try? evaluate(webView, "document.querySelector('.viewer-default-app-caption')?.textContent === 'Markdown files open in Preview.'")) as? Bool == true
+        }
+        let settingsStatusQueryCount = launchServices.currentApplicationQueryCount
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        guard launchServices.currentApplicationQueryCount == settingsStatusQueryCount else {
+            throw SmokeFailure.message("The open Settings screen repeatedly queried Launch Services while idle.")
+        }
+        try captureDefaultAppEvidence(controller, webView: webView, state: "off")
+        launchServices.setDelayNanoseconds = 600_000_000
+        _ = try evaluate(webView, "document.querySelector('.viewer-default-app-switch').click(); true")
+        try wait(webView, timeout: 5, description: "pending default app switch") {
+            (try? evaluate(webView, "(() => { const toggle=document.querySelector('.viewer-default-app-switch'); return toggle?.getAttribute('aria-checked')==='true' && toggle.disabled && document.querySelector('.viewer-default-app-row')?.getAttribute('aria-busy')==='true' && document.querySelector('.viewer-default-app-caption')?.textContent==='Changing the default app…'; })()")) as? Bool == true
+        }
+        try captureDefaultAppEvidence(controller, webView: webView, state: "pending")
+        try wait(webView, timeout: 8, description: "enabled default app switch and status re-query") {
+            (try? evaluate(webView, "(() => { const toggle=document.querySelector('.viewer-default-app-switch'); return toggle?.getAttribute('aria-checked')==='true' && !toggle.disabled && document.querySelector('.viewer-default-app-caption')?.textContent==='Turn off to go back to Preview.'; })()")) as? Bool == true
+        }
+        try captureDefaultAppEvidence(controller, webView: webView, state: "on")
+        guard launchServices.setCalls == launchServices.markdownContentTypeIdentifiers else {
+            throw SmokeFailure.message("Settings did not set every distinct Markdown content type through the injected adapter.")
+        }
+        _ = try evaluate(webView, "document.querySelector('.viewer-default-app-switch').click(); true")
+        try wait(webView, timeout: 8, description: "restored default app switch") {
+            (try? evaluate(webView, "(() => { const toggle=document.querySelector('.viewer-default-app-switch'); return toggle?.getAttribute('aria-checked')==='false' && !toggle.disabled && document.querySelector('.viewer-default-app-caption')?.textContent==='Markdown files open in Preview.'; })()")) as? Bool == true
+        }
+        guard launchServices.setBundleIdentifierCalls == [launchServices.viewerBundleIdentifier!, launchServices.viewerBundleIdentifier!,
+                                                            launchServices.previewBundleIdentifier, launchServices.previewBundleIdentifier] else {
+            throw SmokeFailure.message("Turning the switch off did not restore the previous app for every Markdown content type.")
+        }
+        _ = try evaluate(webView, "document.querySelector('.viewer-done-button').click(); true")
+        try wait(webView, timeout: 8, description: "reader restored after default app settings") {
+            (try? evaluate(webView, "document.querySelector('.viewer-markdown') !== null")) as? Bool == true
         }
 
         _ = try evaluate(webView, "window.__viewerSmokeResult=null; window.webkit.messageHandlers.viewer.postMessage({action:'preferences',preferences:{themeID:'system',syntaxThemeID:'app',fontID:'space-mono',fontWeight:400,fontSize:17,focusedOpacity:1,unfocusedOpacity:1,glass:0}}).then(value=>window.__viewerSmokeResult=value).catch(error=>window.__viewerSmokeResult={error:String(error)}); true")
@@ -262,9 +413,24 @@ struct ViewerWebKitSmokeTest {
             _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.025))
         }
         guard runtime.windowControllers.isEmpty else { throw SmokeFailure.message("Document windows did not close cleanly.") }
+        runtime.open([first])
+        guard let saveThenReopen = runtime.controller(for: first), saveThenReopen.window?.isVisible == true else {
+            throw SmokeFailure.message("A document saved with Command-S did not reopen after its window closed.")
+        }
+        try wait(saveThenReopen.webView!, timeout: 20, description: "saved document window reopen") {
+            (try? evaluate(saveThenReopen.webView!, "(document.body?.innerText || '').includes('Recovered after deletion')")) as? Bool == true
+        }
+        saveThenReopen.window?.close()
+        let saveReopenDeadline = Date().addingTimeInterval(3)
+        while !runtime.windowControllers.isEmpty && Date() < saveReopenDeadline {
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.025))
+        }
+        guard runtime.windowControllers.isEmpty else { throw SmokeFailure.message("The reopened saved document did not close cleanly.") }
         let lifecycleDefaults = UserDefaults(suiteName: "BananaViewerSmoke-Lifecycle-\(UUID().uuidString)")!
         let lifecycleRuntime = try ViewerApplicationRuntime(webDirectory: webDirectory, defaults: lifecycleDefaults)
-        try verifyClosedControllerCleanup(lifecycleRuntime, document: first)
+        defer { lifecycleRuntime.shutdown() }
+        try verifyClosedControllerCleanup(lifecycleRuntime, document: lifecycleDocument,
+                                          discardDocument: discardDocument, discardBytes: discardBytes)
         runtime.sendMenuCommand("settings")
         guard runtime.windowControllers.count == 1,
               let settingsController = runtime.windowControllers.first,
@@ -274,13 +440,34 @@ struct ViewerWebKitSmokeTest {
         try wait(settingsController.webView!, timeout: 20, description: "queued Settings command on a cold window") {
             (try? evaluate(settingsController.webView!, "document.querySelector('.viewer-settings') !== null")) as? Bool == true
         }
-        print("Viewer WebKit smoke passed: locked-by-default bridge guard, Command-S rich edit/save, dirty title/menu state, external conflict/reload and cancelled/confirmed replacement, transparent surface, native glass, relative image, atomic refresh, delete/recovery, multi-URL deduplication, and cold Settings delivery.")
+        print("Viewer WebKit smoke passed: native recent-document menu command and shared menu labels, locked-by-default editing, Command-S and sheet-driven close/reopen, unsaved discard, runtime bookkeeping, startup URL buffering, default-app query cadence and switch/restore, rendering, native glass, relative images, refresh/recovery, multi-URL deduplication, and cold Settings delivery.")
     }
 
-    private static func verifyClosedControllerCleanup(_ runtime: ViewerApplicationRuntime, document: URL) throws {
+    private static func captureDefaultAppEvidence(_ controller: ViewerWindowController, webView: WKWebView, state: String) throws {
+        guard let directory = ProcessInfo.processInfo.environment["VIEWER_SMOKE_SCREENSHOT_DIR"],
+              let window = controller.window else { return }
+        let folder = URL(fileURLWithPath: directory, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        _ = try evaluate(webView, "(() => { const toggle=document.querySelector('.viewer-default-app-switch'); const thumb=document.querySelector('.viewer-default-app-switch-thumb'); toggle?.style.setProperty('transition','none','important'); thumb?.style.setProperty('transition','none','important'); return true; })()")
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.updateWindows()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        let destination = folder.appendingPathComponent("banana-viewer-default-\(state).png")
+        let capture = Process()
+        capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        capture.arguments = ["-x", "-l", String(window.windowNumber), destination.path]
+        try capture.run(); capture.waitUntilExit()
+        guard capture.terminationStatus == 0 else {
+            throw SmokeFailure.message("Could not capture the \(state) default-app Settings state.")
+        }
+    }
+
+    private static func verifyClosedControllerCleanup(_ runtime: ViewerApplicationRuntime, document: URL,
+                                                      discardDocument: URL, discardBytes: Data) throws {
         runtime.open([document])
-        guard let controller = runtime.controller(for: document) else {
-            throw SmokeFailure.message("Could not open lifecycle regression document.")
+        guard let controller = runtime.controller(for: document), controller.window?.isRestorable == false else {
+            throw SmokeFailure.message("Could not open a non-restorable lifecycle regression document.")
         }
         controller.show()
         let webView = controller.webView!
@@ -293,6 +480,97 @@ struct ViewerWebKitSmokeTest {
         }
         guard runtime.controller(for: document) == nil else {
             throw SmokeFailure.message("Closing a document did not remove its controller from the runtime.")
+        }
+
+        runtime.open([document])
+        guard let reopened = runtime.controller(for: document), reopened !== controller,
+              reopened.window != nil, reopened.window?.isVisible == true,
+              runtime.windowControllers.count == 1 else {
+            throw SmokeFailure.message("Reopening a closed document did not create a live window with fresh runtime bookkeeping.")
+        }
+        runtime.open([document])
+        guard runtime.controller(for: document) === reopened,
+              runtime.windowControllers.count == 1,
+              reopened.window?.isVisible == true else {
+            throw SmokeFailure.message("Reopening an already-present document did not present its live window.")
+        }
+
+        let savedWebView = reopened.webView!
+        try wait(savedWebView, timeout: 20, description: "reopened lifecycle page load") {
+            (try? evaluate(savedWebView, "document.querySelector('.viewer-shell') !== null")) as? Bool == true
+        }
+        try postBridge(savedWebView, message: ["action": "unlockDocument"])
+        let savedUnlock = try resultObject(savedWebView)
+        guard (savedUnlock["editing"] as? [String: Any])?["kind"] as? String == "unlocked" else {
+            throw SmokeFailure.message("The lifecycle document did not unlock before the close-save regression.")
+        }
+        try replaceEditorText(savedWebView, from: "Viewer lifecycle document", to: "Viewer lifecycle saved")
+        try wait(savedWebView, timeout: 8, description: "dirty lifecycle document") { reopened.window?.isDocumentEdited == true }
+        reopened.window?.performClose(nil)
+        try wait(savedWebView, timeout: 8, description: "save sheet for closing a dirty window") { reopened.window?.attachedSheet != nil }
+        guard let saveWindow = reopened.window, let saveSheet = saveWindow.attachedSheet,
+              let saveContent = saveSheet.contentView, let saveButton = findButton("Save", in: saveContent) else {
+            throw SmokeFailure.message("Closing a dirty lifecycle window did not present its Save option.")
+        }
+        saveButton.performClick(nil)
+        try wait(savedWebView, timeout: 10, description: "save-and-close lifecycle flow") {
+            runtime.controller(for: document) == nil &&
+                (try? String(contentsOf: document, encoding: .utf8))?.contains("Viewer lifecycle saved") == true
+        }
+        runtime.open([document])
+        guard let savedReopen = runtime.controller(for: document), savedReopen.window?.isVisible == true else {
+            throw SmokeFailure.message("A document saved while closing did not reopen into a live window.")
+        }
+        try wait(savedReopen.webView!, timeout: 20, description: "render after save-and-close reopen") {
+            (try? evaluate(savedReopen.webView!, "(document.body?.innerText || '').includes('Viewer lifecycle saved')")) as? Bool == true
+        }
+
+        runtime.open([discardDocument])
+        guard let discardController = runtime.controller(for: discardDocument) else {
+            throw SmokeFailure.message("Could not open the discard-close regression document.")
+        }
+        discardController.show()
+        let discardWebView = discardController.webView!
+        try wait(discardWebView, timeout: 20, description: "discard-close page load") {
+            (try? evaluate(discardWebView, "document.querySelector('.viewer-shell') !== null")) as? Bool == true
+        }
+        try postBridge(discardWebView, message: ["action": "unlockDocument"])
+        let discardUnlock = try resultObject(discardWebView)
+        guard (discardUnlock["editing"] as? [String: Any])?["kind"] as? String == "unlocked" else {
+            throw SmokeFailure.message("The discard lifecycle document did not unlock before the close regression.")
+        }
+        try replaceEditorText(discardWebView, from: "Viewer discard document", to: "Viewer discard edit")
+        try wait(discardWebView, timeout: 8, description: "dirty discard-close document") { discardController.window?.isDocumentEdited == true }
+        discardController.window?.performClose(nil)
+        try wait(discardWebView, timeout: 8, description: "discard sheet for dirty window") { discardController.window?.attachedSheet != nil }
+        guard let discardWindow = discardController.window, let discardSheet = discardWindow.attachedSheet,
+              let discardContent = discardSheet.contentView,
+              let discardButton = findButton("Don’t Save", in: discardContent) else {
+            throw SmokeFailure.message("Closing a dirty lifecycle window did not present its Don’t Save option.")
+        }
+        discardButton.performClick(nil)
+        let discardCloseDeadline = Date().addingTimeInterval(8)
+        while runtime.controller(for: discardDocument) != nil && Date() < discardCloseDeadline {
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.025))
+        }
+        guard runtime.controller(for: discardDocument) == nil else {
+            throw SmokeFailure.message("Don’t Save did not close the window (title: \(discardController.window?.title ?? "nil"), sheet: \(discardController.window?.attachedSheet?.title ?? "none"), state: \(discardController.currentEditingState)).")
+        }
+        guard try Data(contentsOf: discardDocument) == discardBytes else {
+            throw SmokeFailure.message("Choosing Don’t Save changed the lifecycle document on disk.")
+        }
+        runtime.open([discardDocument])
+        guard let discardReopen = runtime.controller(for: discardDocument), discardReopen.window?.isVisible == true else {
+            throw SmokeFailure.message("A document closed with Don’t Save did not reopen into a live window.")
+        }
+        discardReopen.window?.close()
+        savedReopen.window?.close()
+        let cleanupDeadline = Date().addingTimeInterval(3)
+        while !runtime.windowControllers.isEmpty && Date() < cleanupDeadline {
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.025))
+        }
+        guard runtime.windowControllers.isEmpty else {
+            throw SmokeFailure.message("Lifecycle regression windows did not clean up after their final close.")
         }
     }
 
@@ -337,11 +615,12 @@ struct ViewerWebKitSmokeTest {
     }
 
     private static func resultObject(_ webView: WKWebView) throws -> [String: Any] {
-        guard let json = try evaluate(webView, "JSON.stringify(window.__viewerSmokeResult)") as? String,
-              let data = json.data(using: .utf8),
+        let json = try evaluate(webView, "JSON.stringify(window.__viewerSmokeResult)") as? String
+        guard let json, let data = json.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["error"] == nil else {
-            throw SmokeFailure.message("The native promise bridge returned no valid result.")
+            let detail = json ?? "unavailable"
+            throw SmokeFailure.message("The native promise bridge returned no valid result: \(detail)")
         }
         return object
     }
@@ -387,7 +666,56 @@ struct ViewerWebKitSmokeTest {
     }
 }
 
+@MainActor
+private final class RecordingViewerMenuPresenter: ViewerMenuPresenter {
+    private(set) var lastMenu: NSMenu?
+    private(set) var lastPoint: NSPoint?
+    private(set) weak var lastView: NSView?
+
+    func present(_ menu: NSMenu, at point: NSPoint, in view: NSView) {
+        lastMenu = menu
+        lastPoint = point
+        lastView = view
+    }
+}
+
 enum SmokeFailure: LocalizedError {
     case message(String)
     var errorDescription: String? { if case .message(let value) = self { return value }; return nil }
+}
+
+@MainActor
+private final class SmokeViewerLaunchServices: ViewerLaunchServices {
+    let viewerBundleIdentifier: ViewerBundleIdentifier? = ViewerBundleIdentifier("com.jzlosman.banana-viewer")
+    let previewBundleIdentifier = ViewerBundleIdentifier("com.apple.Preview")!
+    let markdownContentTypeIdentifiers = ["test.viewer-markdown", "test.viewer-md"]
+    var setCalls: [String] = []
+    var setBundleIdentifierCalls: [ViewerBundleIdentifier] = []
+    var currentApplicationQueryCount = 0
+    var setDelayNanoseconds: UInt64 = 0
+    private var applications: [String: ViewerDefaultApplication]
+    private let registeredApplications: [ViewerBundleIdentifier: ViewerDefaultApplication]
+
+    init() {
+        let preview = ViewerDefaultApplication(bundleIdentifier: previewBundleIdentifier, displayName: "Preview")
+        let viewer = ViewerDefaultApplication(bundleIdentifier: viewerBundleIdentifier, displayName: "Banana Viewer (build copy)")
+        applications = ["test.viewer-markdown": preview, "test.viewer-md": preview]
+        registeredApplications = [previewBundleIdentifier: preview, viewerBundleIdentifier!: viewer]
+    }
+
+    func currentApplication(forContentTypeIdentifier identifier: String) -> ViewerDefaultApplication? {
+        currentApplicationQueryCount += 1
+        return applications[identifier]
+    }
+
+    func application(forBundleIdentifier identifier: ViewerBundleIdentifier) -> ViewerDefaultApplication? {
+        registeredApplications[identifier]
+    }
+
+    func setDefaultApplication(bundleIdentifier: ViewerBundleIdentifier, forContentTypeIdentifier identifier: String) async -> Bool {
+        if setDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: setDelayNanoseconds) }
+        setCalls.append(identifier); setBundleIdentifierCalls.append(bundleIdentifier)
+        applications[identifier] = registeredApplications[bundleIdentifier]
+        return applications[identifier] != nil
+    }
 }

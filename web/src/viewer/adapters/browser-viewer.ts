@@ -1,5 +1,5 @@
-import type { ViewerPort, ViewerEvent } from '../application/ports';
-import { DEFAULT_VIEWER_PREFERENCES, isSafeViewerLink, normalizeViewerPreferences, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
+import type { ViewerPort, ViewerEvent, ViewerOpenMenuAnchor } from '../application/ports';
+import { DEFAULT_VIEWER_PREFERENCES, isSafeViewerLink, normalizeViewerPreferences, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
 
 const PREFERENCES_KEY = 'banana-viewer-preferences-v1';
 const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
@@ -7,6 +7,7 @@ const SUPPORTED_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd']);
 
 /** Isolated browser fallback: it reads one explicitly chosen file and stores only Viewer preferences. */
 export class BrowserViewerAdapter implements ViewerPort {
+  readonly supportsNativeOpenMenu = false;
   private snapshot: ViewerSnapshot = { document: { kind: 'empty' }, preferences: { ...DEFAULT_VIEWER_PREFERENCES }, editing: { kind: 'unavailable' }, externalChange: false };
   private readonly listeners = new Set<(event: ViewerEvent) => void>();
   private readonly input: HTMLInputElement;
@@ -47,6 +48,8 @@ export class BrowserViewerAdapter implements ViewerPort {
     return null;
   }
 
+  async openMenu(_anchor: ViewerOpenMenuAnchor): Promise<null> { return this.open(); }
+
   async reload(): Promise<null> {
     if (this.currentFile) await this.readFile(this.currentFile, false);
     return null;
@@ -66,6 +69,10 @@ export class BrowserViewerAdapter implements ViewerPort {
     this.emit({ kind: 'snapshot', snapshot: this.snapshot });
     return this.snapshot;
   }
+
+  async queryDefaultAppStatus(): Promise<ViewerDefaultAppStatus> { return { kind: 'unavailable' }; }
+
+  async setDefaultApp(_enabled: boolean): Promise<ViewerDefaultAppOutcome> { return { kind: 'unavailable' }; }
 
   async openLink(href: string): Promise<null> {
     if (!isSafeViewerLink(href) || href.startsWith('#')) throw new Error('This link cannot be opened.');

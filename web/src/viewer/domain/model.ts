@@ -26,6 +26,12 @@ export type ViewerSnapshot = {
   externalChange: boolean;
 };
 export type ViewerCommand = 'settings' | 'find' | 'source' | 'zoomIn' | 'zoomOut' | 'zoomReset' | 'toggleEditing' | 'save' | 'saveForClose';
+export type ViewerDefaultAppStatus =
+  | { kind: 'available'; state: 'off'; currentAppName: string | null; canToggle: boolean }
+  | { kind: 'available'; state: 'on'; canToggle: true; previousAppName: string | null }
+  | { kind: 'available'; state: 'on'; canToggle: false; previousAppName: null }
+  | { kind: 'unavailable' };
+export type ViewerDefaultAppOutcome = { kind: 'changed' } | { kind: 'declinedOrFailed' } | { kind: 'unavailable' };
 export type { DocumentWriteResult };
 
 export const DEFAULT_VIEWER_PREFERENCES: ViewerPreferences = {
@@ -111,6 +117,37 @@ export function decodeNativeSnapshot(value: unknown): ViewerSnapshot {
       : (() => { throw new Error('The Banana Viewer editing response is invalid.'); })();
   if (typeof snapshot.externalChange !== 'boolean') throw new Error('The Banana Viewer external-change response is invalid.');
   return { document: decodedDocument, preferences: normalizeViewerPreferences(snapshot.preferences), editing, externalChange: snapshot.externalChange };
+}
+
+const safeAppDisplayName = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0 &&
+  value.length <= 256 && !value.includes('/') && !value.includes('\\') && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+
+export function decodeNativeDefaultAppStatus(value: unknown): Extract<ViewerDefaultAppStatus, { kind: 'available' }> {
+  const status = record(value);
+  if (Object.keys(status).sort().join(',') !== 'canToggle,currentAppName,isViewerDefault,previousAppName' ||
+      typeof status.isViewerDefault !== 'boolean' || typeof status.canToggle !== 'boolean' ||
+      !(status.currentAppName === null || safeAppDisplayName(status.currentAppName)) ||
+      !(status.previousAppName === null || safeAppDisplayName(status.previousAppName))) {
+    throw new Error('The Banana Viewer default app response is invalid.');
+  }
+  if (status.isViewerDefault) {
+    if (status.currentAppName !== null || (!status.canToggle && status.previousAppName !== null)) {
+      throw new Error('The Banana Viewer default app response is invalid.');
+    }
+    return status.canToggle
+      ? { kind: 'available', state: 'on', canToggle: true, previousAppName: status.previousAppName as string | null }
+      : { kind: 'available', state: 'on', canToggle: false, previousAppName: null };
+  }
+  if (status.previousAppName !== null) throw new Error('The Banana Viewer default app response is invalid.');
+  return {
+    kind: 'available', state: 'off', currentAppName: status.currentAppName as string | null,
+    canToggle: status.canToggle,
+  };
+}
+
+export function decodeNativeDefaultAppOutcome(value: unknown): Exclude<ViewerDefaultAppOutcome, { kind: 'unavailable' }> {
+  if (value === 'changed' || value === 'declinedOrFailed') return { kind: value };
+  throw new Error('The Banana Viewer default app result is invalid.');
 }
 
 export function isViewerCommand(value: unknown): value is ViewerCommand {

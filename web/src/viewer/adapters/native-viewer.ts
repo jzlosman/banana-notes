@@ -1,9 +1,10 @@
-import type { ViewerPort, ViewerEvent } from '../application/ports';
-import { decodeNativeSnapshot, isSafeViewerLink, isViewerCommand, type DocumentWriteResult, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
+import type { ViewerPort, ViewerEvent, ViewerOpenMenuAnchor } from '../application/ports';
+import { decodeNativeDefaultAppOutcome, decodeNativeDefaultAppStatus, decodeNativeSnapshot, isSafeViewerLink, isViewerCommand, type DocumentWriteResult, type ViewerDefaultAppOutcome, type ViewerDefaultAppStatus, type ViewerPreferences, type ViewerSnapshot } from '../domain/model';
 
 type ViewerMessage =
   | { action: 'bootstrap' }
   | { action: 'open' }
+  | { action: 'openMenu'; rect: ViewerOpenMenuAnchor }
   | { action: 'reload' }
   | { action: 'reloadDiscardingEdits' }
   | { action: 'unlockDocument' }
@@ -13,7 +14,9 @@ type ViewerMessage =
   | { action: 'saveDocument'; expectedRevision: string; markdown: string }
   | { action: 'preferences'; preferences: ViewerPreferences }
   | { action: 'openLink'; href: string }
-  | { action: 'reveal' };
+  | { action: 'reveal' }
+  | { action: 'defaultAppStatus' }
+  | { action: 'setDefaultApp'; enabled: boolean };
 
 type ViewerHandler = { postMessage(message: ViewerMessage): Promise<unknown> };
 
@@ -25,6 +28,7 @@ function handlerFrom(target: Window): ViewerHandler {
 
 /** Native message/event adapter. All wire data is validated here before application use. */
 export class NativeViewerAdapter implements ViewerPort {
+  readonly supportsNativeOpenMenu = true;
   private readonly handler: ViewerHandler;
   constructor(private readonly target: Window = window) { this.handler = handlerFrom(target); }
 
@@ -33,6 +37,9 @@ export class NativeViewerAdapter implements ViewerPort {
   }
 
   async open(): Promise<null> { return this.expectNull({ action: 'open' }); }
+  async openMenu(anchor: ViewerOpenMenuAnchor): Promise<null> {
+    return this.expectNull({ action: 'openMenu', rect: anchor });
+  }
   async reload(): Promise<null> { return this.expectNull({ action: 'reload' }); }
   async discardAndReload(): Promise<null> { return this.expectNull({ action: 'reloadDiscardingEdits' }); }
   async reveal(): Promise<null> { return this.expectNull({ action: 'reveal' }); }
@@ -62,6 +69,14 @@ export class NativeViewerAdapter implements ViewerPort {
     return decodeNativeSnapshot(await this.handler.postMessage({ action: 'preferences', preferences }));
   }
 
+  async queryDefaultAppStatus(): Promise<ViewerDefaultAppStatus> {
+    return decodeNativeDefaultAppStatus(await this.handler.postMessage({ action: 'defaultAppStatus' }));
+  }
+
+  async setDefaultApp(enabled: boolean): Promise<ViewerDefaultAppOutcome> {
+    return decodeNativeDefaultAppOutcome(await this.handler.postMessage({ action: 'setDefaultApp', enabled }));
+  }
+
   async openLink(href: string): Promise<null> {
     if (!isSafeViewerLink(href) || href.startsWith('#')) throw new Error('This link cannot be opened.');
     return this.expectNull({ action: 'openLink', href });
@@ -89,7 +104,7 @@ export class NativeViewerAdapter implements ViewerPort {
     return decodeNativeSnapshot(await this.handler.postMessage(message));
   }
 
-  private async expectNull(message: Extract<ViewerMessage, { action: 'open' | 'reload' | 'reloadDiscardingEdits' | 'openLink' | 'reveal' }>): Promise<null> {
+  private async expectNull(message: Extract<ViewerMessage, { action: 'open' | 'openMenu' | 'reload' | 'reloadDiscardingEdits' | 'openLink' | 'reveal' }>): Promise<null> {
     const result = await this.handler.postMessage(message);
     if (result !== null) throw new Error(`The native ${message.action} response was invalid.`);
     return null;

@@ -7,6 +7,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
     private let webDirectory: URL
     private let catalog: ViewerCatalog
     private let preferencesStore: ViewerPreferencesStore
+    private let defaultApplicationManager: ViewerDefaultApplicationManager
     private var resourceHandler: ViewerResourceSchemeHandler!
     private var userContentController: WKUserContentController!
     private var bridgeMessageHandler: ViewerBridgeMessageHandler!
@@ -29,6 +30,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
 
     var onOpenDocument: ((URL) -> Void)?
     var onOpenPanel: (() -> Void)?
+    var onOpenMenu: ((NSPoint) -> Void)?
+    var onWindowBecameKey: ((ViewerWindowController) -> Void)?
     var onPreferencesUpdated: (() -> Void)?
     var onEditingStateChanged: ((ViewerEditingState) -> Void)?
     var onClose: (() -> Void)?
@@ -37,17 +40,20 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
     private(set) var webView: WKWebView!
     var documentURL: URL? { currentURL }
 
-    init(webDirectory: URL, catalog: ViewerCatalog, preferencesStore: ViewerPreferencesStore) {
+    init(webDirectory: URL, catalog: ViewerCatalog, preferencesStore: ViewerPreferencesStore,
+         defaultApplicationManager: ViewerDefaultApplicationManager) {
         self.webDirectory = webDirectory
         self.indexURL = webDirectory.appendingPathComponent("viewer.html")
         self.catalog = catalog
         self.preferencesStore = preferencesStore
+        self.defaultApplicationManager = defaultApplicationManager
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.title = "Banana Viewer"
         window.minSize = NSSize(width: 380, height: 400)
+        window.isRestorable = false
         window.isReleasedWhenClosed = false
         window.center()
         window.delegate = nil
@@ -156,7 +162,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         NSWorkspace.shared.activateFileViewerSelecting([currentURL])
     }
 
-    func windowDidBecomeKey(_ notification: Notification) { applyWindowEffects(); onEditingStateChanged?(editingState) }
+    func windowDidBecomeKey(_ notification: Notification) {
+        applyWindowEffects()
+        onWindowBecameKey?(self)
+        onEditingStateChanged?(editingState)
+    }
     func windowDidResignKey(_ notification: Notification) { applyWindowEffects() }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
@@ -216,6 +226,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         onOpenPanel = nil
         onPreferencesUpdated = nil
         onEditingStateChanged = nil
+        onOpenMenu = nil
+        onWindowBecameKey = nil
         onClose = nil
         close?()
     }
@@ -273,6 +285,18 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
             case "open":
                 replyHandler(NSNull(), nil)
                 onOpenPanel?()
+            case "openMenu":
+                guard exactKeys(body, ["action", "rect"]),
+                      let rawRect = body["rect"],
+                      let anchor = ViewerMenuAnchorRect(wireValue: rawRect)?.clamped(to: webView.bounds) else {
+                    replyHandler(nil, "The viewer menu request is malformed.")
+                    return
+                }
+                let point = webView.isFlipped
+                    ? NSPoint(x: webView.bounds.minX + anchor.minX, y: webView.bounds.minY + anchor.maxY)
+                    : NSPoint(x: webView.bounds.minX + anchor.minX, y: webView.bounds.maxY - anchor.maxY)
+                onOpenMenu?(point)
+                replyHandler(NSNull(), nil)
             case "reload":
                 reloadDocument()
                 replyHandler(NSNull(), nil)
@@ -334,6 +358,18 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
             case "reveal":
                 revealDocument()
                 replyHandler(NSNull(), nil)
+            case "defaultAppStatus":
+                guard body.count == 1 else { replyHandler(nil, "The default app request is malformed."); return }
+                replyHandler(try viewerFoundationValue(defaultApplicationManager.status()), nil)
+            case "setDefaultApp":
+                guard body.count == 2, let enabled = body["enabled"] as? Bool else {
+                    replyHandler(nil, "The default app request is malformed."); return
+                }
+                Task { @MainActor in
+                    let outcome = await defaultApplicationManager.setDefault(enabled: enabled)
+                    do { replyHandler(try viewerFoundationValue(outcome), nil) }
+                    catch { replyHandler(nil, "macOS didn't change the default app.") }
+                }
             default:
                 replyHandler(nil, "This viewer action is not supported.")
             }
@@ -446,7 +482,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
         case .empty: name = "Banana Viewer"
         }
         window.isDocumentEdited = editingState.isDirty
-        window.title = editingState.isDirty ? "\(name) — Edited — Banana Viewer" : "\(name) — Banana Viewer"
+        window.title = ViewerWindowTitle.make(filename: name, editingState: editingState)
         onEditingStateChanged?(editingState)
     }
 
@@ -517,7 +553,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, WKNavi
                 self.pendingExternalResult = nil
                 self.reloadDocument(discardingEdits: true)
                 if termination != nil { termination?(true) }
-                else if !locking { self.window?.performClose(nil) }
+                else if !locking {
+                    DispatchQueue.main.async { [weak self] in self?.window?.performClose(nil) }
+                }
             default: termination?(false)
             }
         }

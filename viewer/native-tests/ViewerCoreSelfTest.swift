@@ -3,9 +3,11 @@ import Darwin
 @testable import BananaViewerCore
 
 @main
+@MainActor
 struct ViewerCoreSelfTest {
-    static func main() throws {
+    static func main() async throws {
         let catalog = try makeCatalog()
+        testWindowTitles()
         try testPreferences(catalog: catalog)
         print("Viewer preference policy cases passed.")
         try testDocuments()
@@ -15,6 +17,11 @@ struct ViewerCoreSelfTest {
         try testResourceAndLinkPolicies()
         print("Viewer resource/link policy cases passed.")
         try testPreferencePersistence(catalog: catalog)
+        testRecentDocumentMenuBuilder()
+        testMenuAnchorRect()
+        try testPendingOpenURLs()
+        try await testDefaultApplication()
+        print("Viewer default app decisions, bundle identity, and fake LaunchServices cases passed.")
         print("Viewer core policies, bounded reads, and isolated preferences passed.")
     }
 
@@ -22,6 +29,18 @@ struct ViewerCoreSelfTest {
         let themes = Data(##"[{"id":"banana-dark","appearance":"dark","colors":{"paper":"#1c1a15"}}]"##.utf8)
         let fonts = Data(#"[{"id":"space-mono","kind":"bundled","weights":[400]},{"id":"avenir","kind":"system","weights":[400,500]},{"id":"google-font","kind":"google","weights":[400]}]"#.utf8)
         return try ViewerCatalog(themeData: themes, fontData: fonts)
+    }
+
+    private static func testWindowTitles() {
+        expect(ViewerWindowTitle.make(filename: "Notes.md", editingState: .locked) == "Notes.md — Banana Viewer",
+               "locked document title has no unsaved marker")
+        expect(ViewerWindowTitle.make(filename: "Notes.md", editingState: .unlocked(dirty: false)) == "Notes.md — Banana Viewer",
+               "clean unlocked document title has no unsaved marker")
+        expect(ViewerWindowTitle.make(filename: "Notes.md", editingState: .unlocked(dirty: true)) == "*Notes.md — Banana Viewer",
+               "dirty document title prefixes the filename with an asterisk")
+        expect(ViewerWindowTitle.make(filename: "東京 notes.md", editingState: .unlocked(dirty: true)) == "*東京 notes.md — Banana Viewer",
+               "dirty title preserves spaces and unicode in the filename")
+        print("Viewer window title cases passed.")
     }
 
     private static func testPreferences(catalog: ViewerCatalog) throws {
@@ -272,6 +291,16 @@ struct ViewerCoreSelfTest {
         try store.save(changed)
         expect(store.preferences == changed, "viewer settings persist in the supplied isolated domain")
 
+        let previousApp = ViewerBundleIdentifier("com.apple.dt.Xcode")!
+        store.rememberPreviousDefaultApplication(previousApp)
+        let reopenedStore = ViewerPreferencesStore(defaults: defaults, catalog: catalog)
+        expect(reopenedStore.previousDefaultApplicationBundleIdentifier == previousApp,
+               "the previous default app bundle identifier persists in the native viewer preferences domain")
+        defaults.set("/Applications/Preview.app", forKey: "viewerPreviousDefaultAppBundleIdentifier.v1")
+        expect(reopenedStore.previousDefaultApplicationBundleIdentifier == nil &&
+               defaults.object(forKey: "viewerPreviousDefaultAppBundleIdentifier.v1") == nil,
+               "invalid remembered application identifiers are rejected and removed")
+
         let first = URL(fileURLWithPath: "/tmp/viewer-one.md")
         let second = URL(fileURLWithPath: "/tmp/viewer-two.mdown")
         store.recordRecent(first)
@@ -281,6 +310,154 @@ struct ViewerCoreSelfTest {
                "recents are unique and newest first")
         store.clearRecentDocuments()
         expect(store.recentDocumentURLs.isEmpty, "clear recents removes viewer-owned recent list")
+    }
+
+    private static func testRecentDocumentMenuBuilder() {
+        let first = URL(fileURLWithPath: "/tmp/Folder B/Shared.md")
+        let current = URL(fileURLWithPath: "/tmp/Folder A/Shared.md")
+        let unique = URL(fileURLWithPath: "/tmp/Folder A/Notes.md")
+        let missing = URL(fileURLWithPath: "/tmp/Folder A/Missing.md")
+        let existing = Set([first.path, current.path, unique.path])
+        let items = ViewerRecentDocumentMenuBuilder.build(
+            recentURLs: [first, current, unique, missing],
+            fileExists: { existing.contains($0.path) }, currentDocumentURL: current)
+        expect(items.map(\.url) == [first, current, unique], "recent menu preserves newest-first order and drops files that no longer exist")
+        expect(items[0].hasDuplicateFilename && items[1].hasDuplicateFilename && !items[2].hasDuplicateFilename,
+               "both matching filenames are marked for folder disambiguation")
+        expect(items[0].fallbackTitle == "Shared.md — Folder B" && items[1].fallbackTitle == "Shared.md — Folder A",
+               "duplicate titles include each parent folder name")
+        expect(items[0].isCurrentDocument == false && items[1].isCurrentDocument && !items[2].isCurrentDocument,
+               "the current window document is marked without changing recency order")
+        expect(ViewerRecentDocumentMenuBuilder.build(recentURLs: [missing], fileExists: { _ in false }, currentDocumentURL: nil).isEmpty,
+               "no existing recent documents produces the empty-state item list")
+
+        let capInput = [URL(fileURLWithPath: "/tmp/Missing.md")] + (0..<11).map { URL(fileURLWithPath: "/tmp/recent-\($0).md") }
+        let capped = ViewerRecentDocumentMenuBuilder.build(
+            recentURLs: capInput, fileExists: { $0.lastPathComponent != "Missing.md" }, currentDocumentURL: nil)
+        expect(capped.count == 10 && capped.first?.filename == "recent-0.md" && capped.last?.filename == "recent-9.md",
+               "the ten-item cap applies after missing files are removed")
+        print("Viewer recent-document menu ordering, cap, existence, duplicate names, and current marking passed.")
+    }
+
+    private static func testMenuAnchorRect() {
+        let valid = ViewerMenuAnchorRect(wireValue: ["x": 30, "y": 25, "width": 30, "height": 20])
+        expect(valid?.clamped(to: CGRect(x: 0, y: 0, width: 40, height: 30)) == CGRect(x: 30, y: 25, width: 10, height: 5),
+               "open-menu geometry is clamped to the viewport")
+        let partial = ViewerMenuAnchorRect(wireValue: ["x": -5, "y": -2, "width": 12, "height": 10])
+        expect(partial?.clamped(to: CGRect(x: 0, y: 0, width: 40, height: 30)) == CGRect(x: 0, y: 0, width: 12, height: 10),
+               "partially offscreen menu anchors are clamped into the viewport")
+        expect(ViewerMenuAnchorRect(wireValue: ["x": NSNumber(value: Double.nan), "y": 0, "width": 30, "height": 30]) == nil,
+               "non-finite menu geometry is rejected")
+        expect(ViewerMenuAnchorRect(wireValue: ["x": true, "y": 0, "width": 30, "height": 30]) == nil,
+               "boolean menu geometry is rejected instead of being coerced to a number")
+        expect(ViewerMenuAnchorRect(wireValue: ["x": 0, "y": 0, "width": 0, "height": 30]) == nil,
+               "zero-area menu geometry is rejected")
+        expect(ViewerMenuAnchorRect(wireValue: ["x": 0, "y": 0, "width": 30, "height": 30, "path": "/tmp/private.md"]) == nil,
+               "unexpected menu payload keys are rejected")
+    }
+
+    private static func testPendingOpenURLs() throws {
+        var pending = ViewerPendingOpenURLs()
+        let first = URL(fileURLWithPath: "/tmp/first.md")
+        let second = URL(fileURLWithPath: "/tmp/second.md")
+        pending.append(contentsOf: [first])
+        pending.append(contentsOf: [second])
+        expect(pending.drain() == [first, second], "file-open requests received before launch are drained in arrival order")
+        expect(pending.drain().isEmpty, "draining pending file-open requests prevents replay")
+    }
+
+    private static func testDefaultApplication() async throws {
+        let markdownType = "net.daringfireball.markdown"
+        let mdType = "public.markdown"
+        expect(ViewerBundleIdentifier("com.apple.dt.Xcode") != nil && ViewerBundleIdentifier("/Applications/Xcode.app") == nil,
+               "bundle identity accepts identifiers and rejects application paths")
+        expect(ViewerDefaultApplicationDecision.contentTypeIdentifiers(markdownTypeIdentifier: markdownType,
+                                                                       mdExtensionTypeIdentifier: markdownType) == [markdownType],
+               "the Markdown content type is not duplicated when .md resolves to the same identifier")
+        expect(ViewerDefaultApplicationDecision.contentTypeIdentifiers(markdownTypeIdentifier: markdownType,
+                                                                       mdExtensionTypeIdentifier: mdType) == [markdownType, mdType],
+               "the Markdown UTI and a distinct .md content type are both retained")
+        expect(ViewerDefaultApplicationDecision.contentTypeIdentifiers(markdownTypeIdentifier: "", mdExtensionTypeIdentifier: "bad\nuti") == [],
+               "empty and control-bearing content type identifiers are rejected")
+        expect(ViewerDefaultApplicationDecision.applicationName(displayName: "  ", bundleName: "Preview") == "Preview",
+               "app display-name extraction falls back to the bundle name")
+        expect(ViewerDefaultApplicationDecision.applicationName(displayName: "Banana Viewer", bundleName: "Other") == "Banana Viewer",
+               "app display-name extraction prefers CFBundleDisplayName")
+        expect(ViewerDefaultApplicationDecision.applicationName(displayName: "Bad\nName", bundleName: nil) == nil,
+               "control characters are not accepted in app display names")
+
+        let services = FakeViewerLaunchServices()
+        let memory = FakeViewerDefaultApplicationMemory()
+        let manager = ViewerDefaultApplicationManager(launchServices: services, memory: memory)
+        let previewIdentifier = ViewerBundleIdentifier("com.apple.Preview")!
+        services.register(ViewerDefaultApplication(bundleIdentifier: previewIdentifier, displayName: "Preview"))
+        services.applications[markdownType] = services.registeredApplications[previewIdentifier]
+        services.applications[mdType] = services.registeredApplications[previewIdentifier]
+        expect(manager.status() == ViewerDefaultAppStatus(isViewerDefault: false, currentAppName: "Preview", canToggle: true, previousAppName: nil),
+               "the current default is shown while enabling remains available")
+
+        services.setResults = [true, false, true]
+        let declined = await manager.setDefault(enabled: true)
+        expect(declined == .declinedOrFailed && services.setCalls == [markdownType, mdType, markdownType],
+               "a failed registration rolls earlier content types back to the remembered default")
+        expect(services.setBundleIdentifierCalls == [services.viewerBundleIdentifier!, services.viewerBundleIdentifier!, previewIdentifier] &&
+               memory.previousDefaultApplicationBundleIdentifier == nil && !manager.status().isViewerDefault,
+               "failed registration restores a coherent off state and clears the temporary memory")
+
+        services.setCalls.removeAll(); services.setBundleIdentifierCalls.removeAll(); services.setResults = [true, true]
+        let changed = await manager.setDefault(enabled: true)
+        expect(changed == .changed && services.setCalls == [markdownType, mdType] &&
+               services.setBundleIdentifierCalls == [services.viewerBundleIdentifier!, services.viewerBundleIdentifier!],
+               "enabling sets every distinct Markdown content type in order")
+        expect(memory.previousDefaultApplicationBundleIdentifier == previewIdentifier &&
+               manager.status() == ViewerDefaultAppStatus(isViewerDefault: true, currentAppName: nil, canToggle: true, previousAppName: "Preview"),
+               "the Viewer state keeps the prior app name and bundle identifier available for restoration")
+        expect(services.applications[markdownType]?.bundleIdentifier == services.viewerBundleIdentifier &&
+               services.applications[mdType]?.bundleIdentifier == services.viewerBundleIdentifier,
+               "build copies with the same bundle identifier count as Viewer irrespective of location")
+
+        services.setCalls.removeAll(); services.setBundleIdentifierCalls.removeAll(); services.setResults = [false]
+        let restoreDeclined = await manager.setDefault(enabled: false)
+        expect(restoreDeclined == .declinedOrFailed && memory.previousDefaultApplicationBundleIdentifier == previewIdentifier &&
+               manager.status().canToggle,
+               "a failed restoration retains the previous app so the user can retry")
+
+        services.setCalls.removeAll(); services.setBundleIdentifierCalls.removeAll(); services.setResults = [true, true]
+        let restored = await manager.setDefault(enabled: false)
+        expect(restored == .changed && services.setCalls == [markdownType, mdType] &&
+               services.setBundleIdentifierCalls == [previewIdentifier, previewIdentifier],
+               "disabling restores the remembered application for every distinct content type")
+        expect(memory.previousDefaultApplicationBundleIdentifier == nil &&
+               manager.status() == ViewerDefaultAppStatus(isViewerDefault: false, currentAppName: "Preview", canToggle: true, previousAppName: nil),
+               "successful restoration clears the remembered bundle identifier")
+
+        services.applications[markdownType] = ViewerDefaultApplication(bundleIdentifier: services.viewerBundleIdentifier, displayName: "Banana Viewer")
+        services.applications[mdType] = ViewerDefaultApplication(bundleIdentifier: services.viewerBundleIdentifier, displayName: "Banana Viewer (build copy)")
+        services.setCalls.removeAll(); memory.rememberPreviousDefaultApplication(nil)
+        let alreadyDefault = manager.status()
+        expect(alreadyDefault.isViewerDefault && !alreadyDefault.canToggle && alreadyDefault.previousAppName == nil,
+               "an already-default Viewer with no remembered app cannot offer a restore action")
+        let noRememberedRestore = await manager.setDefault(enabled: false)
+        expect(noRememberedRestore == .declinedOrFailed && services.setCalls.isEmpty,
+               "a restore request without remembered state is rejected without Launch Services effects")
+
+        services.applications.removeAll(); services.setCalls.removeAll(); services.setBundleIdentifierCalls.removeAll()
+        services.setResults = [true, true]
+        let noPreviousApp = manager.status()
+        expect(!noPreviousApp.isViewerDefault && noPreviousApp.canToggle && noPreviousApp.currentAppName == nil,
+               "an unset default can still be enabled")
+        let enabledWithoutPrevious = await manager.setDefault(enabled: true)
+        expect(enabledWithoutPrevious == .changed && manager.status().isViewerDefault && !manager.status().canToggle,
+               "if no prior app existed, Viewer becomes default but cannot offer an impossible restore")
+        let disabledWithoutPrevious = await manager.setDefault(enabled: false)
+        expect(disabledWithoutPrevious == .declinedOrFailed,
+               "turning off without a remembered previous application is rejected")
+
+        let encoded = try JSONEncoder().encode(manager.status())
+        let wire = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        expect(wire.keys.sorted() == ["canToggle", "currentAppName", "isViewerDefault", "previousAppName"] &&
+               wire["currentAppName"] is NSNull && wire["previousAppName"] is NSNull,
+               "native status encodes the closed switch state and nullable, path-free display names")
     }
 
     private static func temporaryDirectory() throws -> URL {
@@ -296,5 +473,46 @@ struct ViewerCoreSelfTest {
     private static func expectThrows(_ name: String, _ body: () throws -> Void) throws {
         do { try body() } catch { return }
         fatalError("Viewer core test did not reject \(name)")
+    }
+}
+
+private final class FakeViewerDefaultApplicationMemory: ViewerDefaultApplicationMemory {
+    var previousDefaultApplicationBundleIdentifier: ViewerBundleIdentifier?
+    func rememberPreviousDefaultApplication(_ identifier: ViewerBundleIdentifier?) {
+        previousDefaultApplicationBundleIdentifier = identifier
+    }
+}
+
+@MainActor
+private final class FakeViewerLaunchServices: ViewerLaunchServices {
+    let viewerBundleIdentifier: ViewerBundleIdentifier? = ViewerBundleIdentifier("com.jzlosman.banana-viewer")
+    let markdownContentTypeIdentifiers = ["net.daringfireball.markdown", "public.markdown"]
+    var applications: [String: ViewerDefaultApplication] = [:]
+    var registeredApplications: [ViewerBundleIdentifier: ViewerDefaultApplication] = [:]
+    var setCalls: [String] = []
+    var setBundleIdentifierCalls: [ViewerBundleIdentifier] = []
+    var setResults: [Bool] = [true, false]
+
+    func register(_ application: ViewerDefaultApplication) {
+        if let identifier = application.bundleIdentifier { registeredApplications[identifier] = application }
+    }
+
+    func currentApplication(forContentTypeIdentifier identifier: String) -> ViewerDefaultApplication? {
+        applications[identifier]
+    }
+
+    func application(forBundleIdentifier identifier: ViewerBundleIdentifier) -> ViewerDefaultApplication? {
+        registeredApplications[identifier]
+    }
+
+    func setDefaultApplication(bundleIdentifier: ViewerBundleIdentifier, forContentTypeIdentifier identifier: String) async -> Bool {
+        let index = setCalls.count
+        setCalls.append(identifier); setBundleIdentifierCalls.append(bundleIdentifier)
+        let succeeded = index < setResults.count ? setResults[index] : true
+        if succeeded {
+            applications[identifier] = registeredApplications[bundleIdentifier] ??
+                ViewerDefaultApplication(bundleIdentifier: bundleIdentifier, displayName: nil)
+        }
+        return succeeded
     }
 }

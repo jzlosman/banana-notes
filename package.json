@@ -54,7 +54,7 @@
     "@fontsource/space-mono": "5.3.0",
     "@tailwindcss/cli": "^4.3.3",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "esbuild": "0.28.2",
     "fast-check": "^4.10.2",
     "gsap": "3.15.0",

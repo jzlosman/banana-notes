@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if (( $# > 1 )); then
-  echo "usage: build-icons.sh [notes|viewer]" >&2
+  echo "usage: build-icons.sh [notes|viewer|tasks]" >&2
   exit 2
 fi
 PRODUCT="${1:-notes}"
@@ -19,8 +19,14 @@ case "$PRODUCT" in
     ICON="$BRAND/app-icon-1024.png"
     ICNS="$BRAND/AppIcon.icns"
     ;;
+  tasks)
+    BRAND="$ROOT/assets/tasks-brand"
+    ICONSET="$BRAND/AppIcon.iconset"
+    ICON="$BRAND/app-icon-1024.png"
+    ICNS="$BRAND/AppIcon.icns"
+    ;;
   *)
-    echo "product must be notes or viewer" >&2
+    echo "product must be notes, viewer or tasks" >&2
     exit 2
     ;;
 esac
@@ -42,13 +48,13 @@ if [[ "$PRODUCT" == "notes" ]]; then
   cp "$TMP/AppIcon.png" "$ROOT/assets/AppIcon.png"
 fi
 for size in 16 32 128 256 512; do
-  sips -s dpiWidth 72 -s dpiHeight 72 -z "$size" "$TMP/AppIcon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  sips -s dpiWidth 72 -s dpiHeight 72 -z "$size" "$size" "$TMP/AppIcon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
   double=$((size * 2))
-  sips -s dpiWidth 72 -s dpiHeight 72 -z "$double" "$TMP/AppIcon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+  sips -s dpiWidth 72 -s dpiHeight 72 -z "$double" "$double" "$TMP/AppIcon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$ICNS"
 if [[ "$PRODUCT" == "notes" ]]; then
   printf 'Generated Banana Notes app icons and assets/brand/*.svg from native/BananaMark.swift\n'
 else
-  printf 'Generated Banana Viewer app icons and assets/viewer-brand/*.svg from native/BananaMark.swift\n'
+  printf 'Generated Banana %s app icons and assets/%s-brand/*.svg from native/BananaMark.swift\n' "$PRODUCT" "$PRODUCT"
 fi

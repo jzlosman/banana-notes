@@ -63,10 +63,21 @@ const viewerBuild = await build({
   entryPoints: ['web/src/viewer/main.ts'], bundle: true, format: 'iife', target: ['safari17'],
   outfile: 'web/dist/viewer.js', sourcemap: true, minify, legalComments: 'none', metafile: true,
 });
+const tasksBuild = await build({
+  entryPoints: ['web/src/tasks/main.ts'], bundle: true, format: 'iife', target: ['safari17'],
+  outfile: 'web/dist/tasks.js', sourcemap: true, minify, legalComments: 'none', metafile: true,
+});
 await copyFile('web/index.html', 'web/dist/index.html');
 await copyFile('web/viewer.html', 'web/dist/viewer.html');
+await copyFile('web/tasks.html', 'web/dist/tasks.html');
 await copyFile('web/src/theme-catalog.json', 'web/dist/theme-catalog.json');
 await buildBundledFonts();
+const taskBrandOutput = 'web/dist/tasks-brand';
+await rm(taskBrandOutput, { recursive: true, force: true });
+await mkdir(taskBrandOutput, { recursive: true });
+for (const file of (await readdir('assets/tasks-brand')).filter(name => name.endsWith('.svg'))) {
+  await copyFile(path.join('assets/tasks-brand', file), path.join(taskBrandOutput, file));
+}
 
 // Generate notices from the actual dependency graph, not a hand-maintained subset.
 const notices = 'web/dist/third-party';
@@ -81,7 +92,7 @@ for (const [source, name] of [
 await cp('vendor/agent-paint/licenses', path.join(notices, 'palette-licenses'), { recursive: true });
 
 const packages = new Map();
-for (const input of [...Object.keys(notesBuild.metafile.inputs), ...Object.keys(viewerBuild.metafile.inputs)]) {
+for (const input of [...Object.keys(notesBuild.metafile.inputs), ...Object.keys(viewerBuild.metafile.inputs), ...Object.keys(tasksBuild.metafile.inputs)]) {
   if (!input.startsWith('node_modules/')) continue;
   let directory = path.dirname(path.resolve(input));
   while (directory !== path.dirname(directory)) {

@@ -61,6 +61,7 @@ check_bundle_contract() {
 check_dependency_boundary
 check_bundle_contract
 CORE_SOURCES=(
+  "$ROOT/tasks/native/TasksHotkeyPolicy.swift"
   "$ROOT/tasks/native/TasksContracts.swift"
   "$ROOT/tasks/native/TasksStorage.swift"
   "$ROOT/tasks/native/TodoistAdapter.swift"
@@ -76,6 +77,7 @@ swiftc -swift-version 5 -target "$TARGET" -Onone -gnone -parse-as-library \
 
 if [[ "$MODE" == "--webkit-smoke" ]]; then
   APP_SOURCES=(
+    "$ROOT/tasks/native/TasksHotkeyPolicy.swift"
     "$ROOT/tasks/native/TasksContracts.swift"
     "$ROOT/tasks/native/TasksStorage.swift"
     "$ROOT/tasks/native/TasksApplication.swift"

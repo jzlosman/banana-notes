@@ -1,8 +1,10 @@
 import type {
   CalendarAppointment, CalendarAuthorization, CalendarBlockDraft, CalendarBlockReceipt, CalendarPort, CaptureProject,
-  CapturedTask, Clock, IdentitySource, PlanningCalendar, StoredTasks, TasksPorts, TasksPreferences,
-  TasksPreferencesPort, TasksWindowEvent, TasksWindowPort, TaskStore, TodoistConnection, TodoistPort, TodoistReference,
+  CapturedTask, Clock, IdentitySource, PlanningCalendar, StoredTasks, TasksHotkeyError, TasksHotkeyPreferencesPort,
+  TasksHotkeyState, TasksPorts, TasksPreferences, TasksPreferencesPort, TasksWindowEvent, TasksWindowPort, TaskStore,
+  TodoistConnection, TodoistPort, TodoistReference,
 } from '../application/ports';
+import { HOTKEY_MODIFIERS, type RecordedShortcut } from '../../domain/hotkey';
 import { decodeTaskDocument, normalizeNotes, normalizeTags, normalizeTitle } from '../domain/model';
 import { RandomTaskIdentity, SystemTasksClock } from './effects';
 import { TASKS_BRIDGE_NAME, TASKS_EVENT_NAME, type NativeTasksMessage } from './native-contract';
@@ -45,6 +47,38 @@ function decodeCaptured(value: unknown): CapturedTask[] {
     return { source: { accountID: source.accountID, projectID: source.projectID, taskID: source.taskID }, title: normalizeTitle(raw.title)!,
       notes: normalizeNotes(raw.notes)!, tags: normalizeTags(raw.tags)!, priority: raw.priority as CapturedTask['priority'], createdAt: raw.createdAt as number | null };
   });
+}
+const TASKS_HOTKEY_ERRORS: readonly TasksHotkeyError[] = [
+  'registration-unavailable', 'registration-failed', 'verification-profile',
+];
+function validHotkeyShortcut(value: unknown): value is RecordedShortcut {
+  const shortcut = record(value);
+  const modifiersMask = HOTKEY_MODIFIERS.command | HOTKEY_MODIFIERS.shift | HOTKEY_MODIFIERS.option | HOTKEY_MODIFIERS.control;
+  const requiredMask = HOTKEY_MODIFIERS.command | HOTKEY_MODIFIERS.option | HOTKEY_MODIFIERS.control;
+  return !!shortcut && exactKeys(shortcut, ['keyCode', 'modifiers']) && Number.isInteger(shortcut.keyCode) &&
+    (shortcut.keyCode as number) >= 0 && (shortcut.keyCode as number) <= 127 && Number.isInteger(shortcut.modifiers) &&
+    (shortcut.modifiers as number) >= 0 && (shortcut.modifiers as number) <= 0xffff_ffff &&
+    (((shortcut.modifiers as number) & ~modifiersMask) === 0) && (((shortcut.modifiers as number) & requiredMask) !== 0);
+}
+function hotkeyAvailabilityIsCoherent(state: Record<string, unknown>): boolean {
+  if (typeof state.registered !== 'boolean' || typeof state.available !== 'boolean') return false;
+  if (state.registered) return state.available && state.error !== 'verification-profile';
+  if (state.error === 'registration-failed') return state.available;
+  return !state.available;
+}
+function decodeHotkeyState(value: unknown): TasksHotkeyState {
+  const state = record(value);
+  const keys = ['keyCode', 'modifiers', 'display', 'registered', 'available', 'error'];
+  if (!state || !exactKeys(state, keys) || !validHotkeyShortcut({ keyCode: state.keyCode, modifiers: state.modifiers }) ||
+      typeof state.display !== 'string' || state.display.length === 0 || state.display.length > 32 ||
+      [...state.display].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127) ||
+      typeof state.registered !== 'boolean' || typeof state.available !== 'boolean' ||
+      !(state.error === null || (typeof state.error === 'string' && TASKS_HOTKEY_ERRORS.includes(state.error as TasksHotkeyError))) ||
+      !hotkeyAvailabilityIsCoherent(state)) {
+    throw new Error('The native Tasks shortcut response was invalid.');
+  }
+  return { keyCode: state.keyCode as number, modifiers: state.modifiers as number, display: state.display,
+    registered: state.registered, available: state.available, error: state.error as TasksHotkeyError | null };
 }
 function decodePreferences(value: unknown): TasksPreferences {
   const prefs = record(value);
@@ -112,6 +146,7 @@ export class NativeTasksAdapter implements TasksPorts {
   readonly identities: IdentitySource;
   readonly store: TaskStore;
   readonly preferences: TasksPreferencesPort;
+  readonly hotkeyPreferences: TasksHotkeyPreferencesPort;
   readonly todoist: TodoistPort;
   readonly calendar: CalendarPort;
   readonly window: TasksWindowPort;
@@ -144,6 +179,19 @@ export class NativeTasksAdapter implements TasksPorts {
     this.preferences = {
       load: async () => decodePreferences(await this.post({ action: 'loadPreferences' })),
       save: async preferences => decodePreferences(await this.post({ action: 'savePreferences', preferences: decodePreferences(preferences) })),
+    };
+    this.hotkeyPreferences = {
+      load: async () => decodeHotkeyState(await this.post({ action: 'hotkeyPreferences' })),
+      set: async shortcut => {
+        if (!validHotkeyShortcut(shortcut)) throw new Error('The Tasks shortcut is invalid.');
+        return decodeHotkeyState(await this.post({ action: 'hotkeyPreferences', shortcut }));
+      },
+      reset: async () => decodeHotkeyState(await this.post({ action: 'resetHotkeyPreferences' })),
+      setRecording: async recording => {
+        if (typeof recording !== 'boolean') throw new Error('The Tasks shortcut recording state is invalid.');
+        const result = await this.post({ action: 'hotkeyPreferences', recording });
+        if (result !== null) throw new Error('The native Tasks shortcut recording response was invalid.');
+      },
     };
     this.todoist = {
       connection: async () => decodeConnection(await this.post({ action: 'todoistConnection' })),

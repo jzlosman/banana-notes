@@ -12,6 +12,9 @@ if (!root) throw new Error('Banana Tasks could not find its application surface.
 const native = Boolean((window as Window & { webkit?: { messageHandlers?: Record<string, unknown> } }).webkit?.messageHandlers?.[TASKS_BRIDGE_NAME]);
 document.documentElement.dataset.native = String(native);
 const ports = native ? new NativeTasksAdapter() : new PreviewTasksAdapter();
+const hotkeyPreferences = 'hotkeyPreferences' in ports ? ports.hotkeyPreferences : undefined;
 const controller = new TasksController(ports);
-const app = mountTasksApp(root, controller, { window: ports.window, fontState: loadTasksFontState() });
+const app = mountTasksApp(root, controller, {
+  window: ports.window, fontState: loadTasksFontState(), hotkeyPreferences,
+});
 window.addEventListener('pagehide', () => { app.dispose(); controller.dispose(); }, { once: true });

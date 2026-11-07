@@ -1,12 +1,25 @@
 import './settings.css';
 import { SYSTEM_THEME, resolveThemeID, themes, themeByID } from '../../domain/themes';
+import { shortcutFromKeyEvent, type RecordedShortcut } from '../../domain/hotkey';
 import { installThemeGridKeyboard, updateThemeGridTabStop } from '../../ui/theme-grid';
 import type { TasksFacade, TasksState, CommandOutcome } from '../application/controller';
-import type { CaptureProject, TasksPreferences } from '../application/ports';
+import type { CaptureProject, TasksHotkeyState, TasksPreferences } from '../application/ports';
 import type { MountedTasksScreen, TasksScreenOptions } from './contracts';
 
 type SettingsTab = 'General' | 'Themes' | 'Connections' | 'Sound & motion';
 type ScreenNotice = { message: string; kind: 'status' | 'error' };
+type HotkeyRecorderIssue = 'recording' | 'confirmation' | 'modifier-required' | 'unmapped-key';
+type HotkeyCaptureIssue = Extract<HotkeyRecorderIssue, 'modifier-required' | 'unmapped-key'>;
+type HotkeyRecorderPhase =
+  | { kind: 'loading' }
+  | { kind: 'load-failed' }
+  | { kind: 'ready'; confirmed: TasksHotkeyState; issue?: Extract<HotkeyRecorderIssue, 'recording' | 'confirmation'> }
+  | { kind: 'capture-start'; confirmed: TasksHotkeyState; generation: number }
+  | { kind: 'recording'; confirmed: TasksHotkeyState; generation: number; captureIssue?: HotkeyCaptureIssue }
+  | { kind: 'end-cancel'; confirmed: TasksHotkeyState; generation: number; issue?: 'recording' }
+  | { kind: 'end-save'; confirmed: TasksHotkeyState; generation: number; shortcut: RecordedShortcut }
+  | { kind: 'applying'; confirmed: TasksHotkeyState; generation: number; shortcut: RecordedShortcut }
+  | { kind: 'resetting'; confirmed: TasksHotkeyState; generation: number };
 
 const tabs: readonly SettingsTab[] = ['General', 'Themes', 'Connections', 'Sound & motion'];
 let instanceSequence = 0;
@@ -117,7 +130,7 @@ function installSystemThemeKeyboard(group: HTMLElement, grid: HTMLElement): () =
 
 export function mountTasksSettings(root: HTMLElement, facade: TasksFacade, options: TasksScreenOptions): MountedTasksScreen {
   let state = facade.getState();
-  let activeTab: SettingsTab = 'Themes';
+  let activeTab: SettingsTab = 'General';
   let notice: ScreenNotice | null = null;
   let tokenDraft = '';
   let showToken = false;
@@ -127,6 +140,9 @@ export function mountTasksSettings(root: HTMLElement, facade: TasksFacade, optio
   const tabsID = `tasks-settings-tabs-${instanceID}`;
   const panelID = `tasks-settings-panel-${instanceID}`;
   let removeThemeKeyboard: (() => void) | null = null;
+  let rendering = false;
+  let hotkeyPhase: HotkeyRecorderPhase = options.hotkeyPreferences ? { kind: 'loading' } : { kind: 'load-failed' };
+  let recorderGeneration = 0;
 
   function preferenceReady(): boolean {
     return isReady(state) && !state.preferencesError;
@@ -146,11 +162,74 @@ export function mountTasksSettings(root: HTMLElement, facade: TasksFacade, optio
     return `<div class="tasks-settings-notice is-${current.kind}" role="${role}" aria-live="${current.kind === 'error' ? 'assertive' : 'polite'}">${escapeHTML(current.message)}</div>`;
   }
 
+  function confirmedHotkey(): TasksHotkeyState | null {
+    return hotkeyPhase.kind === 'loading' || hotkeyPhase.kind === 'load-failed' ? null : hotkeyPhase.confirmed;
+  }
+
+  function hotkeyIssue(): HotkeyRecorderIssue | undefined {
+    if (hotkeyPhase.kind === 'recording') return hotkeyPhase.captureIssue;
+    return hotkeyPhase.kind === 'ready' || hotkeyPhase.kind === 'end-cancel' ? hotkeyPhase.issue : undefined;
+  }
+
+  function hotkeyErrorMessage(): string | null {
+    if (hotkeyPhase.kind === 'load-failed') return 'Could not load the global shortcut. Try again later.';
+    if (hotkeyIssue() === 'modifier-required') return 'Include at least one of Command, Control, or Option.';
+    if (hotkeyIssue() === 'unmapped-key') return 'That key is not supported. Try a letter, number, Space, Return, Tab, arrow, function, or punctuation key.';
+    if (hotkeyIssue() === 'recording') return 'The shortcut recorder could not be started or stopped. Try again.';
+    if (hotkeyIssue() === 'confirmation') return 'Could not confirm the shortcut change. Reopen Settings to check it.';
+    const confirmed = confirmedHotkey();
+    switch (confirmed?.error) {
+      case 'verification-profile': return 'Global shortcuts are off in this verification build.';
+      case 'registration-unavailable': case 'registration-failed':
+        return confirmed.registered
+          ? 'The shortcut could not be registered. Your previous shortcut remains active.'
+          : 'The shortcut could not be registered. No global shortcut is active.';
+      default: return null;
+    }
+  }
+
+  function hotkeySettings(): string {
+    if (!options.hotkeyPreferences) return '';
+    const confirmed = confirmedHotkey();
+    const recording = hotkeyPhase.kind === 'recording';
+    const loading = hotkeyPhase.kind === 'loading';
+    const starting = hotkeyPhase.kind === 'capture-start';
+    const saving = hotkeyPhase.kind === 'end-save' || hotkeyPhase.kind === 'applying';
+    const resetting = hotkeyPhase.kind === 'resetting';
+    const busy = starting || hotkeyPhase.kind === 'end-cancel' || saving || resetting;
+    const unavailable = !confirmed || !confirmed.available || confirmed.error === 'verification-profile' || hotkeyIssue() === 'confirmation';
+    const display = recording ? 'Press a shortcut…'
+      : saving || resetting ? 'Saving…'
+        : loading ? 'Loading…' : confirmed?.display ?? 'Unavailable';
+    const feedbackID = `tasks-hotkey-feedback-${instanceID}`;
+    const error = hotkeyErrorMessage();
+    const feedback = error
+      ? `<p id="${feedbackID}" class="tasks-hotkey-feedback tasks-hotkey-error" role="alert" aria-live="assertive">${escapeHTML(error)}</p>`
+      : confirmed && !confirmed.available
+        ? `<p id="${feedbackID}" class="tasks-hotkey-feedback tasks-hotkey-status" role="status">Global shortcuts are unavailable here.</p>` : '';
+    const disabled = unavailable || busy || recording;
+    const describedBy = error || (confirmed && !confirmed.available) ? ` aria-describedby="${feedbackID}"` : '';
+    const accessibleShortcut = hotkeyIssue() === 'confirmation' ? 'Last confirmed shortcut' : 'Current shortcut';
+    const buttonLabel = recording ? 'Press a shortcut, or Escape to cancel'
+      : `Record global shortcut${confirmed ? `. ${accessibleShortcut}: ${confirmed.display}` : ''}`;
+    return `<section class="tasks-settings-section tasks-hotkey-section">
+      <div class="tasks-setting-row tasks-hotkey-row">
+        <span class="tasks-setting-copy"><span class="tasks-setting-title">Global shortcut</span><span class="tasks-setting-hint">Show or hide Banana Tasks from any app.</span></span>
+        <div class="tasks-hotkey-controls">
+          <button class="tasks-hotkey-chord" type="button" data-action="record-hotkey" data-focus-key="hotkey-record" data-recording="${recording}" aria-label="${escapeHTML(buttonLabel)}" aria-pressed="${recording}"${busy ? ' aria-disabled="true"' : unavailable ? ' disabled' : ''}${busy ? ' aria-busy="true"' : ''}${describedBy}>${escapeHTML(display)}</button>
+          <button class="tasks-text-button tasks-hotkey-reset" type="button" data-action="reset-hotkey" data-focus-key="hotkey-reset" aria-label="Reset global shortcut"${disabled ? ' disabled' : ''}${busy ? ' aria-busy="true"' : ''}${describedBy}>Reset</button>
+        </div>
+      </div>
+      ${feedback}
+    </section>`;
+  }
+
   function generalPanel(ready: Extract<TasksState, { kind: 'ready' }>): string {
     const preferences = ready.preferences;
     const pinDisabled = !preferenceReady() || pending.has('preference:pinned');
     const ripeningDisabled = !preferenceReady() || pending.has('preference:ripeningSpeed');
     return `<div class="tasks-settings-scroll tasks-general-panel quiet-scroll" data-scroll-key="general">
+      ${hotkeySettings()}
       <section class="tasks-settings-section">
         <label class="tasks-setting-row" for="tasks-pin-${instanceID}">
           <span class="tasks-setting-copy"><span class="tasks-setting-title">Pin window</span><span class="tasks-setting-hint">Keep Banana Tasks visible above other windows.</span></span>
@@ -307,7 +386,7 @@ export function mountTasksSettings(root: HTMLElement, facade: TasksFacade, optio
     const footerText = footer[1] ? `<span class="tasks-settings-footer-detail">${footer[1]}</span>` : '';
     return `<div class="tasks-settings" data-motion-enabled="${ready?.preferences.motionEnabled ?? true}">
       <header class="tasks-settings-toolbar">${logo}<span class="tasks-toolbar-spacer" data-tasks-drag-region="true" aria-hidden="true"></span><button class="tasks-done-button" type="button" data-action="close" data-focus-key="close">Done</button></header>
-      <div class="tasks-settings-title"><div><h1 id="${panelID}-title">${title}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div></div>
+      <div class="tasks-settings-title${activeTab === 'General' ? ' tasks-settings-title-general' : ''}"><div><h1 id="${panelID}-title">${title}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div></div>
       <nav id="${tabsID}" class="tasks-settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation="horizontal">
         ${tabs.map((tab, index) => `<button id="${panelID}-tab-${index}" class="tasks-settings-tab" type="button" role="tab" aria-selected="${activeTab === tab}" aria-controls="${panelID}" tabindex="${activeTab === tab ? 0 : -1}" data-tab="${tab}" data-focus-key="tab:${tab}">${tab}</button>`).join('')}
       </nav>
@@ -318,44 +397,164 @@ export function mountTasksSettings(root: HTMLElement, facade: TasksFacade, optio
 
   function render(): void {
     if (disposed) return;
-    const document = root.ownerDocument;
-    const active = document.activeElement as HTMLElement | null;
-    const focusKey = active && root.contains(active) ? active.dataset.focusKey : undefined;
-    const selection = active && 'selectionStart' in active && 'selectionEnd' in active
-      ? [(active as HTMLInputElement).selectionStart, (active as HTMLInputElement).selectionEnd] as const : null;
-    const scrollPositions = new Map<string, number>();
-    root.querySelectorAll<HTMLElement>('[data-scroll-key]').forEach(element => {
-      if (element.dataset.scrollKey) scrollPositions.set(element.dataset.scrollKey, element.scrollTop);
-    });
-    removeThemeKeyboard?.(); removeThemeKeyboard = null;
-    root.innerHTML = panelContent();
-    const tokenInput = root.querySelector<HTMLInputElement>('[data-token-field]');
-    if (tokenInput) tokenInput.value = tokenDraft;
-    root.querySelectorAll<HTMLElement>('[data-scroll-key]').forEach(element => {
-      const key = element.dataset.scrollKey;
-      if (key && scrollPositions.has(key)) element.scrollTop = scrollPositions.get(key)!;
-    });
-    const themeGroup = root.querySelector<HTMLElement>('.tasks-theme-panel');
-    const grid = root.querySelector<HTMLElement>('.tasks-theme-grid');
-    if (themeGroup && grid && isReady(state)) {
-      const selectedID = state.preferences.appearanceTheme === null ? SYSTEM_THEME : resolveThemeID(state.preferences.appearanceTheme);
-      updateThemeGridTabStop(themeGroup, selectedID);
-      const removeGridKeyboard = installThemeGridKeyboard(grid, () => 4);
-      const removeSystemKeyboard = installSystemThemeKeyboard(themeGroup, grid);
-      removeThemeKeyboard = () => { removeGridKeyboard(); removeSystemKeyboard(); };
-    }
-    if (focusKey) {
-      const nextFocus = [...root.querySelectorAll<HTMLElement>('[data-focus-key]')].find(element => element.dataset.focusKey === focusKey);
-      if (nextFocus && !nextFocus.hasAttribute('disabled')) {
-        try { nextFocus.focus({ preventScroll: true }); } catch { nextFocus.focus(); }
-        const view = document.defaultView;
-        if (selection && view && nextFocus instanceof view.HTMLInputElement) {
-          const input = nextFocus;
-          if (input.type === 'password' || input.type === 'text') {
-            try { input.setSelectionRange(selection[0], selection[1]); } catch { /* The control may not support a selection range. */ }
+    rendering = true;
+    try {
+      const document = root.ownerDocument;
+      const active = document.activeElement as HTMLElement | null;
+      const focusKey = active && root.contains(active) ? active.dataset.focusKey : undefined;
+      const selection = active && 'selectionStart' in active && 'selectionEnd' in active
+        ? [(active as HTMLInputElement).selectionStart, (active as HTMLInputElement).selectionEnd] as const : null;
+      const scrollPositions = new Map<string, number>();
+      root.querySelectorAll<HTMLElement>('[data-scroll-key]').forEach(element => {
+        if (element.dataset.scrollKey) scrollPositions.set(element.dataset.scrollKey, element.scrollTop);
+      });
+      removeThemeKeyboard?.(); removeThemeKeyboard = null;
+      root.innerHTML = panelContent();
+      const tokenInput = root.querySelector<HTMLInputElement>('[data-token-field]');
+      if (tokenInput) tokenInput.value = tokenDraft;
+      root.querySelectorAll<HTMLElement>('[data-scroll-key]').forEach(element => {
+        const key = element.dataset.scrollKey;
+        if (key && scrollPositions.has(key)) element.scrollTop = scrollPositions.get(key)!;
+      });
+      const themeGroup = root.querySelector<HTMLElement>('.tasks-theme-panel');
+      const grid = root.querySelector<HTMLElement>('.tasks-theme-grid');
+      if (themeGroup && grid && isReady(state)) {
+        const selectedID = state.preferences.appearanceTheme === null ? SYSTEM_THEME : resolveThemeID(state.preferences.appearanceTheme);
+        updateThemeGridTabStop(themeGroup, selectedID);
+        const removeGridKeyboard = installThemeGridKeyboard(grid, () => 4);
+        const removeSystemKeyboard = installSystemThemeKeyboard(themeGroup, grid);
+        removeThemeKeyboard = () => { removeGridKeyboard(); removeSystemKeyboard(); };
+      }
+      if (focusKey) {
+        const nextFocus = [...root.querySelectorAll<HTMLElement>('[data-focus-key]')].find(element => element.dataset.focusKey === focusKey);
+        if (nextFocus && !nextFocus.hasAttribute('disabled')) {
+          try { nextFocus.focus({ preventScroll: true }); } catch { nextFocus.focus(); }
+          const view = document.defaultView;
+          if (selection && view && nextFocus instanceof view.HTMLInputElement) {
+            const input = nextFocus;
+            if (input.type === 'password' || input.type === 'text') {
+              try { input.setSelectionRange(selection[0], selection[1]); } catch { /* The control may not support a selection range. */ }
+            }
           }
         }
       }
+    } finally {
+      rendering = false;
+    }
+  }
+
+  function requestRecording(recording: boolean): Promise<void> {
+    const port = options.hotkeyPreferences;
+    if (!port) return Promise.resolve();
+    try { return port.setRecording(recording); }
+    catch (error) { return Promise.reject(error); }
+  }
+
+  function isCapturePhase(phase: HotkeyRecorderPhase = hotkeyPhase): phase is Extract<HotkeyRecorderPhase, { kind: 'capture-start' | 'recording' }> {
+    return phase.kind === 'capture-start' || phase.kind === 'recording';
+  }
+
+  async function startHotkeyRecording(): Promise<void> {
+    const port = options.hotkeyPreferences;
+    const current = hotkeyPhase;
+    if (!port || current.kind !== 'ready' || current.issue === 'confirmation' || !current.confirmed.available || current.confirmed.error === 'verification-profile') return;
+    const generation = ++recorderGeneration;
+    const confirmed = current.confirmed;
+    hotkeyPhase = { kind: 'capture-start', confirmed, generation };
+    render();
+    root.querySelector<HTMLButtonElement>('[data-action="record-hotkey"]')?.focus({ preventScroll: true });
+    try {
+      await requestRecording(true);
+    } catch {
+      if (!disposed && hotkeyPhase.kind === 'capture-start' && hotkeyPhase.generation === generation) {
+        void endHotkeyRecording({ kind: 'cancel', issue: 'recording' });
+      }
+      return;
+    }
+    if (disposed || hotkeyPhase.kind !== 'capture-start' || hotkeyPhase.generation !== generation) return;
+    hotkeyPhase = { kind: 'recording', confirmed, generation };
+    render();
+  }
+
+  async function applyHotkeyShortcut(generation: number, confirmed: TasksHotkeyState, shortcut: RecordedShortcut): Promise<void> {
+    const port = options.hotkeyPreferences;
+    if (!port) return;
+    try {
+      const next = await port.set(shortcut);
+      if (disposed || hotkeyPhase.kind !== 'applying' || hotkeyPhase.generation !== generation) return;
+      hotkeyPhase = { kind: 'ready', confirmed: next };
+    } catch {
+      if (disposed || hotkeyPhase.kind !== 'applying' || hotkeyPhase.generation !== generation) return;
+      hotkeyPhase = { kind: 'ready', confirmed, issue: 'confirmation' };
+    }
+    render();
+  }
+
+  async function endHotkeyRecording(intent: { kind: 'cancel'; issue?: 'recording' } | { kind: 'save'; shortcut: RecordedShortcut }): Promise<void> {
+    const current = hotkeyPhase;
+    if (!isCapturePhase(current)) return;
+    const port = options.hotkeyPreferences;
+    if (!port) return;
+    const generation = ++recorderGeneration;
+    const confirmed = current.confirmed;
+    hotkeyPhase = intent.kind === 'cancel'
+      ? { kind: 'end-cancel', confirmed, generation, issue: intent.issue }
+      : { kind: 'end-save', confirmed, generation, shortcut: intent.shortcut };
+    const release = requestRecording(false);
+    render();
+    try {
+      await release;
+    } catch {
+      if (!disposed && recorderGeneration === generation &&
+          (hotkeyPhase.kind === 'end-cancel' || hotkeyPhase.kind === 'end-save') && hotkeyPhase.generation === generation) {
+        hotkeyPhase = { kind: 'ready', confirmed, issue: 'recording' };
+        render();
+      }
+      return;
+    }
+    if (disposed || recorderGeneration !== generation) return;
+    if (intent.kind === 'cancel') {
+      if (hotkeyPhase.kind === 'end-cancel' && hotkeyPhase.generation === generation) {
+        hotkeyPhase = { kind: 'ready', confirmed, issue: intent.issue };
+        render();
+      }
+      return;
+    }
+    if (hotkeyPhase.kind !== 'end-save' || hotkeyPhase.generation !== generation) return;
+    hotkeyPhase = { kind: 'applying', confirmed, generation, shortcut: intent.shortcut };
+    render();
+    await applyHotkeyShortcut(generation, confirmed, intent.shortcut);
+  }
+
+  async function resetHotkey(): Promise<void> {
+    const port = options.hotkeyPreferences;
+    const current = hotkeyPhase;
+    if (!port || current.kind !== 'ready' || current.issue === 'confirmation' || !current.confirmed.available || current.confirmed.error === 'verification-profile') return;
+    const generation = ++recorderGeneration;
+    const confirmed = current.confirmed;
+    hotkeyPhase = { kind: 'resetting', confirmed, generation };
+    render();
+    try {
+      const next = await port.reset();
+      if (disposed || hotkeyPhase.kind !== 'resetting' || hotkeyPhase.generation !== generation) return;
+      hotkeyPhase = { kind: 'ready', confirmed: next };
+    } catch {
+      if (disposed || hotkeyPhase.kind !== 'resetting' || hotkeyPhase.generation !== generation) return;
+      hotkeyPhase = { kind: 'ready', confirmed, issue: 'confirmation' };
+    }
+    render();
+  }
+
+  async function loadHotkeyPreferences(): Promise<void> {
+    const port = options.hotkeyPreferences;
+    if (!port) return;
+    try {
+      const confirmed = await port.load();
+      if (!disposed) hotkeyPhase = { kind: 'ready', confirmed };
+    } catch {
+      if (!disposed) hotkeyPhase = { kind: 'load-failed' };
+    } finally {
+      if (!disposed) render();
     }
   }
 
@@ -397,6 +596,12 @@ export function mountTasksSettings(root: HTMLElement, facade: TasksFacade, optio
       void savePreference('soundEnabled', !(isReady(state) && state.preferences.soundEnabled)); return;
     }
     const action = button.dataset.action;
+    if (action === 'record-hotkey') {
+      if (hotkeyPhase.kind === 'recording') void endHotkeyRecording({ kind: 'cancel' });
+      else void startHotkeyRecording();
+      return;
+    }
+    if (action === 'reset-hotkey') { void resetHotkey(); return; }
     if (action === 'close') { options.onClose(); return; }
     const tab = button.dataset.tab as SettingsTab | undefined;
     if (tab && tabs.includes(tab)) { activeTab = tab; render(); return; }
@@ -496,6 +701,53 @@ export function mountTasksSettings(root: HTMLElement, facade: TasksFacade, optio
     }
   }
 
+  function handleHotkeyKeyDown(event: KeyboardEvent): void {
+    const phase = hotkeyPhase;
+    if (!isCapturePhase(phase)) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      void endHotkeyRecording({ kind: 'cancel' });
+      return;
+    }
+    if (phase.kind !== 'recording' || event.isComposing) return;
+    if (['Meta', 'Control', 'Alt', 'Shift'].includes(event.key) || event.repeat) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const result = shortcutFromKeyEvent({
+      code: event.code, metaKey: event.metaKey, shiftKey: event.shiftKey,
+      altKey: event.altKey, ctrlKey: event.ctrlKey,
+    });
+    if (result.ok) {
+      void endHotkeyRecording({ kind: 'save', shortcut: result.shortcut });
+    } else {
+      hotkeyPhase = { ...phase, captureIssue: result.reason };
+      render();
+    }
+  }
+
+  function cancelHotkeyCapture(): void {
+    if (isCapturePhase()) void endHotkeyRecording({ kind: 'cancel' });
+  }
+
+  function handleHotkeyFocusOut(event: FocusEvent): void {
+    if (rendering || !isCapturePhase()) return;
+    const view = root.ownerDocument.defaultView;
+    if (!view || !(event.target instanceof view.Element) || !event.target.closest('[data-action="record-hotkey"]')) return;
+    const next = event.relatedTarget;
+    if (next instanceof view.Element && next.closest('[data-action="record-hotkey"]')) return;
+    cancelHotkeyCapture();
+  }
+
+  function handleWindowBlur(): void { cancelHotkeyCapture(); }
+
+  function handleVisibilityChange(): void {
+    if (root.ownerDocument.visibilityState === 'hidden') cancelHotkeyCapture();
+  }
+
   function handleKeyDown(event: KeyboardEvent): void {
     const view = root.ownerDocument.defaultView;
     const target = event.target;
@@ -549,24 +801,37 @@ export function mountTasksSettings(root: HTMLElement, facade: TasksFacade, optio
   root.addEventListener('submit', handleSubmit);
   root.addEventListener('input', handleInput);
   root.addEventListener('change', handleChange);
+  root.addEventListener('keydown', handleHotkeyKeyDown, true);
+  root.addEventListener('focusout', handleHotkeyFocusOut, true);
   root.addEventListener('keydown', handleKeyDown);
   root.addEventListener('keydown', handleRadioGroupKeyDown);
   root.addEventListener('animationend', handleAnimationEnd);
+  root.ownerDocument.defaultView?.addEventListener('blur', handleWindowBlur);
+  root.ownerDocument.addEventListener('visibilitychange', handleVisibilityChange);
   render();
+  void loadHotkeyPreferences();
 
   return {
+    onWindowBlur(): void { cancelHotkeyCapture(); },
     dispose(): void {
       if (disposed) return;
+      const releaseCapture = isCapturePhase();
       disposed = true;
+      recorderGeneration++;
+      if (releaseCapture) void requestRecording(false).catch(() => undefined);
       unsubscribe();
       removeThemeKeyboard?.(); removeThemeKeyboard = null;
       root.removeEventListener('click', handleClick);
       root.removeEventListener('submit', handleSubmit);
       root.removeEventListener('input', handleInput);
       root.removeEventListener('change', handleChange);
+      root.removeEventListener('keydown', handleHotkeyKeyDown, true);
+      root.removeEventListener('focusout', handleHotkeyFocusOut, true);
       root.removeEventListener('keydown', handleKeyDown);
       root.removeEventListener('keydown', handleRadioGroupKeyDown);
       root.removeEventListener('animationend', handleAnimationEnd);
+      root.ownerDocument.defaultView?.removeEventListener('blur', handleWindowBlur);
+      root.ownerDocument.removeEventListener('visibilitychange', handleVisibilityChange);
       tokenDraft = '';
       root.replaceChildren();
     },

@@ -89,6 +89,7 @@
   min-height: 72px;
   padding: 15px 24px 10px;
 }
+.tasks-settings-title-general { flex-basis: 51px; min-height: 51px; }
 .tasks-settings-title h1 {
   margin: 0;
   color: var(--ink);
@@ -333,6 +334,39 @@
 .tasks-setting-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 3px; min-width: 0; }
 .tasks-setting-title { color: var(--ink); font-size: 13px; font-weight: 500; line-height: 16px; }
 .tasks-setting-hint { display: block; margin: 0; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 16px; }
+.tasks-hotkey-row { align-items: center; gap: 20px; }
+.tasks-hotkey-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
+.tasks-hotkey-chord {
+  display: inline-flex;
+  min-width: 106px;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--chrome);
+  color: var(--ink);
+  box-shadow: inset 0 -1px color-mix(in srgb, var(--ink) 10%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  font-size: 12px !important;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.tasks-hotkey-chord:hover:not(:disabled):not([aria-disabled='true']) { background: var(--hover); }
+.tasks-hotkey-controls [aria-busy='true'] { opacity: .65; }
+.tasks-hotkey-chord[data-recording='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tasks-hotkey-chord:focus-visible { outline-offset: 2px; }
+.tasks-hotkey-controls .tasks-hotkey-reset { margin-left: 0; }
+.tasks-hotkey-feedback { margin: 2px 0 0; font-size: 12px; line-height: 16px; }
+.tasks-hotkey-error { color: var(--danger); }
+.tasks-hotkey-status { color: var(--muted); }
+.tasks-hotkey-section .tasks-setting-row { cursor: default; }
 .tasks-setting-checkbox { flex: 0 0 16px; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
 .tasks-ripening-section { margin-top: 18px; }
 .tasks-ripening-section > .tasks-setting-copy { margin-bottom: 12px; }
@@ -612,11 +646,18 @@
   .tasks-theme-panel { padding-inline: 18px; }
   .tasks-general-panel,
   .tasks-connections-panel { padding-inline: 18px; }
+  .tasks-hotkey-row { gap: 8px; }
+  .tasks-hotkey-controls { gap: 8px; }
   .tasks-sound-section { padding-inline: 18px; }
   .tasks-sound-section + .tasks-sound-section { padding-inline: 18px; }
   .tasks-sound-row { gap: 10px; }
   .tasks-preview-sound { padding-inline: 7px; }
   .tasks-settings-footer { padding-inline: 14px; }
+}
+@media (max-width: 350px) {
+  .tasks-hotkey-row { flex-wrap: wrap; }
+  .tasks-hotkey-row .tasks-setting-copy { flex-basis: 100%; }
+  .tasks-hotkey-controls { margin-left: 0; }
 }
 @media (max-height: 560px) {
   .tasks-settings-title { flex-basis: 64px; min-height: 64px; padding-top: 10px; }

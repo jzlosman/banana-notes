@@ -151,6 +151,7 @@ test('theme choices include all 32 palettes plus system and persist independentl
   const { dom, root } = domRoot();
   const screen = mount(root, app.controller);
   try {
+    root.querySelector<HTMLButtonElement>('[data-tab="Themes"]')!.click();
     const radios = [...root.querySelectorAll<HTMLButtonElement>('[role="radio"][data-theme-id]')];
     const group = root.querySelector<HTMLElement>('.tasks-theme-panel');
     const grid = root.querySelector<HTMLElement>('.tasks-theme-grid');
@@ -184,6 +185,7 @@ test('theme radio grid supports keyboard selection and preserves its single tab 
   const { dom, root } = domRoot();
   const screen = mount(root, app.controller);
   try {
+    root.querySelector<HTMLButtonElement>('[data-tab="Themes"]')!.click();
     const system = root.querySelector<HTMLButtonElement>(`[data-theme-id="${SYSTEM_THEME}"]`)!;
     system.focus();
     system.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
@@ -309,6 +311,7 @@ test('failed preference save leaves the confirmed theme selected', async () => {
   const { dom, root } = domRoot();
   const screen = mount(root, app.controller);
   try {
+    root.querySelector<HTMLButtonElement>('[data-tab="Themes"]')!.click();
     root.querySelector<HTMLButtonElement>('[data-theme-id="banana-dark"]')!.click();
     await until(() => {
       const state = app.controller.getState();

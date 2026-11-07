@@ -14,7 +14,9 @@ open "build/Banana Tasks.app"
 
 The build is a universal Apple silicon/Intel app, locally ad-hoc signed. It is not a notarized public release. Tasks has its own bundle identity, version source, data directory, and preferences. Building it does not install or launch Banana Notes or Banana Viewer.
 
-Use **Control–Option–T** or the menu-bar icon to summon the floating window. Pin keeps it visible; otherwise it dismisses after focus leaves. Dismissal waits for pending changes to save. A failed save keeps the window open and explains the problem.
+Use the configured global shortcut or the menu-bar icon to summon the floating window. The default is **Control–Option–T**. Change it in **Settings → General → Global shortcut**: record a combination such as **Command–Shift–2**. Tasks saves its shortcut independently of Notes, so Notes can remain on **Command–Shift–1**. A conflicting shortcut does not replace the last working binding.
+
+Pin keeps the window visible; otherwise it dismisses after focus leaves. Dismissal waits for pending changes to save. A failed save keeps the window open and explains the problem.
 
 ## Age, effort, and attention
 
@@ -25,6 +27,8 @@ These are different measurements:
 - **Ripeness:** an attention signal based on priority and active time since progress. Higher-priority tasks ripen sooner. Waiting, snoozed, and archived intervals do not count, even after resuming. Progress cools attention without rewriting age.
 
 Tasks never expire. Complete one when it is finished, or compost it when you no longer want to do it. Compost is recoverable, not permanent deletion. Tags belong to individual tasks and can organize unrelated tasks into useful groups.
+
+The task tag picker reuses tags already present in local Tasks. Type to filter or select a suggestion instead of retyping it; new tags can still be entered. **Most used** counts tasks carrying each tag. **From recent tasks** uses the latest activity of tasks carrying a tag, not an invented last-tag-used timestamp. Completed tasks contribute to suggestions; composted tasks do not. The catalog is a local read model, not a separate tag database or an AI service.
 
 Appearance is independent of Banana Notes. The shared theme catalog remains available; motion and sound are optional, and sound starts off. System Reduce Motion is respected. There is no points requirement or streak penalty.
 

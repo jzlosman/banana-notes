@@ -7,6 +7,7 @@ struct TasksCoreSelfTest {
         try storageBoundaries()
         try profileBinding()
         try preferenceAndBridgeBoundaries()
+        try hotkeyPreferencesAndRegistrationPolicy()
         focusAndFlushTransitions()
         try await todoistIsolationAndPagination()
         try await todoistCredentialLifecycle()
@@ -206,8 +207,22 @@ struct TasksCoreSelfTest {
                                                                               "document": document]) {
             precondition(expected == revision)
         } else { preconditionFailure("valid storage commands decode into typed actions") }
+        if case .hotkeyPreferences = try TasksBridgeDecoder.decode(["action": "hotkeyPreferences"]) {} else { preconditionFailure() }
+        if case .resetHotkeyPreferences = try TasksBridgeDecoder.decode(["action": "resetHotkeyPreferences"]) {} else { preconditionFailure() }
+        let cmdShift2: [String: Any] = ["keyCode": 19, "modifiers": TasksHotkeyChord.command | TasksHotkeyChord.shift]
+        if case .setHotkey(let chord) = try TasksBridgeDecoder.decode(["action": "hotkeyPreferences", "shortcut": cmdShift2]) {
+            precondition(chord.display == "⇧⌘2")
+        } else { preconditionFailure("valid shortcut preferences decode into a typed command") }
+        if case .setHotkeyRecording(true) = try TasksBridgeDecoder.decode(["action": "hotkeyPreferences", "recording": true]) {} else { preconditionFailure() }
         let invalid: [[String: Any]] = [
             ["action": "unknown"],
+            ["action": "hotkeyPreferences", "shortcut": ["keyCode": 19, "modifiers": 768, "extra": true]],
+            ["action": "hotkeyPreferences", "shortcut": ["keyCode": true, "modifiers": 768]],
+            ["action": "hotkeyPreferences", "shortcut": ["keyCode": 19, "modifiers": 0]],
+            ["action": "hotkeyPreferences", "shortcut": ["keyCode": 19, "modifiers": 768.5]],
+            ["action": "hotkeyPreferences", "recording": 1],
+            ["action": "hotkeyPreferences", "recording": true, "shortcut": cmdShift2],
+            ["action": "resetHotkeyPreferences", "shortcut": cmdShift2],
             ["action": "loadTasks", "extra": true],
             ["action": "saveTasks", "expectedRevision": revision, "document": ["version": true, "tasks": []]],
             ["action": "saveTasks", "expectedRevision": "bad", "document": document],
@@ -221,6 +236,158 @@ struct TasksCoreSelfTest {
         for request in invalid { expectFailure(TasksFailure.invalidRequest) { try TasksBridgeDecoder.decode(request) } }
         precondition(!TasksBridgeDecoder.validDocument(["version": NSNumber(value: true), "tasks": []]))
         precondition(!TasksBridgeDecoder.validDocument(["version": 1, "tasks": [Date()]]))
+    }
+
+    @MainActor
+    private static func hotkeyPreferencesAndRegistrationPolicy() throws {
+        let primarySuiteName = "BananaTasksHotkeyPrimaryTest.\(UUID().uuidString)"
+        let anotherSuiteName = "BananaTasksHotkeyOtherProfileTest.\(UUID().uuidString)"
+        let verificationDefaults = UserDefaults(suiteName: primarySuiteName)!
+        let anotherDefaults = UserDefaults(suiteName: anotherSuiteName)!
+        defer {
+            verificationDefaults.removePersistentDomain(forName: primarySuiteName)
+            anotherDefaults.removePersistentDomain(forName: anotherSuiteName)
+        }
+        let catalog = try TasksThemeCatalog(data: Data("""
+            [{"id":"banana-light","name":"Light","appearance":"light","colors":{"paper":"#fffdf4"}}]
+            """.utf8))
+        let taskPreferences = UserDefaultsTasksPreferences(defaults: verificationDefaults, catalog: catalog)
+        let selectedTaskPreferences = TasksPreferences(appearanceTheme: "banana-light", pinned: true, soundEnabled: false,
+                                                       motionEnabled: true, ripeningSpeed: .normal)
+        _ = try taskPreferences.save(selectedTaskPreferences)
+        let taskPreferencesBlob = verificationDefaults.data(forKey: "bananaTasks.preferences.v1")
+
+        let hotkeyPreferences = UserDefaultsTasksHotkeyPreferences(defaults: verificationDefaults)
+        let registrar = FakeTasksHotkeyRegistrar()
+        let coordinator = TasksHotkeyCoordinator(preferences: hotkeyPreferences, registrar: registrar, registrationAllowed: true)
+        let initial = coordinator.registerInitial()
+        precondition(initial.registered && initial.available && initial.chord == .defaultChord)
+        precondition(initial.chord.keyCode == 17 && initial.chord.modifiers == (TasksHotkeyChord.control | TasksHotkeyChord.option))
+        precondition(initial.display == "⌃⌥T", "Tasks keeps its existing Control-Option-T default")
+        precondition(taskPreferences.load() == selectedTaskPreferences &&
+                     verificationDefaults.data(forKey: "bananaTasks.preferences.v1") == taskPreferencesBlob,
+                     "the separate Tasks shortcut key must not modify the existing five-field preference blob")
+
+        let cmdShift2 = try TasksHotkeyChord(keyCode: 19, modifiers: TasksHotkeyChord.command | TasksHotkeyChord.shift)
+        registrar.failureFor = cmdShift2
+        coordinator.setRecording(true)
+        let failedReplacement = coordinator.set(cmdShift2)
+        precondition(!coordinator.isRecording, "submitting a shortcut clears recorder suppression even on registration failure")
+        var actionAfterFailedSet = 0
+        coordinator.handleHotkey { actionAfterFailedSet += 1 }
+        precondition(actionAfterFailedSet == 1, "a failed selection cannot strand the active callback in recording mode")
+        precondition(failedReplacement.chord == .defaultChord && failedReplacement.registered && failedReplacement.available)
+        precondition(failedReplacement.error == .registrationFailed && registrar.activeChord == .defaultChord,
+                     "failed replacement leaves the prior global binding confirmed")
+        precondition(hotkeyPreferences.load() == .defaultChord,
+                     "failed registration must not persist the requested shortcut")
+
+        coordinator.setRecording(true)
+        var actionCount = 0
+        coordinator.handleHotkey { actionCount += 1 }
+        precondition(actionCount == 0, "the existing OS binding is suppressed while the recorder is listening")
+        coordinator.setRecording(false)
+        coordinator.handleHotkey { actionCount += 1 }
+        precondition(actionCount == 1, "ending recording restores the existing shortcut callback")
+
+        registrar.failureFor = nil
+        let selectedHotkey = coordinator.set(cmdShift2)
+        precondition(selectedHotkey.registered && selectedHotkey.chord == cmdShift2 && selectedHotkey.display == "⇧⌘2")
+        precondition(hotkeyPreferences.load() == cmdShift2)
+        precondition(taskPreferences.load() == selectedTaskPreferences &&
+                     verificationDefaults.data(forKey: "bananaTasks.preferences.v1") == taskPreferencesBlob)
+        registrar.failureFor = .defaultChord
+        coordinator.setRecording(true)
+        let failedReset = coordinator.reset()
+        precondition(!coordinator.isRecording && failedReset.chord == cmdShift2 && failedReset.registered &&
+                     failedReset.error == .registrationFailed && hotkeyPreferences.load() == cmdShift2,
+                     "a failed reset clears recorder suppression and preserves the confirmed shortcut")
+        registrar.failureFor = nil
+        coordinator.setRecording(true)
+        let resetHotkey = coordinator.reset()
+        precondition(!coordinator.isRecording, "reset clears recorder suppression regardless of registration outcome")
+        precondition(resetHotkey.registered && resetHotkey.chord == .defaultChord && resetHotkey.display == "⌃⌥T")
+        precondition(hotkeyPreferences.load() == .defaultChord, "native reset restores and persists the native default")
+
+        let otherProfilePreferences = UserDefaultsTasksHotkeyPreferences(defaults: anotherDefaults)
+        precondition(otherProfilePreferences.load() == .defaultChord,
+                     "shortcut preferences stay within the selected UserDefaults profile suite")
+        let blockedRegistrar = FakeTasksHotkeyRegistrar()
+        let verificationCoordinator = TasksHotkeyCoordinator(preferences: otherProfilePreferences,
+                                                              registrar: blockedRegistrar, registrationAllowed: false)
+        let verificationState = verificationCoordinator.registerInitial()
+        let verificationSelection = verificationCoordinator.set(cmdShift2)
+        precondition(verificationState.error == .verificationProfile && !verificationState.registered)
+        precondition(verificationSelection.error == .verificationProfile && blockedRegistrar.registrationCalls == 0,
+                     "verification profiles cannot register real global shortcuts")
+        precondition(anotherDefaults.object(forKey: UserDefaultsTasksHotkeyPreferences.defaultsKey) == nil,
+                     "a verification shortcut choice is not written as confirmed")
+
+        let conflictSuiteName = "BananaTasksHotkeyConflictTest.\(UUID().uuidString)"
+        let conflictDefaults = UserDefaults(suiteName: conflictSuiteName)!
+        defer { conflictDefaults.removePersistentDomain(forName: conflictSuiteName) }
+        let conflictPreferences = UserDefaultsTasksHotkeyPreferences(defaults: conflictDefaults)
+        let conflictRegistrar = FakeTasksHotkeyRegistrar()
+        conflictRegistrar.failureFor = .defaultChord
+        let conflictCoordinator = TasksHotkeyCoordinator(preferences: conflictPreferences, registrar: conflictRegistrar,
+                                                         registrationAllowed: true)
+        let initialConflict = conflictCoordinator.registerInitial()
+        precondition(!initialConflict.registered && initialConflict.available && initialConflict.error == .registrationFailed,
+                     "a default shortcut conflict leaves shortcut recording available")
+        precondition(conflictDefaults.object(forKey: UserDefaultsTasksHotkeyPreferences.defaultsKey) == nil,
+                     "an unregistered fresh-install default is not persisted")
+        conflictRegistrar.failureFor = nil
+        conflictCoordinator.setRecording(true)
+        let recovered = conflictCoordinator.set(cmdShift2)
+        precondition(!conflictCoordinator.isRecording && recovered.registered && recovered.available && recovered.chord == cmdShift2)
+        precondition(conflictPreferences.load() == cmdShift2,
+                     "a user can recover from the initial conflict with a confirmed replacement")
+
+        let unavailableSuiteName = "BananaTasksHotkeyUnavailableTest.\(UUID().uuidString)"
+        let unavailableDefaults = UserDefaults(suiteName: unavailableSuiteName)!
+        defer { unavailableDefaults.removePersistentDomain(forName: unavailableSuiteName) }
+        let unavailableRegistrar = FakeTasksHotkeyRegistrar()
+        unavailableRegistrar.failureFor = .defaultChord
+        unavailableRegistrar.failureError = .registrationUnavailable
+        let unavailableCoordinator = TasksHotkeyCoordinator(
+            preferences: UserDefaultsTasksHotkeyPreferences(defaults: unavailableDefaults),
+            registrar: unavailableRegistrar, registrationAllowed: true)
+        let unavailableState = unavailableCoordinator.registerInitial()
+        precondition(!unavailableState.registered && !unavailableState.available && unavailableState.error == .registrationUnavailable)
+
+        var released: [Int] = []
+        let failedPolicyReplacement = TasksHotkeyReplacementPolicy.replace(current: 7, create: { nil }, release: { released.append($0) })
+        precondition(failedPolicyReplacement.handle == 7 && !failedPolicyReplacement.replaced && released.isEmpty)
+        let successfulPolicyReplacement = TasksHotkeyReplacementPolicy.replace(current: 7, create: { 8 }, release: { released.append($0) })
+        precondition(successfulPolicyReplacement.handle == 8 && successfulPolicyReplacement.replaced && released == [7])
+    }
+
+    @MainActor
+    private final class FakeTasksHotkeyRegistrar: TasksHotkeyRegistrationPort {
+        private(set) var activeChord: TasksHotkeyChord?
+        private(set) var activeHandle: Int?
+        private var nextHandle = 1
+        private(set) var registrationCalls = 0
+        var failureFor: TasksHotkeyChord?
+        var failureError: TasksHotkeyError = .registrationFailed
+        private(set) var releasedHandles: [Int] = []
+
+        func register(_ chord: TasksHotkeyChord) -> TasksHotkeyRegistration {
+            registrationCalls += 1
+            let replacement = TasksHotkeyReplacementPolicy.replace(current: activeHandle, create: {
+                guard chord != self.failureFor else { return nil }
+                defer { self.nextHandle += 1 }
+                return self.nextHandle
+            }, release: { self.releasedHandles.append($0) })
+            guard replacement.replaced, let handle = replacement.handle else {
+                return TasksHotkeyRegistration(activeChord: activeChord, error: failureError)
+            }
+            activeHandle = handle
+            activeChord = chord
+            return TasksHotkeyRegistration(activeChord: chord, error: nil)
+        }
+
+        func unregister() { activeChord = nil; activeHandle = nil }
     }
 
     private static func focusAndFlushTransitions() {

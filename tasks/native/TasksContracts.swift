@@ -160,6 +160,10 @@ enum TasksBridgeMessage {
     case saveTasks(expectedRevision: String, document: Any)
     case loadPreferences
     case savePreferences(TasksPreferences)
+    case hotkeyPreferences
+    case resetHotkeyPreferences
+    case setHotkey(TasksHotkeyChord)
+    case setHotkeyRecording(Bool)
     case todoistConnection
     case connectTodoist(token: String)
     case disconnectTodoist
@@ -194,6 +198,18 @@ enum TasksBridgeDecoder {
                   let document = body["document"], validDocument(document) else { throw TasksFailure.invalidRequest }
             return .saveTasks(expectedRevision: revision, document: document)
         case "loadPreferences": try exact(body, ["action"]); return .loadPreferences
+        case "resetHotkeyPreferences": try exact(body, ["action"]); return .resetHotkeyPreferences
+        case "hotkeyPreferences":
+            if Set(body.keys) == ["action"] { return .hotkeyPreferences }
+            if Set(body.keys) == ["action", "shortcut"] {
+                guard let shortcut = try? TasksHotkeyChord.decode(body["shortcut"]) else { throw TasksFailure.invalidRequest }
+                return .setHotkey(shortcut)
+            }
+            if Set(body.keys) == ["action", "recording"] {
+                guard let recording = exactBoolean(body["recording"]) else { throw TasksFailure.invalidRequest }
+                return .setHotkeyRecording(recording)
+            }
+            throw TasksFailure.invalidRequest
         case "savePreferences":
             try exact(body, ["action", "preferences"])
             guard let rawPreferences = body["preferences"] as? [String: Any],

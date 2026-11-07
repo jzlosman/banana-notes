@@ -14,13 +14,15 @@ struct TasksBridgeSecurityPolicy {
 @MainActor
 final class TasksBridgeRouter {
     private let application: TasksApplication
+    private let hotkeys: TasksHotkeyCoordinator
     private let clipboard: TasksClipboardPort
     var onFlushAcknowledged: ((String, Bool) -> Void)?
     var onDragRegion: (([String: Any]?) -> Bool)?
     var onPreferencesSaved: ((TasksPreferences) -> Void)?
 
-    init(application: TasksApplication, clipboard: TasksClipboardPort = PasteboardTasksClipboard()) {
+    init(application: TasksApplication, hotkeys: TasksHotkeyCoordinator, clipboard: TasksClipboardPort = PasteboardTasksClipboard()) {
         self.application = application
+        self.hotkeys = hotkeys
         self.clipboard = clipboard
     }
 
@@ -48,6 +50,15 @@ final class TasksBridgeRouter {
                 onPreferencesSaved?(saved)
                 reply(preferencesValue(saved), nil)
             } catch { fail(reply, error) }
+        case .hotkeyPreferences:
+            reply(Self.hotkeyValue(hotkeys.state), nil)
+        case .resetHotkeyPreferences:
+            reply(Self.hotkeyValue(hotkeys.reset()), nil)
+        case let .setHotkey(chord):
+            reply(Self.hotkeyValue(hotkeys.set(chord)), nil)
+        case let .setHotkeyRecording(recording):
+            hotkeys.setRecording(recording)
+            reply(NSNull(), nil)
         case .todoistConnection:
             Task { @MainActor in
                 do { reply(Self.connectionValue(try await application.todoistConnection()), nil) }
@@ -121,6 +132,12 @@ final class TasksBridgeRouter {
         ["appearanceTheme": value.appearanceTheme.map { $0 as Any } ?? NSNull(), "pinned": value.pinned,
          "soundEnabled": value.soundEnabled, "motionEnabled": value.motionEnabled,
          "ripeningSpeed": value.ripeningSpeed.rawValue]
+    }
+
+    private static func hotkeyValue(_ state: TasksHotkeyState) -> [String: Any] {
+        ["keyCode": state.chord.keyCode, "modifiers": state.chord.modifiers, "display": state.display,
+         "registered": state.registered, "available": state.available,
+         "error": state.error?.rawValue as Any? ?? NSNull()]
     }
 
     private static func connectionValue(_ connection: TodoistConnection) -> [String: Any] {

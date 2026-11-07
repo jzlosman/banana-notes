@@ -48,7 +48,7 @@ function decodePreviewEvent(value: unknown): TasksWindowEvent | null {
   return null;
 }
 
-/** Browser fallback with a private storage namespace and strict read/write boundaries. */
+/** Browser fallback with a private storage namespace and strict read/write boundaries; it omits OS hotkey registration. */
 export class PreviewTasksAdapter implements TasksPorts {
   readonly clock: Clock;
   readonly identities: IdentitySource;

@@ -89,6 +89,7 @@ final class TasksWindowController: NSWindowController, NSWindowDelegate, WKNavig
     var onOpenDataFolder: (() -> Void)?
     var onError: ((String) -> Void)?
     var onPinnedChange: ((Bool) -> Void)?
+    var onFocusChange: ((Bool) -> Void)?
 
     init(webDirectory: URL, catalog: TasksThemeCatalog, preferences: TasksPreferences,
          identities: TasksIdentitySource = UUIDTasksIdentitySource()) {
@@ -293,6 +294,7 @@ final class TasksWindowController: NSWindowController, NSWindowDelegate, WKNavig
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? { nil }
 
     private func focusChanged(_ isKeyWindow: Bool) {
+        onFocusChange?(isKeyWindow)
         blurTimer?.invalidate(); blurTimer = nil
         let changed = focusState.update(isKeyWindow: isKeyWindow, at: ProcessInfo.processInfo.systemUptime)
         if changed { emit(["kind": "focus", "focused": focusState.isFocused]) }

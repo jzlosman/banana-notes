@@ -10,7 +10,7 @@ final class TasksMenuController: NSObject {
     private var pinItem: NSMenuItem?
     var onAction: ((TasksMenuAction) -> Void)?
 
-    init(isPinned: Bool) {
+    init(isPinned: Bool, hotkeyState: TasksHotkeyState) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         let iconURL = Bundle.main.resourceURL?.appendingPathComponent("TasksMenuBar.svg")
@@ -18,7 +18,7 @@ final class TasksMenuController: NSObject {
         image?.size = NSSize(width: 18, height: 18)
         image?.isTemplate = true
         statusItem.button?.image = image
-        statusItem.button?.toolTip = "Banana Tasks · Control–Option–T to show or hide"
+        statusItem.button?.toolTip = Self.hotkeyTooltip(for: hotkeyState)
         let menu = NSMenu(title: "Banana Tasks")
         menu.addItem(item("Show / Hide Banana Tasks", .toggleWindow))
         menu.addItem(item("New Task", .newTask, key: "n"))
@@ -35,6 +35,15 @@ final class TasksMenuController: NSObject {
     }
 
     func updatePinned(_ value: Bool) { pinItem?.state = value ? .on : .off }
+    func updateHotkey(_ state: TasksHotkeyState) { statusItem.button?.toolTip = Self.hotkeyTooltip(for: state) }
+
+    private static func hotkeyTooltip(for state: TasksHotkeyState) -> String {
+        guard state.registered else {
+            let status = state.error == .verificationProfile ? "Global shortcut disabled in verification profile" : "Global shortcut unavailable"
+            return "Banana Tasks · \(status) (\(state.display))"
+        }
+        return "Banana Tasks · \(state.display) to show or hide"
+    }
 
     private func item(_ title: String, _ action: TasksMenuAction, key: String = "") -> NSMenuItem {
         let item = NSMenuItem(title: title, action: #selector(dispatch(_:)), keyEquivalent: key)
@@ -51,33 +60,39 @@ final class TasksMenuController: NSObject {
 }
 
 @MainActor
-final class TasksGlobalHotkeyService {
+final class TasksGlobalHotkeyService: TasksHotkeyRegistrationPort {
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
+    private var activeChord: TasksHotkeyChord?
     var onHotkey: (() -> Void)?
-    private(set) var registered = false
 
-    func register() -> Bool {
+    func register(_ requested: TasksHotkeyChord) -> TasksHotkeyRegistration {
+        if activeChord == requested { return TasksHotkeyRegistration(activeChord: activeChord, error: nil) }
         installHandler()
-        guard handler != nil else { return false }
-        let identifier = EventHotKeyID(signature: OSType(0x4254534B), id: 1)
-        var replacement: EventHotKeyRef?
-        let status = RegisterEventHotKey(UInt32(kVK_ANSI_T), UInt32(controlKey | optionKey), identifier,
-                                         GetApplicationEventTarget(), 0, &replacement)
-        guard status == noErr, let replacement else {
-            unregister()
-            return false
+        guard handler != nil else {
+            return TasksHotkeyRegistration(activeChord: activeChord, error: .registrationUnavailable)
         }
-        if let hotKey { UnregisterEventHotKey(hotKey) }
-        hotKey = replacement
-        registered = true
-        return true
+        let identifier = EventHotKeyID(signature: OSType(0x4254534B), id: 1)
+        let replacement = TasksHotkeyReplacementPolicy.replace(current: hotKey, create: {
+            var candidate: EventHotKeyRef?
+            let status = RegisterEventHotKey(requested.keyCode, requested.modifiers, identifier,
+                                             GetApplicationEventTarget(), 0, &candidate)
+            guard status == noErr else { return nil }
+            return candidate
+        }, release: { current in _ = UnregisterEventHotKey(current) })
+        guard replacement.replaced, let newHotKey = replacement.handle else {
+            if hotKey == nil { removeHandlerIfUnused() }
+            return TasksHotkeyRegistration(activeChord: activeChord, error: .registrationFailed)
+        }
+        hotKey = newHotKey
+        activeChord = requested
+        return TasksHotkeyRegistration(activeChord: activeChord, error: nil)
     }
 
     func unregister() {
-        if let hotKey { UnregisterEventHotKey(hotKey); self.hotKey = nil }
-        if let handler { RemoveEventHandler(handler); self.handler = nil }
-        registered = false
+        if let hotKey { _ = UnregisterEventHotKey(hotKey); self.hotKey = nil }
+        activeChord = nil
+        removeHandlerIfUnused()
     }
 
     private func installHandler() {
@@ -98,5 +113,11 @@ final class TasksGlobalHotkeyService {
         let status = InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventType,
                                          Unmanaged.passUnretained(self).toOpaque(), &handler)
         if status != noErr { handler = nil }
+    }
+
+    private func removeHandlerIfUnused() {
+        guard hotKey == nil, let handler else { return }
+        RemoveEventHandler(handler)
+        self.handler = nil
     }
 }

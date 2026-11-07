@@ -57,7 +57,12 @@ struct TasksWebKitSelfTest {
                                                preferences: preferences.load())
         var navigationError: String?
         controller.onError = { navigationError = $0 }
-        let bridge = TasksBridgeRouter(application: application, clipboard: VerificationClipboard())
+        let hotkeyRegistrar = SmokeHotkeyRegistrar()
+        let hotkeys = TasksHotkeyCoordinator(
+            preferences: UserDefaultsTasksHotkeyPreferences(defaults: defaults),
+            registrar: hotkeyRegistrar, registrationAllowed: false)
+        hotkeys.registerInitial()
+        let bridge = TasksBridgeRouter(application: application, hotkeys: hotkeys, clipboard: VerificationClipboard())
         controller.router = bridge
         bridge.onFlushAcknowledged = { [weak controller] requestID, saved in
             controller?.acknowledgeFlush(requestID: requestID, saved: saved)
@@ -77,6 +82,24 @@ struct TasksWebKitSelfTest {
         try installPageErrorCapture(webView)
         try assertApplicationReady(webView)
         try assertLoadedAssetsAndFont(webView)
+
+        let shortcutRequests: [[String: Any]] = [
+            ["action": "hotkeyPreferences"],
+            ["action": "hotkeyPreferences", "shortcut": ["keyCode": 19, "modifiers": 768]],
+            ["action": "resetHotkeyPreferences"],
+        ]
+        for request in shortcutRequests {
+            let state = try postBridge(webView, message: request)
+            guard state["registered"] as? Bool == false,
+                  state["available"] as? Bool == false,
+                  state["error"] as? String == "verification-profile" else {
+                throw SmokeFailure.message("The verification bridge exposed a live global shortcut capability.")
+            }
+        }
+        guard hotkeyRegistrar.registrationCalls == 0,
+              defaults.object(forKey: UserDefaultsTasksHotkeyPreferences.defaultsKey) == nil else {
+            throw SmokeFailure.message("Verification shortcut requests registered a global key or persisted a preference.")
+        }
 
         let initialLoad = try postBridge(webView, message: ["action": "loadTasks"])
         let initialDocument = try checkedReadyDocument(initialLoad)
@@ -453,6 +476,16 @@ struct TasksWebKitSelfTest {
         }
         throw SmokeFailure.message("Timed out waiting for \(description).")
     }
+}
+
+@MainActor
+private final class SmokeHotkeyRegistrar: TasksHotkeyRegistrationPort {
+    private(set) var registrationCalls = 0
+    func register(_ chord: TasksHotkeyChord) -> TasksHotkeyRegistration {
+        registrationCalls += 1
+        return TasksHotkeyRegistration(activeChord: nil, error: .registrationUnavailable)
+    }
+    func unregister() {}
 }
 
 private enum SmokeFailure: LocalizedError {

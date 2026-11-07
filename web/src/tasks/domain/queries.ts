@@ -25,6 +25,7 @@ export type TaskDetailReadModel = TaskReadModel & {
 };
 export type TaskGroup = { tag: string | null; tasks: TaskReadModel[] };
 export type TaskListReadModel = { mode: TaskListMode; tasks: TaskReadModel[]; groups: TaskGroup[] | null };
+export type TagCatalogEntry = { key: string; label: string; taskCount: number; lastTaskActivityAt: number };
 
 const DAY = 24 * 60 * 60 * 1000;
 const thresholds: Record<RipeningSpeed, readonly [number, number, number]> = {
@@ -82,7 +83,36 @@ function matchesMode(task: Task, mode: TaskListMode): boolean {
   if (mode === 'active') return task.status.kind === 'active' || task.status.kind === 'snoozed';
   return task.status.kind === mode;
 }
-function normalizedTag(tag: string): string { return tag.trim().normalize('NFC').replace(/\s+/g, ' ').toLowerCase(); }
+function canonicalTagLabel(tag: string): string { return tag.trim().normalize('NFC').replace(/\s+/g, ' '); }
+function normalizedTag(tag: string): string { return canonicalTagLabel(tag).toLowerCase(); }
+function compareStableText(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
+
+/** Popular, recently active tags projected from current local Tasks; composted work is excluded. */
+export function queryTagCatalog(document: TaskDocument): TagCatalogEntry[] {
+  const byKey = new Map<string, TagCatalogEntry>();
+  const tasks = [...document.tasks].filter(task => task.status.kind !== 'composted')
+    .sort((left, right) => right.updatedAt - left.updatedAt || compareStableText(left.id, right.id));
+
+  for (const task of tasks) {
+    const labelsForTask = new Map<string, string>();
+    for (const tag of task.tags) {
+      const label = canonicalTagLabel(tag);
+      const key = label.toLowerCase();
+      if (!key) continue;
+      const previous = labelsForTask.get(key);
+      if (previous === undefined || compareStableText(label, previous) < 0) labelsForTask.set(key, label);
+    }
+    for (const [key, label] of labelsForTask) {
+      const existing = byKey.get(key);
+      if (existing) existing.taskCount++;
+      else byKey.set(key, { key, label, taskCount: 1, lastTaskActivityAt: task.updatedAt });
+    }
+  }
+
+  return [...byKey.values()]
+    .sort((left, right) => right.taskCount - left.taskCount || right.lastTaskActivityAt - left.lastTaskActivityAt || compareStableText(left.key, right.key))
+    .map(entry => ({ ...entry }));
+}
 function stableSort(a: TaskReadModel, b: TaskReadModel): number {
   return b.createdAt - a.createdAt || a.id.localeCompare(b.id, 'en');
 }

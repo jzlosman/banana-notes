@@ -4,7 +4,7 @@ import {
   type CreateTaskInput, type Decision, type DomainFailure, type UpdateTaskInput,
 } from '../domain/decisions';
 import { decodeTaskDocument, validateTaskDocument, type TaskDocument, type TodoistOutboxOperation } from '../domain/model';
-import { queryAgentBrief, queryTaskDetail, queryTaskList, type AgentBrief, type TaskDetailReadModel, type TaskListQuery, type TaskListReadModel } from '../domain/queries';
+import { queryAgentBrief, queryTagCatalog, queryTaskDetail, queryTaskList, type AgentBrief, type TagCatalogEntry, type TaskDetailReadModel, type TaskListQuery, type TaskListReadModel } from '../domain/queries';
 import type {
   CalendarAppointment, CalendarAuthorization, CalendarBlockDraft, CalendarBlockReceipt, CaptureProject,
   PlanningCalendar, TasksPorts, TasksPreferences, TasksWindowEvent, TodoistConnection,
@@ -45,6 +45,7 @@ export interface TasksFacade {
   dispose(): void;
   runClockStage(): Promise<CommandOutcome<{ woken: number }>>;
   queryTasks(query: TaskListQuery): TaskListReadModel;
+  queryTagCatalog(): TagCatalogEntry[];
   queryTaskDetail(taskID: string): TaskDetailReadModel | null;
   queryAgentBrief(taskID: string): AgentBrief | null;
   create(input: CreateTaskInput): Promise<CommandOutcome<{ taskID: string }>>;
@@ -207,6 +208,10 @@ export class TasksController implements TasksFacade {
     const state = this.readyState();
     if (!state) throw new Error('Tasks are not available until initialization completes.');
     return queryTaskList(state.document, query, this.ports.clock.now(), state.preferences.ripeningSpeed);
+  }
+  queryTagCatalog(): TagCatalogEntry[] {
+    const state = this.readyState();
+    return state ? queryTagCatalog(state.document) : [];
   }
   queryTaskDetail(taskID: string): TaskDetailReadModel | null {
     const state = this.readyState();

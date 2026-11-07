@@ -1,9 +1,11 @@
+import './detail.css';
 import { ArrowLeft, Check, Pause, Pin, PinOff, Play, RotateCcw, Save, Trash2 } from 'lucide';
 import type { CommandOutcome, TasksFacade, TasksState } from '../application/controller';
 import type { TaskDetailReadModel } from '../domain/queries';
-import type { TaskPriority } from '../domain/model';
+import { normalizeTags, type TaskPriority } from '../domain/model';
 import { describeOutcome, formatAge, formatEffort, formatElapsed, formatHistoryTime, isApplied, makeButton, makeElement } from './helpers';
 import { renderIcon } from '../../ui/icon';
+import { mountTaskTagPicker } from './tag-picker';
 
 export interface GlobalTimerReadModel {
   taskID: string;
@@ -181,46 +183,66 @@ export function mountTaskDetail(root: HTMLElement, facade: TasksFacade, taskID: 
 
   let state: TasksState = facade.getState();
   let current: TaskDetailReadModel | null = null;
-  let baseline = { title: '', notes: '', tags: '' };
+  let baseline: { title: string; notes: string; tags: string[] } = { title: '', notes: '', tags: [] };
   let draftDirty = false;
   let savingDraft: Promise<boolean> | null = null;
   let disposed = false;
   let timerIconRunning = false;
 
-  const draftValue = () => ({ title: titleInput.value, notes: notesInput.value, tags: tagInput.value });
-  const tagInput = makeElement(document, 'input', 'tasks-detail-tags');
-  tagInput.type = 'text'; tagInput.maxLength = 32 * 48; tagInput.setAttribute('aria-label', 'Task tags');
-  tagInput.placeholder = 'Add tags, separated by commas'; tagInput.autocomplete = 'off';
-  const tagsLabel = makeElement(document, 'label', 'tasks-detail-tags-label', 'Tags'); tagsLabel.append(tagInput);
-  summary.insertBefore(tagsLabel, draftStatus);
+  const tagPicker = mountTaskTagPicker(document, {
+    catalog: facade.queryTagCatalog(),
+    onChange: updateDraftState,
+    onDuplicate: message => { draftStatus.textContent = message; draftStatus.setAttribute('role', 'status'); },
+    onInvalid: message => { draftStatus.textContent = message; draftStatus.setAttribute('role', 'alert'); },
+    onLeave: () => {
+      tagPicker.commitPending();
+      void commitDraft();
+    },
+  });
+  const tagInput = tagPicker.input;
+  const draftValue = () => ({ title: titleInput.value, notes: notesInput.value, tags: tagPicker.draftTags() });
+  summary.insertBefore(tagPicker.element, draftStatus);
 
+  function sameTags(left: readonly string[], right: readonly string[]): boolean {
+    return left.length === right.length && left.every((tag, index) => tag === right[index]);
+  }
+  function sameBaseline(detail: TaskDetailReadModel): boolean {
+    return detail.title === baseline.title && detail.notes === baseline.notes && sameTags(detail.tags, baseline.tags);
+  }
   function setDraftFromModel(detail: TaskDetailReadModel): void {
-    baseline = { title: detail.title, notes: detail.notes, tags: detail.tags.join(', ') };
-    titleInput.value = baseline.title; notesInput.value = baseline.notes; tagInput.value = baseline.tags;
+    if (sameBaseline(detail)) return;
+    baseline = { title: detail.title, notes: detail.notes, tags: [...detail.tags] };
+    titleInput.value = baseline.title; notesInput.value = baseline.notes; tagPicker.setTags(baseline.tags);
     draftDirty = false; draftStatus.textContent = ''; saveButton.disabled = true;
   }
 
   function updateDraftState(): void {
     const value = draftValue();
-    draftDirty = value.title !== baseline.title || value.notes !== baseline.notes || value.tags !== baseline.tags;
+    draftDirty = value.title !== baseline.title || value.notes !== baseline.notes || !sameTags(value.tags, baseline.tags);
     saveButton.disabled = !draftDirty || !!savingDraft;
     if (draftDirty) draftStatus.textContent = 'Unsaved changes';
+    else if (draftStatus.textContent === 'Unsaved changes') draftStatus.textContent = '';
     if (state.kind === 'ready' && !state.persistenceError) footerStatus.textContent = draftDirty ? 'Unsaved task edits'
       : root.ownerDocument.documentElement.dataset.native === 'true' ? 'Saved on this Mac' : 'Saved in this browser';
     draftStatus.setAttribute('role', 'status');
   }
   titleInput.addEventListener('input', updateDraftState);
   notesInput.addEventListener('input', updateDraftState);
-  tagInput.addEventListener('input', updateDraftState);
 
   async function commitDraft(): Promise<boolean> {
+    if (disposed || !tagPicker.commitPending()) return false;
     if (savingDraft) return savingDraft;
     if (!draftDirty || !current) return true;
     const snapshot = draftValue();
     const titleValue = snapshot.title.trim();
-    const tags = snapshot.tags.split(',').map(tag => tag.trim()).filter(Boolean);
+    const tags = normalizeTags(snapshot.tags);
     if (!titleValue) {
       draftStatus.textContent = 'A task title is required.'; draftStatus.setAttribute('role', 'alert'); titleInput.focus();
+      return false;
+    }
+    if (tags === null) {
+      draftStatus.textContent = 'Tags must be 48 characters or fewer and cannot contain control characters.';
+      draftStatus.setAttribute('role', 'alert'); tagInput.focus();
       return false;
     }
     draftStatus.setAttribute('role', 'status'); draftStatus.textContent = 'Saving…'; saveButton.disabled = true;
@@ -234,9 +256,9 @@ export function mountTaskDetail(root: HTMLElement, facade: TasksFacade, taskID: 
         saveButton.disabled = false;
         return false;
       }
-      baseline = { title: titleValue, notes: snapshot.notes, tags: tags.join(', ') };
+      baseline = { title: titleValue, notes: snapshot.notes, tags: [...tags] };
       const currentValue = draftValue();
-      draftDirty = currentValue.title !== snapshot.title || currentValue.notes !== snapshot.notes || currentValue.tags !== snapshot.tags;
+      draftDirty = currentValue.title !== snapshot.title || currentValue.notes !== snapshot.notes || !sameTags(currentValue.tags, snapshot.tags);
       draftStatus.textContent = draftDirty ? 'New edits are still unsaved.' : 'Saved on this device.';
       draftStatus.setAttribute('role', 'status');
       saveButton.disabled = !draftDirty;
@@ -244,13 +266,14 @@ export function mountTaskDetail(root: HTMLElement, facade: TasksFacade, taskID: 
       callbacks.notify('Task details saved.');
       return !draftDirty;
     }).catch(error => {
+      if (disposed) return false;
       draftStatus.textContent = error instanceof Error ? error.message : 'Task details were not saved.';
       draftStatus.setAttribute('role', 'alert'); saveButton.disabled = false; return false;
-    }).finally(() => { savingDraft = null; if (draftDirty) saveButton.disabled = false; });
+    }).finally(() => { savingDraft = null; if (!disposed && draftDirty) saveButton.disabled = false; });
     return savingDraft;
   }
 
-  for (const field of [titleInput, notesInput, tagInput]) field.addEventListener('blur', () => { if (draftDirty) void commitDraft(); });
+  for (const field of [titleInput, notesInput]) field.addEventListener('blur', () => { if (draftDirty) void commitDraft(); });
 
   backButton.onclick = () => { void commitDraft().then(saved => { if (saved) callbacks.back(); }); };
   saveButton.onclick = () => { void commitDraft(); };
@@ -321,13 +344,14 @@ export function mountTaskDetail(root: HTMLElement, facade: TasksFacade, taskID: 
   function render(): void {
     if (disposed) return;
     if (state.kind !== 'ready') {
-      current = null; titleInput.disabled = true; notesInput.disabled = true; tagInput.disabled = true; saveButton.disabled = true;
+      current = null; titleInput.disabled = true; notesInput.disabled = true; tagPicker.setDisabled(true); saveButton.disabled = true;
       footerStatus.textContent = state.kind === 'recovery' ? 'Recovery required' : 'Loading local tasks…';
       return;
     }
     current = facade.queryTaskDetail(taskID);
     if (!current) { callbacks.back(); return; }
-    titleInput.disabled = !!state.persistenceError; notesInput.disabled = !!state.persistenceError; tagInput.disabled = !!state.persistenceError;
+    titleInput.disabled = !!state.persistenceError; notesInput.disabled = !!state.persistenceError; tagPicker.setDisabled(!!state.persistenceError);
+    tagPicker.setCatalog(facade.queryTagCatalog());
     if (!draftDirty && !savingDraft) setDraftFromModel(current);
     stateBadge.textContent = statusLabel(current);
     stateBadge.className = `tasks-detail-state state-${current.status.kind}`;
@@ -381,7 +405,7 @@ export function mountTaskDetail(root: HTMLElement, facade: TasksFacade, taskID: 
   }
 
   const refreshTimer = (): void => {
-    if (!current) return;
+    if (disposed || !current) return;
     const latest = facade.queryTaskDetail(taskID);
     if (latest) {
       current = latest;
@@ -394,6 +418,7 @@ export function mountTaskDetail(root: HTMLElement, facade: TasksFacade, taskID: 
   };
 
   function setPinState(pinned: boolean, saving = false): void {
+    if (disposed) return;
     pinButton.setAttribute('aria-label', pinned ? 'Unpin window' : 'Pin window');
     pinButton.title = pinned ? 'Unpin window' : 'Pin window';
     pinButton.setAttribute('aria-pressed', String(pinned));
@@ -411,11 +436,11 @@ export function mountTaskDetail(root: HTMLElement, facade: TasksFacade, taskID: 
   };
 
   return {
-    update(next) { state = next; render(); refreshTimer(); },
+    update(next) { if (disposed) return; state = next; render(); refreshTimer(); },
     tick: refreshTimer,
     commitDraft,
     focusTitle() { titleInput.focus(); },
     setPinState,
-    dispose() { disposed = true; root.replaceChildren(); },
+    dispose() { disposed = true; current = null; tagPicker.dispose(); root.replaceChildren(); },
   };
 }

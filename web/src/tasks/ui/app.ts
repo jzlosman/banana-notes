@@ -5,7 +5,7 @@ import { applyNoteFont } from '../../ui/note-font';
 import { themeByID, resolveThemeID } from '../../domain/themes';
 import type { NoteFontState } from '../../domain/note-font';
 import type { TasksFacade, TasksState, CommandOutcome } from '../application/controller';
-import type { TasksWindowPort } from '../application/ports';
+import type { TasksHotkeyPreferencesPort, TasksWindowPort } from '../application/ports';
 import type { TaskDetailReadModel } from '../domain/queries';
 import { describeOutcome, formatAge, formatEffort, isApplied, makeButton, makeElement } from './helpers';
 import { mountTasksList, type MountedTaskList } from './list';
@@ -30,7 +30,7 @@ const COMPLETION_MOTION = {
 export function mountTasksApp(
   root: HTMLElement,
   facade: TasksFacade,
-  options: { window: TasksWindowPort; fontState: NoteFontState },
+  options: { window: TasksWindowPort; fontState: NoteFontState; hotkeyPreferences?: TasksHotkeyPreferencesPort },
 ): MountedTasksScreen {
   const document = root.ownerDocument;
   const viewHost = makeElement(document, 'div', 'tasks-view-host');
@@ -427,7 +427,9 @@ export function mountTasksApp(
     if (disposed) return;
     if (detailView && !(await detailView.commitDraft())) return;
     disposeMountedView(); currentScreen = 'settings'; detailTaskID = null;
-    const childOptions: TasksScreenOptions = { environment: options.window.environment, onClose: mountListScreen, notify };
+    const childOptions: TasksScreenOptions = {
+      environment: options.window.environment, hotkeyPreferences: options.hotkeyPreferences, onClose: mountListScreen, notify,
+    };
     childScreen = mountTasksSettings(viewHost, facade, childOptions);
     observeDragRegion();
   }
@@ -467,6 +469,7 @@ export function mountTasksApp(
     if (event.kind === 'focus') {
       const becameFocused = !focused && event.focused;
       focused = event.focused; updateMotionAttributes();
+      if (!focused) childScreen?.onWindowBlur?.();
       if (!focused && detailView) void detailView.commitDraft();
       updateTimerDisplays();
       if (becameFocused) scheduleClockStage();

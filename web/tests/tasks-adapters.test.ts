@@ -6,6 +6,7 @@ import { DEFAULT_NOTE_FONT_STATE } from '../src/domain/note-font';
 import { PreviewTasksAdapter, PREVIEW_TASKS_PREFERENCES_KEY, PREVIEW_TASKS_STORAGE_KEY } from '../src/tasks/adapters/preview-tasks';
 import { TasksController } from '../src/tasks/application/controller';
 import { EMPTY_TASK_DOCUMENT, type TaskDocument } from '../src/tasks/domain/model';
+import { HOTKEY_MODIFIERS, shortcutFromKeyEvent } from '../src/domain/hotkey';
 import type { NativeTasksMessage } from '../src/tasks/adapters/native-contract';
 
 function fakeStorage(initial: Record<string, string> = {}): Storage {
@@ -111,6 +112,59 @@ test('native adapter decodes storage and preferences before exposing values', as
   assert.equal((await adapter.preferences.load()).ripeningSpeed, 'normal');
   response = { appearanceTheme: null, pinned: false, soundEnabled: true, motionEnabled: true, ripeningSpeed: 'wild' };
   await assert.rejects(adapter.preferences.load(), /invalid/i);
+});
+
+test('Tasks native hotkey capability maps Cmd-Shift-2, delegates reset, validates wire state, and suppresses during recording', async () => {
+  const requests: NativeTasksMessage[] = [];
+  let response: unknown = { keyCode: 17, modifiers: HOTKEY_MODIFIERS.control | HOTKEY_MODIFIERS.option,
+    display: '⌃⌥T', registered: false, available: true, error: 'registration-failed' };
+  const adapter = new NativeTasksAdapter(eventWindow({ postMessage: async message => { requests.push(message); return response; } }));
+  const initial = await adapter.hotkeyPreferences.load();
+  assert.deepEqual(initial, { keyCode: 17, modifiers: HOTKEY_MODIFIERS.control | HOTKEY_MODIFIERS.option,
+    display: '⌃⌥T', registered: false, available: true, error: 'registration-failed' });
+  assert.deepEqual(requests[0], { action: 'hotkeyPreferences' });
+
+  const recorded = shortcutFromKeyEvent({ code: 'Digit2', metaKey: true, shiftKey: true, altKey: false, ctrlKey: false });
+  assert.deepEqual(recorded, { ok: true, shortcut: { keyCode: 19, modifiers: HOTKEY_MODIFIERS.command | HOTKEY_MODIFIERS.shift } });
+  response = { keyCode: 19, modifiers: HOTKEY_MODIFIERS.command | HOTKEY_MODIFIERS.shift,
+    display: '⇧⌘2', registered: true, available: true, error: null };
+  const updated = await adapter.hotkeyPreferences.set(recorded.shortcut);
+  assert.equal(updated.display, '⇧⌘2');
+  assert.deepEqual(requests[1], { action: 'hotkeyPreferences', shortcut: recorded.shortcut });
+  response = null;
+  await adapter.hotkeyPreferences.setRecording(true);
+  assert.deepEqual(requests[2], { action: 'hotkeyPreferences', recording: true });
+  response = { keyCode: 17, modifiers: HOTKEY_MODIFIERS.control | HOTKEY_MODIFIERS.option,
+    display: '⌃⌥T', registered: true, available: true, error: null };
+  const reset = await adapter.hotkeyPreferences.reset();
+  assert.equal(reset.display, '⌃⌥T');
+  assert.deepEqual(requests[3], { action: 'resetHotkeyPreferences' });
+
+  const beforeInvalid = requests.length;
+  await assert.rejects(adapter.hotkeyPreferences.set({ keyCode: 19, modifiers: HOTKEY_MODIFIERS.shift }), /invalid/i);
+  assert.equal(requests.length, beforeInvalid, 'invalid shortcuts never cross the adapter boundary');
+  assert.equal('hotkeyPreferences' in new PreviewTasksAdapter(new EventTarget() as unknown as Window, fakeStorage()), false,
+    'browser preview must not pretend to register an OS shortcut');
+
+  response = { keyCode: 17, modifiers: HOTKEY_MODIFIERS.control | HOTKEY_MODIFIERS.option,
+    display: '⌃⌥T', registered: true, available: true, error: 'registration-failed' };
+  assert.equal((await adapter.hotkeyPreferences.load()).registered, true, 'a failed replacement can report its retained active shortcut');
+  response = { keyCode: 17, modifiers: HOTKEY_MODIFIERS.control | HOTKEY_MODIFIERS.option,
+    display: '⌃⌥T', registered: false, available: false, error: 'verification-profile' };
+  assert.equal((await adapter.hotkeyPreferences.load()).available, false, 'verification profiles stay unavailable');
+
+  for (const invalid of [
+    { keyCode: 19, modifiers: 768, display: '⇧⌘2', registered: true, available: false, error: null },
+    { keyCode: 19, modifiers: 768, display: '⇧⌘2', registered: false, available: true, error: null },
+    { keyCode: 19, modifiers: 768, display: '⇧⌘2', registered: false, available: true, error: 'registration-unavailable' },
+    { keyCode: 19, modifiers: 768, display: '⇧⌘2', registered: false, available: false, error: 'registration-failed' },
+    { keyCode: 19, modifiers: 768, display: '⇧⌘2', registered: true, available: true, error: 'verification-profile' },
+    { keyCode: 19, modifiers: 768, display: '⇧⌘2', registered: true, available: true, error: 'OSStatus 123' },
+    { keyCode: 19, modifiers: 768, display: '⇧⌘2', registered: true, available: true, error: null, providerValue: 'secret' },
+  ]) {
+    response = invalid;
+    await assert.rejects(adapter.hotkeyPreferences.load(), /invalid/i);
+  }
 });
 
 test('native window boundary drops malformed events and rejects invalid remote payloads', async () => {

@@ -1,3 +1,4 @@
+import type { RecordedShortcut } from '../../domain/hotkey';
 import type { TaskDocument } from '../domain/model';
 
 /** Effects owned by the Tasks companion, never by the Notes or Viewer runtime. */
@@ -23,6 +24,22 @@ export interface TasksPreferences {
 export interface TasksPreferencesPort {
   load(): Promise<TasksPreferences>;
   save(preferences: TasksPreferences): Promise<TasksPreferences>;
+}
+
+export type TasksHotkeyError = 'registration-unavailable' | 'registration-failed' | 'verification-profile';
+export interface TasksHotkeyState extends RecordedShortcut {
+  display: string;
+  registered: boolean;
+  available: boolean;
+  error?: TasksHotkeyError | null;
+}
+export interface TasksHotkeyPreferencesPort {
+  load(): Promise<TasksHotkeyState>;
+  set(shortcut: RecordedShortcut): Promise<TasksHotkeyState>;
+  /** Restore the native default (Control-Option-T) without duplicating native key constants in UI. */
+  reset(): Promise<TasksHotkeyState>;
+  /** Suppress only the show/hide callback; call false on commit, cancel, blur, and disposal. The OS binding stays active. */
+  setRecording(recording: boolean): Promise<void>;
 }
 
 export interface TodoistReference {
@@ -88,6 +105,8 @@ export interface TasksPorts {
   identities: IdentitySource;
   store: TaskStore;
   preferences: TasksPreferencesPort;
+  /** Browser preview omits this OS-only capability. */
+  hotkeyPreferences?: TasksHotkeyPreferencesPort;
   todoist: TodoistPort;
   calendar: CalendarPort;
   window: TasksWindowPort;

@@ -5,16 +5,17 @@ import { JSDOM } from 'jsdom';
 import { TasksController, DEFAULT_TASKS_PREFERENCES } from '../src/tasks/application/controller';
 import type {
   CalendarAppointment, CalendarAuthorization, CalendarBlockDraft, CalendarPort, CaptureProject, CapturedTask, Clock, IdentitySource,
-  PlanningCalendar, SaveTasksResult, TasksPorts, TasksPreferences, TasksPreferencesPort, TasksWindowEvent, TasksWindowPort,
-  TaskStore, TodoistConnection, TodoistPort,
+  PlanningCalendar, SaveTasksResult, TasksHotkeyPreferencesPort, TasksHotkeyState, TasksPorts, TasksPreferences, TasksPreferencesPort,
+  TasksWindowEvent, TasksWindowPort, TaskStore, TodoistConnection, TodoistPort,
 } from '../src/tasks/application/ports';
+import { HOTKEY_MODIFIERS } from '../src/domain/hotkey';
 import type { NoteFontState } from '../src/domain/note-font';
 import { DEFAULT_NOTE_FONT_STATE } from '../src/domain/note-font';
 import type { TaskDocument } from '../src/tasks/domain/model';
 
 registerHooks({
   load(url, context, nextLoad) {
-    if (url.endsWith('/tasks/ui/settings.css') || url.endsWith('/tasks/ui/planning.css')) {
+    if (url.endsWith('/tasks/ui/settings.css') || url.endsWith('/tasks/ui/planning.css') || url.endsWith('/tasks/ui/detail.css') || url.endsWith('/tasks/ui/tag-picker.css')) {
       return { format: 'module', source: 'export {};', shortCircuit: true };
     }
     return nextLoad(url, context);
@@ -92,14 +93,18 @@ function harness(options: HarnessOptions = {}) {
   };
 }
 
-function mount(app: ReturnType<typeof harness>, fontState: NoteFontState = DEFAULT_NOTE_FONT_STATE) {
+function mount(
+  app: ReturnType<typeof harness>,
+  fontState: NoteFontState = DEFAULT_NOTE_FONT_STATE,
+  hotkeyPreferences?: TasksHotkeyPreferencesPort,
+) {
   const dom = new JSDOM('<!doctype html><html><body><div id="app" aria-busy="true"></div></body></html>', {
     url: 'http://localhost/tasks.html', pretendToBeVisual: true,
   });
   const root = dom.window.document.querySelector<HTMLElement>('#app')!;
   const previousDocument = globalThis.document;
   Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
-  const screen = mountTasksApp(root, app.controller, { window: app.windowPort, fontState });
+  const screen = mountTasksApp(root, app.controller, { window: app.windowPort, fontState, hotkeyPreferences });
   const close = dom.window.close.bind(dom.window);
   Object.defineProperty(dom.window, 'close', { configurable: true, value: () => {
     close(); Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
@@ -214,6 +219,69 @@ test('list capture, detail edits, timers, progress, undo, waiting, compost and r
   }
 });
 
+test('tag chips and pending queries stay local through rerenders and native flush saves the draft', async () => {
+  const app = harness();
+  const { dom, root, screen } = mount(app);
+  try {
+    await app.controller.initialize();
+    const target = await app.controller.create({ title: 'Tag draft target' });
+    const source = await app.controller.create({ title: 'Tag catalog source', tags: ['Known tag'] });
+    assert.equal(target.kind, 'applied');
+    assert.equal(source.kind, 'applied');
+    if (target.kind !== 'applied') return;
+    click(root, `[data-task-id="${target.value.taskID}"] .tasks-row-title`);
+    await until(() => root.querySelector('.tasks-detail-title') !== null, 'Tag detail did not open.');
+    const input = root.querySelector<HTMLInputElement>('.tasks-tag-picker-input')!;
+    const baselineSaves = app.saveCalls;
+
+    input.focus(); input.click();
+    const known = [...root.ownerDocument.body.querySelectorAll<HTMLElement>('.tasks-tag-picker-option')]
+      .find(option => option.querySelector('.tasks-tag-picker-option-label')?.textContent === 'Known tag');
+    assert.ok(known, 'catalog suggestion is available');
+    const suggestionMouseDown = new dom.window.MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    known.dispatchEvent(suggestionMouseDown);
+    assert.equal(suggestionMouseDown.defaultPrevented, true, 'suggestion interaction retains input focus');
+    assert.equal(dom.window.document.activeElement, input);
+    known.click();
+    assert.deepEqual(app.controller.queryTaskDetail(target.value.taskID)?.tags, [], 'selection edits only the draft');
+    assert.equal(app.saveCalls, baselineSaves, 'selection does not save on input blur');
+    const remove = root.querySelector<HTMLButtonElement>('[aria-label="Remove tag Known tag"]')!;
+    remove.focus();
+    assert.equal(dom.window.document.activeElement, remove, 'the remove chip is reachable within the tag editor');
+    assert.equal(app.saveCalls, baselineSaves, 'focus moving from input to chip does not save');
+    remove.click();
+    assert.equal(app.saveCalls, baselineSaves, 'chip removal does not save while focus remains in the tag editor');
+
+    input.value = 'New local tag'; input.dispatchEvent(event(dom, 'input'));
+    input.focus();
+    await app.controller.updatePreferences({ pinned: true });
+    assert.equal(input.value, 'New local tag', 'controller rerender preserves the query');
+    assert.equal(dom.window.document.activeElement, input, 'controller rerender preserves editor focus');
+    assert.match(root.querySelector('.tasks-draft-status')?.textContent ?? '', /Unsaved changes/);
+
+    app.emit({ kind: 'flush', requestID: 'flush-tags' });
+    await until(() => app.acknowledgements.some(ack => ack.requestID === 'flush-tags'), 'Tag draft flush was not acknowledged.');
+    assert.equal(app.acknowledgements.find(ack => ack.requestID === 'flush-tags')?.saved, true);
+    assert.deepEqual(app.controller.queryTaskDetail(target.value.taskID)?.tags, ['New local tag']);
+    assert.equal(input.value, '', 'flush chips pending query text before the save');
+    assert.equal(app.saveCalls, baselineSaves + 1, 'flush persists the complete tag draft once');
+
+    input.focus(); input.value = 'Blur saved tag'; input.dispatchEvent(event(dom, 'input'));
+    root.querySelector<HTMLTextAreaElement>('.tasks-detail-notes')!.focus();
+    await until(() => app.controller.queryTaskDetail(target.value.taskID)?.tags.includes('Blur saved tag') === true,
+      'leaving the tag editor did not chip and save its pending query');
+    assert.equal(app.saveCalls, baselineSaves + 2);
+
+    input.focus(); input.value = 'Explicitly saved tag'; input.dispatchEvent(event(dom, 'input'));
+    click(root, '.tasks-save-button');
+    await until(() => app.controller.queryTaskDetail(target.value.taskID)?.tags.includes('Explicitly saved tag') === true,
+      'explicit Save did not commit the pending tag query');
+    assert.equal(app.saveCalls, baselineSaves + 3, 'blur and explicit Save share one draft commit each');
+  } finally {
+    screen.dispose(); app.controller.dispose(); dom.window.close();
+  }
+});
+
 test('native flush commits a valid detail draft first and leaves an invalid draft explicitly unsaved', async () => {
   const app = harness();
   const { dom, root, screen } = mount(app);
@@ -300,6 +368,43 @@ test('clipboard bridge enforces its 100k text limit without hiding or chunking p
     await settle();
     assert.equal(app.copied.length, copyCount, 'oversized content is not sent through the native bridge');
     assert.ok(json.value.length > 100_000, 'the full recovery JSON remains available for selection');
+  } finally {
+    screen.dispose(); app.controller.dispose(); dom.window.close();
+  }
+});
+
+test('native focus loss cancels the Settings recorder even when the DOM window does not blur', async () => {
+  const app = harness();
+  const calls: boolean[] = [];
+  const confirmed: TasksHotkeyState = {
+    keyCode: 17,
+    modifiers: HOTKEY_MODIFIERS.control | HOTKEY_MODIFIERS.option,
+    display: '⌃⌥T',
+    registered: true,
+    available: true,
+    error: null,
+  };
+  const hotkeys: TasksHotkeyPreferencesPort = {
+    load: async () => confirmed,
+    set: async () => confirmed,
+    reset: async () => confirmed,
+    setRecording: async recording => { calls.push(recording); },
+  };
+  const { dom, root, screen } = mount(app, DEFAULT_NOTE_FONT_STATE, hotkeys);
+  let browserBlurred = false;
+  dom.window.addEventListener('blur', () => { browserBlurred = true; });
+  try {
+    await app.controller.initialize();
+    app.emit({ kind: 'command', command: 'settings' });
+    await until(() => root.querySelector<HTMLButtonElement>('[data-action="record-hotkey"]')?.textContent === '⌃⌥T', 'Settings recorder did not load.');
+    root.querySelector<HTMLButtonElement>('[data-action="record-hotkey"]')!.click();
+    await until(() => root.querySelector<HTMLButtonElement>('[data-action="record-hotkey"]')?.dataset.recording === 'true', 'Recorder did not start.');
+
+    app.emit({ kind: 'focus', focused: false });
+    await until(() => calls.length === 2 && calls[1] === false, 'Native focus loss did not release recording suppression.');
+    assert.deepEqual(calls, [true, false]);
+    assert.ok(root.querySelector('.tasks-settings'), 'Settings remains mounted after native focus loss.');
+    assert.equal(browserBlurred, false, 'the native focus event is the only blur signal in this test.');
   } finally {
     screen.dispose(); app.controller.dispose(); dom.window.close();
   }

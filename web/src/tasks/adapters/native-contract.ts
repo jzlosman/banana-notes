@@ -1,6 +1,7 @@
 import type {
   CalendarBlockDraft, TasksPreferences, TodoistReference,
 } from '../application/ports';
+import type { RecordedShortcut } from '../../domain/hotkey';
 import type { TaskDocument } from '../domain/model';
 
 /** WKScriptMessageHandlerWithReply, registered only for the bundled Tasks page. */
@@ -11,6 +12,10 @@ export type NativeTasksMessage =
   | { action: 'saveTasks'; expectedRevision: string; document: TaskDocument }
   | { action: 'loadPreferences' }
   | { action: 'savePreferences'; preferences: TasksPreferences }
+  | { action: 'hotkeyPreferences'; shortcut?: never; recording?: never }
+  | { action: 'resetHotkeyPreferences' }
+  | { action: 'hotkeyPreferences'; shortcut: RecordedShortcut; recording?: never }
+  | { action: 'hotkeyPreferences'; recording: boolean; shortcut?: never }
   | { action: 'todoistConnection' }
   | { action: 'connectTodoist'; token: string }
   | { action: 'disconnectTodoist' }

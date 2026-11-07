@@ -11,7 +11,8 @@ final class TasksApplicationRuntime {
     private let documents: TasksLocalDocumentStore
     private let windowController: TasksWindowController
     private let menu: TasksMenuController
-    private let hotkey = TasksGlobalHotkeyService()
+    private let hotkey: TasksGlobalHotkeyService
+    private let hotkeyCoordinator: TasksHotkeyCoordinator
     private let application: TasksApplication
     private let bridge: TasksBridgeRouter
 
@@ -27,29 +28,36 @@ final class TasksApplicationRuntime {
         let todoist: TodoistPort
         let calendar: CalendarPort
         let clipboard: TasksClipboardPort
+        let mayRegisterGlobalHotkey: Bool
         switch profile {
         case .production:
             defaults = .standard
             todoist = TodoistAdapter()
             calendar = CalendarAdapter()
             clipboard = PasteboardTasksClipboard()
+            mayRegisterGlobalHotkey = true
         case let .verification(_, preferencesSuiteName):
             guard let suite = UserDefaults(suiteName: preferencesSuiteName) else { throw TasksFailure.invalidProfile }
             defaults = suite
             todoist = VerificationTodoistPort()
             calendar = VerificationCalendarPort()
             clipboard = VerificationClipboard()
+            mayRegisterGlobalHotkey = false
         }
+        hotkey = TasksGlobalHotkeyService()
+        hotkeyCoordinator = TasksHotkeyCoordinator(
+            preferences: UserDefaultsTasksHotkeyPreferences(defaults: defaults),
+            registrar: hotkey, registrationAllowed: mayRegisterGlobalHotkey)
         preferences = UserDefaultsTasksPreferences(defaults: defaults, catalog: catalog)
         application = TasksApplication(documents: documents, preferences: preferences, todoist: todoist, calendar: calendar)
         let initialPreferences = preferences.load()
         windowController = TasksWindowController(webDirectory: webDirectory, catalog: catalog, preferences: initialPreferences)
-        bridge = TasksBridgeRouter(application: application, clipboard: clipboard)
+        bridge = TasksBridgeRouter(application: application, hotkeys: hotkeyCoordinator, clipboard: clipboard)
         windowController.router = bridge
         bridge.onFlushAcknowledged = { [weak windowController] in windowController?.acknowledgeFlush(requestID: $0, saved: $1) }
         bridge.onDragRegion = { [weak windowController] in windowController?.setDragRegion($0) ?? false }
         bridge.onPreferencesSaved = { [weak windowController] in windowController?.applyPreferences($0) }
-        menu = TasksMenuController(isPinned: initialPreferences.pinned)
+        menu = TasksMenuController(isPinned: initialPreferences.pinned, hotkeyState: hotkeyCoordinator.state)
     }
 
     func start() {
@@ -60,8 +68,14 @@ final class TasksApplicationRuntime {
             NSWorkspace.shared.open(self.dataDirectory)
         }
         windowController.onPinnedChange = { [weak menu] in menu?.updatePinned($0) }
-        hotkey.onHotkey = { [weak windowController] in windowController?.toggleVisibility() }
-        _ = hotkey.register()
+        windowController.onFocusChange = { [weak hotkeyCoordinator] focused in
+            if !focused { hotkeyCoordinator?.setRecording(false) }
+        }
+        hotkeyCoordinator.onChange = { [weak menu] state in menu?.updateHotkey(state) }
+        hotkey.onHotkey = { [weak windowController, weak hotkeyCoordinator] in
+            hotkeyCoordinator?.handleHotkey { windowController?.toggleVisibility() }
+        }
+        _ = hotkeyCoordinator.registerInitial()
         windowController.show()
     }
 
@@ -72,7 +86,7 @@ final class TasksApplicationRuntime {
     }
 
     func shutdown() {
-        hotkey.unregister()
+        hotkeyCoordinator.unregister()
         windowController.shutdown()
         bridge.onFlushAcknowledged = nil
         bridge.onDragRegion = nil

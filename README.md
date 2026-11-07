@@ -73,6 +73,17 @@ open "build/Banana Viewer.app"
 
 Build the companion from source, or use its [independent release process](docs/viewer-releases.md). Viewer has its own version, logo, and `viewer-v…` release tags; Banana Notes downloads and its update feed stay separate.
 
+## Banana Tasks companion
+
+[Banana Tasks](docs/tasks.md) is a separate local-first Mac app for personal to-dos: individual tags, task age and effort, playful ripening, and a floating hotkey/pinned window. It shares the 32-theme catalog, not the Notes library or settings. Optional Todoist phone capture connects directly to Todoist; calendar time blocks use macOS Calendar access. No server of your own is required.
+
+```sh
+npm run build:tasks
+open "build/Banana Tasks.app"
+```
+
+The companion is built from source and locally ad-hoc signed; it is not part of the Banana Notes release download.
+
 ## Feature tour
 
 <a id="focus-fade"></a>

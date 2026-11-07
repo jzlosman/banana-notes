@@ -1,0 +1,11 @@
+/* Detail-specific label layout for the tag picker field. */
+.tasks-detail-summary .tasks-detail-tags-label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}

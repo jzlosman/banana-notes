@@ -1,14 +1,22 @@
 import Foundation
 
-/// Pure design geometry and colours shared by Banana Notes and Banana Viewer renderings.
+/// Pure design geometry and colours shared by the Banana companion renderings.
 /// Coordinates use a top-left origin, positive y down, and the approved 48-unit grid.
 enum BananaMark {
     enum Product: String {
         case notes
         case viewer
+        case tasks
 
-        var title: String { self == .notes ? "Banana Notes" : "Banana Viewer" }
-        var wordmarkSuffix: String { self == .notes ? "notes" : "viewer" }
+        var title: String {
+            switch self {
+            case .notes: return "Banana Notes"
+            case .viewer: return "Banana Viewer"
+            case .tasks: return "Banana Tasks"
+            }
+        }
+        var wordmarkSuffix: String { rawValue }
+        var assetDirectory: String { self == .notes ? "brand" : "\(rawValue)-brand" }
     }
 
     struct Point: Equatable {
@@ -107,6 +115,16 @@ enum BananaMark {
         WritingLine(start: Point(x: 17.8, y: 23.6), end: Point(x: 28, y: 23.6)),
         WritingLine(start: Point(x: 17.8, y: 29.1), end: Point(x: 23.5, y: 29.1))
     ]
+
+    static let tasksCheckLayer = Layer(commands: [
+        .move(Point(x: 16.5, y: 23.5)), .line(Point(x: 21.3, y: 28.2)),
+        .line(Point(x: 30.5, y: 18.7))
+    ], fill: nil, stroke: Color.espresso, strokeWidth: 2.3)
+
+    static let tasksMenuCheckLayer = Layer(commands: [
+        .move(Point(x: 6.2, y: 8.6)), .line(Point(x: 8.3, y: 10.8)),
+        .line(Point(x: 12.2, y: 6.8))
+    ], fill: nil, stroke: Color.glyph, strokeWidth: 1.5)
 
     static let menuBarLayers: [Layer] = [
         Layer(commands: [

@@ -6,10 +6,14 @@ enum BananaMarkRenderer {
         draw(layers: outlined ? BananaMark.standaloneMarkLayers : BananaMark.noteLayers,
              in: bounds, designSize: BananaMark.noteSize, rotated: true)
         if product == .viewer { drawWritingLines(in: bounds) }
+        if product == .tasks {
+            draw(layers: [BananaMark.tasksCheckLayer], in: bounds, designSize: BananaMark.noteSize, rotated: true)
+        }
     }
 
-    static func drawMenuGlyph(in bounds: NSRect) {
-        draw(layers: BananaMark.menuBarLayers, in: bounds, designSize: BananaMark.menuBarCanvasSize, rotated: false)
+    static func drawMenuGlyph(in bounds: NSRect, product: BananaMark.Product = .notes) {
+        let detail = product == .tasks ? [BananaMark.tasksMenuCheckLayer] : []
+        draw(layers: BananaMark.menuBarLayers + detail, in: bounds, designSize: BananaMark.menuBarCanvasSize, rotated: false)
     }
 
     static func drawAppIcon(in bounds: NSRect, product: BananaMark.Product = .notes) {

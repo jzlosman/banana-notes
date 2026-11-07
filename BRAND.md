@@ -82,3 +82,9 @@ The reader is the hero; we're the guide. Talk about what they're doing, not abou
 Banana Viewer keeps the same note shape, tilt, colors, and lowercase Space Mono wordmark, adding three document lines inside the note and using **banana** viewer. Its source is the same shared geometry and generator, selected with `bash scripts/build-icons.sh viewer`; its assets live in [`assets/viewer-brand/`](assets/viewer-brand/).
 
 The standalone `mark.svg` and all Viewer wordmark variants have transparent backgrounds: no cocoa square behind the mark. The rounded cocoa tile belongs only to `app-icon.svg`, `app-icon-1024.png`, and the macOS `AppIcon.icns`. Use `logo.svg` on light backgrounds and `logo-dark.svg` on dark ones. Viewer branding does not alter the Banana Notes assets or defaults.
+
+## Banana Tasks companion
+
+Banana Tasks preserves the same note geometry, tilt, colors, and lowercase Space Mono lockup, with a check inside the note and the suffix **tasks**. Generate its assets with `bash scripts/build-icons.sh tasks`; they live in `assets/tasks-brand/`. Its menu-bar glyph includes the same check so the companion can be distinguished from Notes. Standalone marks and lockups remain transparent; cocoa tiles belong to app icons only.
+
+The Tasks interface deliberately permits the user-requested playful ripening states and tactile completion feedback. That companion-specific expression does not change Notes’ copy, motion, assets, or theme defaults. All selectable application palettes remain available; brand yellow is not forced onto every theme.

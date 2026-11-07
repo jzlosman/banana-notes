@@ -16,8 +16,10 @@ struct BananaBrandAssetsSelfTest {
         }
         let notesDirectory = root.appendingPathComponent("assets/brand", isDirectory: true)
         let viewerDirectory = root.appendingPathComponent("assets/viewer-brand", isDirectory: true)
+        let tasksDirectory = root.appendingPathComponent("assets/tasks-brand", isDirectory: true)
         let notes = try BananaBrandSVG.generatedFiles(repositoryRoot: root)
         let viewer = try BananaBrandSVG.generatedFiles(repositoryRoot: root, product: .viewer)
+        let tasks = try BananaBrandSVG.generatedFiles(repositoryRoot: root, product: .tasks)
         let notesNames: Set<String> = [
             "app-icon.svg", "mark.svg", "mark-on-cocoa.svg", "logo.svg", "logo-dark.svg", "logo-on-cocoa.svg", "menu-bar.svg"
         ]
@@ -26,6 +28,7 @@ struct BananaBrandAssetsSelfTest {
         ]
         precondition(Set(notes.keys) == notesNames, "Notes must retain its existing generated SVG set")
         precondition(Set(viewer.keys) == viewerNames, "Viewer must generate its own bounded SVG set")
+        precondition(Set(tasks.keys) == viewerNames.union(["menu-bar.svg"]), "Tasks must have its own bounded SVG set and menu glyph")
 
         for (name, expected) in notes {
             let actual = try Data(contentsOf: notesDirectory.appendingPathComponent(name))
@@ -35,6 +38,20 @@ struct BananaBrandAssetsSelfTest {
             let actual = try Data(contentsOf: viewerDirectory.appendingPathComponent(name))
             precondition(actual == Data(expected.utf8), "Viewer SVG drifted from the shared generator: \(name)")
         }
+
+        for (name, expected) in tasks {
+            let actual = try Data(contentsOf: tasksDirectory.appendingPathComponent(name))
+            precondition(actual == Data(expected.utf8), "Tasks SVG drifted from the shared generator: \(name)")
+        }
+        let taskCheck = "M16.5 23.5 L21.3 28.2 L30.5 18.7"
+        for name in ["mark.svg", "logo.svg", "logo-dark.svg", "logo-on-cocoa.svg"] {
+            let svg = tasks[name]!
+            precondition(svg.contains("<title>Banana Tasks</title>") && svg.contains(taskCheck), "Tasks assets must carry the shared task check")
+            precondition(!svg.contains("<rect"), "Tasks lockups must be transparent")
+        }
+        precondition(tasks["menu-bar.svg"] != notes["menu-bar.svg"], "Tasks needs a distinguishable menu-bar glyph")
+        precondition(BananaMark.Product.tasks.wordmarkSuffix == "tasks" && wordmarkPathCount(tasks["logo.svg"]!) == 11,
+                     "Tasks must use the lowercase Space Mono companion wordmark")
 
         let approvedLines = ##"<path d="M17.8 18.1H30M17.8 23.6H28M17.8 29.1H23.5" fill="none" stroke="#2E1D12" stroke-width="1.65" stroke-linecap="round"/>"##
         let mark = viewer["mark.svg"]!
@@ -57,7 +74,7 @@ struct BananaBrandAssetsSelfTest {
         precondition(wordmarkPathCount(notes["logo.svg"]!) == 11 && wordmarkPathCount(viewer["logo.svg"]!) == 12,
                      "generated wordmarks must outline banana plus the selected Space Mono suffix")
         try assertRasterWritingLinesRemainVisible()
-        print("Brand checks passed (Notes output unchanged, approved Viewer mark and wordmark, transparent logos, legible icon)")
+        print("Brand checks passed (Notes/Viewer unchanged, Tasks identity, transparent logos, legible companion icons)")
     }
 
     private static func wordmarkPathCount(_ svg: String) -> Int {
@@ -74,9 +91,11 @@ struct BananaBrandAssetsSelfTest {
         for side in [32, 64] {
             let notes = renderIcon(side: side, product: .notes)
             let viewer = renderIcon(side: side, product: .viewer)
+            let tasks = renderIcon(side: side, product: .tasks)
             let notesInk = darkPixelCount(notes)
             let viewerInk = darkPixelCount(viewer)
             precondition(viewerInk > notesInk, "Viewer writing lines must survive rasterization at \(side)px")
+            precondition(darkPixelCount(tasks) > notesInk, "Tasks check must survive rasterization at \(side)px")
         }
     }
 

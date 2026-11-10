@@ -42,6 +42,16 @@ final class TasksBridgeRouter {
                 case .conflict: reply(["kind": "conflict"], nil)
                 }
             } catch { fail(reply, error) }
+        case .inspectTasksRecovery:
+            reply(Self.recoveryValue(application.inspectTasksRecovery()), nil)
+        case let .restoreTasksBackup(expectedPrimaryRevision, expectedBackupRevision):
+            do {
+                switch try application.restoreTasksBackup(expectedPrimaryRevision: expectedPrimaryRevision,
+                                                          expectedBackupRevision: expectedBackupRevision) {
+                case .restored: reply(["kind": "restored"], nil)
+                case .conflict: reply(["kind": "conflict"], nil)
+                }
+            } catch { fail(reply, error) }
         case .loadPreferences:
             reply(preferencesValue(application.loadPreferences()), nil)
         case let .savePreferences(value):
@@ -126,6 +136,25 @@ final class TasksBridgeRouter {
     private func fail(_ reply: @escaping (Any?, String?) -> Void, _ error: Error) {
         let safe = error as? TasksFailure ?? .unavailable
         reply(nil, safe.localizedDescription)
+    }
+
+    private static func recoveryValue(_ value: TasksRecoveryInspection) -> [String: Any] {
+        switch value {
+        case .unavailable:
+            return ["kind": "unavailable"]
+        case .unsupportedVersion:
+            return ["kind": "unsupported-version"]
+        case let .candidate(primary, backup):
+            let primaryValue: [String: Any]
+            switch primary {
+            case .missing:
+                primaryValue = ["kind": "missing"]
+            case let .present(revision, document):
+                primaryValue = ["kind": "present", "revision": revision, "document": document]
+            }
+            return ["kind": "candidate", "primary": primaryValue,
+                    "backup": ["revision": backup.revision, "document": backup.document, "savedAt": backup.savedAt]]
+        }
     }
 
     private func preferencesValue(_ value: TasksPreferences) -> [String: Any] {

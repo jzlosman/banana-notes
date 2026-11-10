@@ -49,7 +49,8 @@ final class TasksApplicationRuntime {
             preferences: UserDefaultsTasksHotkeyPreferences(defaults: defaults),
             registrar: hotkey, registrationAllowed: mayRegisterGlobalHotkey)
         preferences = UserDefaultsTasksPreferences(defaults: defaults, catalog: catalog)
-        application = TasksApplication(documents: documents, preferences: preferences, todoist: todoist, calendar: calendar)
+        application = TasksApplication(documents: documents, preferences: preferences, todoist: todoist, calendar: calendar,
+                                       recovery: documents)
         let initialPreferences = preferences.load()
         windowController = TasksWindowController(webDirectory: webDirectory, catalog: catalog, preferences: initialPreferences)
         bridge = TasksBridgeRouter(application: application, hotkeys: hotkeyCoordinator, clipboard: clipboard)

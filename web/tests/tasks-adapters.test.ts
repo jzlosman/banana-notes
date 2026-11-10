@@ -71,7 +71,8 @@ test('browser persistence exceptions surface as recovery rather than silently be
   assert.equal(state.kind, 'recovery');
   if (state.kind === 'recovery') {
     assert.equal(state.reason, 'loadFailed');
-    assert.match(state.message, /Synthetic browser storage denial/);
+    assert.match(state.message, /does not provide.*recovery capability/i);
+    assert.doesNotMatch(state.message, /Synthetic browser storage denial/);
   }
   controller.dispose();
 });
@@ -106,7 +107,8 @@ test('native adapter decodes storage and preferences before exposing values', as
   const adapter = new NativeTasksAdapter(eventWindow(handler));
   assert.deepEqual(await adapter.store.load(), { kind: 'ready', document: null, revision: 'revision-1' });
   response = { kind: 'ready', document: { ...EMPTY_TASK_DOCUMENT, extra: 'not supported' }, revision: 'revision-1' };
-  await assert.rejects(adapter.store.load(), /invalid/i);
+  assert.deepEqual(await adapter.store.load(), { kind: 'ready', document: { ...EMPTY_TASK_DOCUMENT, extra: 'not supported' }, revision: 'revision-1' },
+    'native wire decoding leaves semantic document validation to the application boundary');
 
   response = { appearanceTheme: null, pinned: false, soundEnabled: true, motionEnabled: true, ripeningSpeed: 'normal' };
   assert.equal((await adapter.preferences.load()).ripeningSpeed, 'normal');

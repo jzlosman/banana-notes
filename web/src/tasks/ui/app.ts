@@ -12,6 +12,7 @@ import { mountTasksList, type MountedTaskList } from './list';
 import { mountTaskDetail, type GlobalTimerReadModel, type MountedTaskDetail } from './detail';
 import { mountTasksSettings } from './settings';
 import { mountTasksPlanning } from './planning';
+import { mountTasksRecovery, type MountedTasksRecovery } from './recovery';
 import { observeWindowDragRegion } from '../../ui/window-drag';
 import { playCompletionSound } from './feedback';
 import type { MountedTasksScreen, TasksScreenOptions } from './contracts';
@@ -67,10 +68,12 @@ export function mountTasksApp(
   root.replaceChildren(viewHost, globalAlerts, announcer);
 
   let state: TasksState = facade.getState();
-  let currentScreen: 'list' | 'detail' | 'settings' | 'planning' = 'list';
+  root.setAttribute('aria-busy', String(state.kind === 'loading'));
+  let currentScreen: 'list' | 'detail' | 'settings' | 'planning' | 'recovery' = 'list';
   let listView: MountedTaskList | null = null;
   let detailView: MountedTaskDetail | null = null;
   let childScreen: MountedTasksScreen | null = null;
+  let recoveryView: MountedTasksRecovery | null = null;
   let detailTaskID: string | null = null;
   let lastTaskID: string | null = null;
   let completionOverlay: HTMLElement | null = null;
@@ -167,7 +170,9 @@ export function mountTasksApp(
 
   function updateCurrentView(): void {
     if (disposed) return;
-    if (currentScreen === 'list') {
+    if (currentScreen === 'recovery') {
+      if (state.kind === 'recovery') recoveryView?.update(state);
+    } else if (currentScreen === 'list') {
       listView?.update(state);
       if (state.kind === 'ready') listView?.setPinState(state.preferences.pinned, pendingTaskActions.has('@preferences'));
     } else if (currentScreen === 'detail') {
@@ -388,10 +393,11 @@ export function mountTasksApp(
     listView?.dispose(); listView = null;
     detailView?.dispose(); detailView = null;
     childScreen?.dispose(); childScreen = null;
+    recoveryView?.dispose(); recoveryView = null;
   }
 
   function mountListScreen(): void {
-    if (disposed) return;
+    if (disposed || state.kind === 'recovery') return;
     disposeMountedView(); currentScreen = 'list'; detailTaskID = null;
     const callbacks = {
       create: (title: string) => perform('@capture', 'capture', () => facade.create({ title })),
@@ -408,8 +414,15 @@ export function mountTasksApp(
     observeDragRegion();
   }
 
+  function mountRecoveryScreen(recovery: Extract<TasksState, { kind: 'recovery' }>): void {
+    if (disposed) return;
+    disposeMountedView(); currentScreen = 'recovery'; detailTaskID = null;
+    recoveryView = mountTasksRecovery(viewHost, facade, recovery);
+    observeDragRegion();
+  }
+
   async function openDetail(taskID: string): Promise<void> {
-    if (disposed || currentScreen === 'detail' && detailTaskID === taskID) return;
+    if (disposed || currentScreen === 'recovery' || currentScreen === 'detail' && detailTaskID === taskID) return;
     if (detailView && !(await detailView.commitDraft())) return;
     disposeMountedView(); currentScreen = 'detail'; detailTaskID = taskID; lastTaskID = taskID;
     detailView = mountTaskDetail(viewHost, facade, taskID, {
@@ -424,7 +437,7 @@ export function mountTasksApp(
   }
 
   async function openSettings(): Promise<void> {
-    if (disposed) return;
+    if (disposed || currentScreen === 'recovery') return;
     if (detailView && !(await detailView.commitDraft())) return;
     disposeMountedView(); currentScreen = 'settings'; detailTaskID = null;
     const childOptions: TasksScreenOptions = {
@@ -435,7 +448,7 @@ export function mountTasksApp(
   }
 
   async function openPlanning(): Promise<void> {
-    if (disposed) return;
+    if (disposed || currentScreen === 'recovery') return;
     if (detailView && !(await detailView.commitDraft())) return;
     disposeMountedView(); currentScreen = 'planning'; detailTaskID = null;
     const childOptions: TasksScreenOptions = { environment: options.window.environment, onClose: mountListScreen, notify };
@@ -444,6 +457,7 @@ export function mountTasksApp(
   }
 
   function showMainForNewTask(): void {
+    if (currentScreen === 'recovery') return;
     if (currentScreen === 'list') { listView?.focusCapture(); return; }
     if (detailView) { void detailView.commitDraft().then(saved => { if (saved) { mountListScreen(); listView?.focusCapture(); } }); return; }
     mountListScreen(); listView?.focusCapture();
@@ -475,6 +489,7 @@ export function mountTasksApp(
       if (becameFocused) scheduleClockStage();
       return;
     }
+    if (currentScreen === 'recovery') return;
     switch (event.command) {
       case 'newTask': showMainForNewTask(); break;
       case 'settings': void openSettings(); break;
@@ -494,6 +509,12 @@ export function mountTasksApp(
     root.setAttribute('aria-busy', String(next.kind === 'loading'));
     updateMotionAttributes();
     updateAppearance(next);
+    if (next.kind === 'recovery') {
+      if (currentScreen === 'recovery') recoveryView?.update(next);
+      else mountRecoveryScreen(next);
+    } else if (currentScreen === 'recovery' && next.kind === 'ready') {
+      mountListScreen();
+    }
     if (next.kind === 'ready' && !fontApplied) {
       fontApplied = true;
       void applyNoteFont(document.documentElement, options.fontState, () => !disposed)
@@ -562,7 +583,8 @@ export function mountTasksApp(
   persistenceNotice.hidden = true;
   integrationNotice.hidden = true;
   updateMotionAttributes();
-  mountListScreen();
+  if (state.kind === 'recovery') mountRecoveryScreen(state);
+  else mountListScreen();
   const initialization = facade.initialize();
   void initialization.then(applyState).catch(error => notify(error instanceof Error ? error.message : 'Tasks could not be opened.', 'error'));
 

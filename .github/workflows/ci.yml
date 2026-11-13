@@ -17,7 +17,7 @@ jobs:
   verify:
     name: Verify
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
       - name: Keep local artifacts out of source
         run: |
-          forbidden="$(git ls-files -- evidence research build web/dist node_modules assets/AppIcon.iconset assets/viewer-brand/AppIcon.iconset assets/brand-exploration DESIGN.md PRODUCT.md AGENTS.md '.env' '.env.*' '*.pem' '*.key' '*.p12' '*.pfx')"
+          forbidden="$(git ls-files -- evidence research build web/dist node_modules assets/AppIcon.iconset assets/viewer-brand/AppIcon.iconset assets/tasks-brand/AppIcon.iconset assets/brand-exploration DESIGN.md PRODUCT.md AGENTS.md '.env' '.env.*' '*.pem' '*.key' '*.p12' '*.pfx')"
           if [[ -n "$forbidden" ]]; then
             echo '::error::Private or generated artifacts must not be tracked.'
             printf '%s\n' "$forbidden"
@@ -40,7 +40,7 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Typecheck
         run: npm run typecheck
-      - name: Test note and viewer behavior and web adapters
+      - name: Test note, viewer, task behavior and web adapters
         run: npm test
       - name: Build web assets
         run: npm run build:web
@@ -48,6 +48,9 @@ jobs:
         run: |
           bash scripts/native-tests.sh
           npm run test:viewer:native
+          npm run test:tasks:native
+      - name: Test Tasks WebKit integration with isolated ports
+        run: npm run test:tasks:webkit
       - name: Build and verify universal local app
         run: |
           bash scripts/build-app.sh
@@ -58,3 +61,8 @@ jobs:
           bash scripts/build-viewer.sh
           lipo "build/Banana Viewer.app/Contents/MacOS/Banana Viewer" -verify_arch arm64
           lipo "build/Banana Viewer.app/Contents/MacOS/Banana Viewer" -verify_arch x86_64
+      - name: Build and verify universal task companion
+        run: |
+          bash scripts/build-tasks.sh
+          lipo "build/Banana Tasks.app/Contents/MacOS/Banana Tasks" -verify_arch arm64
+          lipo "build/Banana Tasks.app/Contents/MacOS/Banana Tasks" -verify_arch x86_64

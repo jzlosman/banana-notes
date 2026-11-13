@@ -21,19 +21,21 @@ enum BananaBrandSVG {
                 "menu-bar.svg": menuBarSVG()
             ]
         }
-        return [
+        var files = [
             "app-icon.svg": appIconSVG(product: product),
             "mark.svg": markSVG(outlined: true, product: product),
             "logo.svg": logoSVG(wordmark: wordmark, dark: false, product: product),
             "logo-dark.svg": logoSVG(wordmark: wordmark, dark: true, product: product),
             "logo-on-cocoa.svg": logoOnCocoaSVG(wordmark: wordmark, product: product)
         ]
+        if product == .tasks { files["menu-bar.svg"] = menuBarSVG(product: product) }
+        return files
     }
 
     static func exportMarkSVG(side: Double, product: BananaMark.Product = .notes) -> String {
         let box = BananaMark.markViewBox
         let inner = noteLayersSVG(BananaMark.standaloneMarkLayers)
-        let lines = product == .viewer ? viewerWritingLinesSVG() : ""
+        let lines = productDetailSVG(product)
         return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(number(side))\" height=\"\(number(side))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\" aria-hidden=\"true\"><g transform=\"\(noteRotationTransform)\">\(inner)\(lines)</g></svg>"
     }
 
@@ -115,7 +117,7 @@ enum BananaBrandSVG {
         let radius = number(BananaMark.iconTileRadius)
         let canvas = number(BananaMark.iconCanvasSize)
         let layers = noteLayersSVG(BananaMark.noteLayers)
-        let lines = product == .viewer ? viewerWritingLinesSVG() : ""
+        let lines = productDetailSVG(product)
         return """
         <svg xmlns="http://www.w3.org/2000/svg" width="\(canvas)" height="\(canvas)" viewBox="0 0 \(canvas) \(canvas)" role="img">
           <title>\(product.title)</title>
@@ -132,7 +134,7 @@ enum BananaBrandSVG {
     private static func markSVG(outlined: Bool, product: BananaMark.Product) -> String {
         let box = BananaMark.markViewBox
         let layers = noteLayersSVG(outlined ? BananaMark.standaloneMarkLayers : BananaMark.noteLayers)
-        let lines = product == .viewer ? viewerWritingLinesSVG() : ""
+        let lines = productDetailSVG(product)
         return """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))" role="img">
           <title>\(product.title)</title>
@@ -141,11 +143,11 @@ enum BananaBrandSVG {
         """
     }
 
-    private static func menuBarSVG() -> String {
+    private static func menuBarSVG(product: BananaMark.Product = .notes) -> String {
         """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 \(number(BananaMark.menuBarCanvasSize)) \(number(BananaMark.menuBarCanvasSize))" role="img">
-          <title>Banana Notes</title>
-          \(layersSVG(BananaMark.menuBarLayers))
+          <title>\(product.title)</title>
+          \(layersSVG(BananaMark.menuBarLayers + (product == .tasks ? [BananaMark.tasksMenuCheckLayer] : [])))
         </svg>
         """
     }
@@ -158,7 +160,7 @@ enum BananaBrandSVG {
             mark = "<svg x=\"0\" y=\"0\" width=\"\(number(markSize))\" height=\"\(number(markSize))\" viewBox=\"0 0 \(tile) \(tile)\"><rect width=\"\(tile)\" height=\"\(tile)\" rx=\"\(number(BananaMark.iconTileRadius))\" fill=\"\(BananaMark.Color.cocoa)\"/><g transform=\"\(noteRotationTransform)\">\(noteLayersSVG(BananaMark.noteLayers))</g></svg>"
         } else {
             let box = BananaMark.markViewBox
-            let lines = product == .viewer ? viewerWritingLinesSVG() : ""
+            let lines = productDetailSVG(product)
             mark = "<svg x=\"0\" y=\"0\" width=\"\(number(markSize))\" height=\"\(number(markSize))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\"><g transform=\"\(noteRotationTransform)\">\(noteLayersSVG(BananaMark.standaloneMarkLayers))\(lines)</g></svg>"
         }
         let textColor = dark ? BananaMark.Color.cream : BananaMark.Color.ink
@@ -177,8 +179,8 @@ enum BananaBrandSVG {
         let height = wordmark.height + padding * 2
         let markSize = wordmark.height
         let box = BananaMark.markViewBox
-        let markLayers = product == .viewer ? BananaMark.standaloneMarkLayers : BananaMark.noteLayers
-        let lines = product == .viewer ? viewerWritingLinesSVG() : ""
+        let markLayers = product == .notes ? BananaMark.noteLayers : BananaMark.standaloneMarkLayers
+        let lines = productDetailSVG(product)
         let mark = "<svg x=\"0\" y=\"0\" width=\"\(number(markSize))\" height=\"\(number(markSize))\" viewBox=\"\(number(box.x)) \(number(box.y)) \(number(box.width)) \(number(box.height))\"><g transform=\"\(noteRotationTransform)\">\(noteLayersSVG(markLayers))\(lines)</g></svg>"
         let background = product == .notes ? "<rect width=\"100%\" height=\"100%\" fill=\"\(BananaMark.Color.cocoa)\"/>\n  " : ""
         return """
@@ -190,6 +192,14 @@ enum BananaBrandSVG {
           </g>
         </svg>
         """
+    }
+
+    private static func productDetailSVG(_ product: BananaMark.Product) -> String {
+        switch product {
+        case .notes: return ""
+        case .viewer: return viewerWritingLinesSVG()
+        case .tasks: return layersSVG([BananaMark.tasksCheckLayer])
+        }
     }
 
     private static func viewerWritingLinesSVG() -> String {

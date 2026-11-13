@@ -12,8 +12,10 @@ npm run typecheck
 npm test
 bash scripts/native-tests.sh
 npm run test:viewer:native
+npm run test:tasks:native
 npm run build
 npm run build:viewer
+npm run build:tasks
 ```
 
 Create a feature branch and open a pull request against `main`. Include meaningful tests and, for interface changes, screenshots using synthetic notes. The browser preview is available with `npm run dev` after building the web assets. For the static Pages site, run `npm run site:dev` and `cd site && python3 -m http.server 4321` in separate terminals; run `npm run site:build` for a production stylesheet.
@@ -39,6 +41,8 @@ On macOS, `AppDelegate.swift` handles lifecycle callbacks and `NativeApplication
 Dependencies point inward: domain and application rules depend on contracts, while UI and adapters depend on those inner boundaries. To add a native capability, add its wire action and typed `BridgeCommand` case, implement and register a handler, then expose a web capability port and adapter.
 
 The separately installed Banana Viewer companion has its own composition roots in `web/src/viewer/` and `viewer/native/`. It shares Markdown and appearance components at build time, not the notes runtime, library, or preferences. See [the companion guide](docs/viewer.md) for its file-ownership and verification boundaries.
+
+Banana Tasks is another independent companion, composed in `web/src/tasks/main.ts` and `tasks/native/`. Its structured task model owns lifecycle, age, effort, and attention rules; it never acquires the Notes library or Viewer document capabilities. Optional Todoist and Calendar effects are adapters behind explicit ports. The shared architecture tests also cover Tasks. See [the Tasks guide](docs/tasks.md) for privacy, optional integrations, and isolated verification. A browser preview can be run on a separate loopback port with `PORT=4187 npm run dev`.
 
 ## Design and safety
 

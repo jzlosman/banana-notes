@@ -47,7 +47,7 @@ test('purity scanning distinguishes document read-model fields and URL strings f
 
 test('domain is deterministic and imports no outward application, adapter, UI, or browser APIs', () => {
   const failures: string[] = [];
-  for (const file of [...sourceFiles(join(sourceRoot, 'domain')), ...sourceFiles(join(sourceRoot, 'viewer/domain'))]) {
+  for (const file of [...sourceFiles(join(sourceRoot, 'domain')), ...sourceFiles(join(sourceRoot, 'viewer/domain')), ...sourceFiles(join(sourceRoot, 'tasks/domain'))]) {
     const source = readFileSync(file, 'utf8');
     for (const specifier of importsOf(source)) {
       const target = resolvedImport(file, specifier);
@@ -63,7 +63,7 @@ test('domain is deterministic and imports no outward application, adapter, UI, o
 
 test('application depends only on its own contracts and the domain', () => {
   const failures: string[] = [];
-  for (const file of [...sourceFiles(join(sourceRoot, 'application')), ...sourceFiles(join(sourceRoot, 'viewer/application'))]) {
+  for (const file of [...sourceFiles(join(sourceRoot, 'application')), ...sourceFiles(join(sourceRoot, 'viewer/application')), ...sourceFiles(join(sourceRoot, 'tasks/application'))]) {
     for (const specifier of importsOf(readFileSync(file, 'utf8'))) {
       const target = resolvedImport(file, specifier);
       if (target && !target.includes('/application/') && !target.includes('/domain/')) failures.push(`${file}: imports ${specifier}`);
@@ -79,7 +79,7 @@ test('UI never imports adapters; adapter internals stay inward of the UI boundar
     for (const specifier of importsOf(readFileSync(file, 'utf8'))) {
       const target = resolvedImport(file, specifier);
       if (!target?.includes('/adapters/')) continue;
-      if (file !== join(sourceRoot, 'main.ts') && file !== join(sourceRoot, 'viewer/main.ts') && !file.includes('/adapters/')) failures.push(`${file}: imports ${specifier}`);
+      if (file !== join(sourceRoot, 'main.ts') && file !== join(sourceRoot, 'viewer/main.ts') && file !== join(sourceRoot, 'tasks/main.ts') && !file.includes('/adapters/')) failures.push(`${file}: imports ${specifier}`);
     }
     if (file.includes('/adapters/') && importsOf(readFileSync(file, 'utf8')).some(specifier => resolvedImport(file, specifier)?.includes('/ui/'))) {
       failures.push(`${file}: adapter imports UI`);
@@ -103,10 +103,25 @@ test('Banana Viewer stays independent of Notes library and preview adapters', ()
   assert.deepEqual(failures, []);
 });
 
+test('Banana Tasks never acquires the Notes or Viewer runtime and persistence capabilities', () => {
+  const failures: string[] = [];
+  for (const file of sourceFiles(join(sourceRoot, 'tasks'))) {
+    for (const specifier of importsOf(readFileSync(file, 'utf8'))) {
+      const target = resolvedImport(file, specifier);
+      if (!target || target.includes('/tasks/')) continue;
+      if (target.includes('/viewer/') || target.endsWith('/domain/library.ts') ||
+          target.endsWith('/application/ports.ts') || target.includes('/adapters/')) {
+        failures.push(`${file}: imports another app's capability ${specifier}`);
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
 test('every vertical auto-scroller opts into the shared quiet-scroll treatment', () => {
   // Layout selectors stay plain (so media-query overrides keep working); the element that receives a
   // scrolling class must also receive `quiet-scroll` where the UI creates it.
-  const markup = [...sourceFiles(join(sourceRoot, 'ui')), ...sourceFiles(join(sourceRoot, 'viewer/ui'))].map(file => readFileSync(file, 'utf8')).join('\n');
+  const markup = [...sourceFiles(join(sourceRoot, 'ui')), ...sourceFiles(join(sourceRoot, 'viewer/ui')), ...sourceFiles(join(sourceRoot, 'tasks/ui'))].map(file => readFileSync(file, 'utf8')).join('\n');
   const classLiterals = [...markup.matchAll(/'([^'\n]*)'|"([^"\n]*)"/g)].map(match => (match[1] ?? match[2]).split(/\s+/));
   const failures: string[] = [];
   for (const file of styleFiles(sourceRoot)) {

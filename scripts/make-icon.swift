@@ -5,12 +5,12 @@ struct MakeIcon {
     @MainActor
     static func main() throws {
         guard (2...3).contains(CommandLine.arguments.count) else {
-            fatalError("usage: make-icon.swift OUTPUT.png [notes|viewer]")
+            fatalError("usage: make-icon.swift OUTPUT.png [notes|viewer|tasks]")
         }
         let product = CommandLine.arguments.count == 3
             ? BananaMark.Product(rawValue: CommandLine.arguments[2])
             : .notes
-        guard let product else { fatalError("product must be notes or viewer") }
+        guard let product else { fatalError("product must be notes, viewer or tasks") }
         let side = Int(BananaMark.iconCanvasSize)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,

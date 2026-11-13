@@ -1,8 +1,8 @@
 import type {
   CalendarAppointment, CalendarAuthorization, CalendarBlockDraft, CalendarBlockReceipt, CalendarPort, CaptureProject,
   CapturedTask, Clock, IdentitySource, PlanningCalendar, StoredTasks, TasksHotkeyError, TasksHotkeyPreferencesPort,
-  TasksHotkeyState, TasksPorts, TasksPreferences, TasksPreferencesPort, TasksWindowEvent, TasksWindowPort, TaskStore,
-  TodoistConnection, TodoistPort, TodoistReference,
+  TasksHotkeyState, TasksPorts, TasksPreferences, TasksPreferencesPort, TasksRecoveryInspection, TasksRecoveryPort, TasksRecoveryPrimary,
+  TasksWindowEvent, TasksWindowPort, TaskStore, TodoistConnection, TodoistPort, TodoistReference,
 } from '../application/ports';
 import { HOTKEY_MODIFIERS, type RecordedShortcut } from '../../domain/hotkey';
 import { decodeTaskDocument, normalizeNotes, normalizeTags, normalizeTitle } from '../domain/model';
@@ -15,6 +15,73 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 function validString(value: unknown, max = 512): value is string { return typeof value === 'string' && value.length > 0 && value.length <= max; }
 function exactKeys(value: Record<string, unknown>, keys: string[]): boolean { return Object.keys(value).sort().join(',') === [...keys].sort().join(','); }
+const RECOVERY_REVISION = /^[a-f0-9]{64}$/;
+const MAX_RECOVERY_TIMESTAMP = 8_640_000_000_000_000;
+function boundedJSON(value: unknown): unknown {
+  const budget = { nodes: 2_000_000, stringUnits: 20 * 1024 * 1024 };
+  const ancestors = new WeakSet<object>();
+  const copy = (item: unknown, depth: number): unknown => {
+    if (--budget.nodes < 0 || depth > 64) throw new Error('The native Tasks recovery response was invalid.');
+    if (item === null || typeof item === 'boolean') return item;
+    if (typeof item === 'string') {
+      budget.stringUnits -= item.length;
+      if (budget.stringUnits < 0) throw new Error('The native Tasks recovery response was invalid.');
+      return item;
+    }
+    if (typeof item === 'number' && Number.isFinite(item)) return item;
+    if (typeof item !== 'object' || ancestors.has(item)) throw new Error('The native Tasks recovery response was invalid.');
+    ancestors.add(item);
+    try {
+      if (Array.isArray(item)) {
+        if (item.length > 100_000 || Reflect.ownKeys(item).length !== item.length + 1) throw new Error('The native Tasks recovery response was invalid.');
+        const result: unknown[] = new Array(item.length);
+        for (let index = 0; index < item.length; index++) {
+          const descriptor = Object.getOwnPropertyDescriptor(item, String(index));
+          if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) throw new Error('The native Tasks recovery response was invalid.');
+          result[index] = copy(descriptor.value, depth + 1);
+        }
+        return result;
+      }
+      const prototype = Object.getPrototypeOf(item);
+      if ((prototype !== Object.prototype && prototype !== null) || Reflect.ownKeys(item).length !== Object.keys(item).length) {
+        throw new Error('The native Tasks recovery response was invalid.');
+      }
+      const result: Record<string, unknown> = {};
+      for (const key of Object.keys(item)) {
+        budget.stringUnits -= key.length;
+        const descriptor = Object.getOwnPropertyDescriptor(item, key);
+        if (budget.stringUnits < 0 || !descriptor || !('value' in descriptor) || !descriptor.enumerable) {
+          throw new Error('The native Tasks recovery response was invalid.');
+        }
+        Object.defineProperty(result, key, { value: copy(descriptor.value, depth + 1), enumerable: true, writable: true, configurable: true });
+      }
+      return result;
+    } finally { ancestors.delete(item); }
+  };
+  return copy(value, 0);
+}
+function decodeRecoveryInspection(value: unknown): TasksRecoveryInspection {
+  const safe = boundedJSON(value);
+  const raw = record(safe);
+  if (!raw || typeof raw.kind !== 'string') throw new Error('The native Tasks recovery response was invalid.');
+  if (raw.kind === 'unavailable' && exactKeys(raw, ['kind'])) return { kind: 'unavailable' };
+  if (raw.kind === 'unsupported-version' && exactKeys(raw, ['kind'])) return { kind: 'unsupported-version' };
+  if (raw.kind !== 'candidate' || !exactKeys(raw, ['kind', 'primary', 'backup'])) throw new Error('The native Tasks recovery response was invalid.');
+  const primary = record(raw.primary), backup = record(raw.backup);
+  if (!primary || !backup || !exactKeys(backup, ['revision', 'document', 'savedAt']) ||
+      typeof backup.revision !== 'string' || !RECOVERY_REVISION.test(backup.revision) ||
+      !Number.isSafeInteger(backup.savedAt) || (backup.savedAt as number) < 0 || (backup.savedAt as number) > MAX_RECOVERY_TIMESTAMP) {
+    throw new Error('The native Tasks recovery response was invalid.');
+  }
+  let decodedPrimary: TasksRecoveryPrimary;
+  if (primary.kind === 'missing' && exactKeys(primary, ['kind'])) decodedPrimary = { kind: 'missing' };
+  else if (primary.kind === 'present' && exactKeys(primary, ['kind', 'revision', 'document']) &&
+      typeof primary.revision === 'string' && RECOVERY_REVISION.test(primary.revision)) {
+    decodedPrimary = { kind: 'present', revision: primary.revision, document: primary.document };
+  } else throw new Error('The native Tasks recovery response was invalid.');
+  return { kind: 'candidate', primary: decodedPrimary, backup: { revision: backup.revision,
+    document: backup.document, savedAt: backup.savedAt as number } };
+}
 function decodeConnection(value: unknown): TodoistConnection {
   const raw = record(value);
   if (!raw || typeof raw.kind !== 'string') throw new Error('The native Todoist connection response was invalid.');
@@ -145,6 +212,7 @@ export class NativeTasksAdapter implements TasksPorts {
   readonly clock: Clock;
   readonly identities: IdentitySource;
   readonly store: TaskStore;
+  readonly recovery: TasksRecoveryPort;
   readonly preferences: TasksPreferencesPort;
   readonly hotkeyPreferences: TasksHotkeyPreferencesPort;
   readonly todoist: TodoistPort;
@@ -158,12 +226,13 @@ export class NativeTasksAdapter implements TasksPorts {
     this.identities = new RandomTaskIdentity();
     this.store = {
       load: async () => {
-        const raw = record(await this.post({ action: 'loadTasks' }));
+        const raw = record(boundedJSON(await this.post({ action: 'loadTasks' })));
         if (!raw) throw new Error('The native Tasks storage response was invalid.');
-        if (raw.kind === 'unreadable' && exactKeys(raw, ['kind', 'message']) && typeof raw.message === 'string' && raw.message.length <= 2000) return { kind: 'unreadable', message: raw.message };
+        if (raw.kind === 'unreadable' && exactKeys(raw, ['kind', 'message']) && typeof raw.message === 'string' && raw.message.length <= 2000) {
+          return { kind: 'unreadable', message: 'Saved Tasks data could not be read; it was left unchanged.' };
+        }
         if (raw.kind === 'ready' && exactKeys(raw, ['kind', 'document', 'revision']) && validString(raw.revision, 512)) {
-          const document = raw.document === null ? null : decodeTaskDocument(raw.document);
-          return { kind: 'ready', document, revision: raw.revision };
+          return { kind: 'ready', document: raw.document, revision: raw.revision };
         }
         throw new Error('The native Tasks storage response was invalid.');
       },
@@ -174,6 +243,19 @@ export class NativeTasksAdapter implements TasksPorts {
         if (raw && exactKeys(raw, ['kind']) && raw.kind === 'conflict') return { kind: 'conflict' };
         if (raw && exactKeys(raw, ['kind', 'revision']) && raw.kind === 'saved' && validString(raw.revision, 512)) return { kind: 'saved', revision: raw.revision };
         throw new Error('The native Tasks save response was invalid.');
+      },
+    };
+    this.recovery = {
+      inspect: async () => decodeRecoveryInspection(await this.post({ action: 'inspectTasksRecovery' })),
+      restore: async input => {
+        if (input.expectedPrimaryRevision !== null && (typeof input.expectedPrimaryRevision !== 'string' || !RECOVERY_REVISION.test(input.expectedPrimaryRevision)) ||
+            typeof input.expectedBackupRevision !== 'string' || !RECOVERY_REVISION.test(input.expectedBackupRevision)) {
+          throw new Error('The Tasks recovery revision is invalid.');
+        }
+        const raw = record(await this.post({ action: 'restoreTasksBackup', ...input }));
+        if (raw && exactKeys(raw, ['kind']) && raw.kind === 'restored') return { kind: 'restored' };
+        if (raw && exactKeys(raw, ['kind']) && raw.kind === 'conflict') return { kind: 'conflict' };
+        throw new Error('The native Tasks restore response was invalid.');
       },
     };
     this.preferences = {

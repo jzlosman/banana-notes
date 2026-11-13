@@ -48,7 +48,8 @@ struct TasksWebKitSelfTest {
         let documents = try TasksLocalDocumentStore(directory: resolvedDirectory)
         let preferences = UserDefaultsTasksPreferences(defaults: defaults, catalog: catalog)
         let application = TasksApplication(documents: documents, preferences: preferences,
-                                           todoist: VerificationTodoistPort(), calendar: VerificationCalendarPort())
+                                           todoist: VerificationTodoistPort(), calendar: VerificationCalendarPort(),
+                                           recovery: documents)
         try assertProfileInitializesReady(application.loadTasks())
 
         let app = NSApplication.shared
@@ -219,10 +220,265 @@ struct TasksWebKitSelfTest {
               work.reduce(0.0, { $0 + (($1["durationMs"] as? NSNumber)?.doubleValue ?? 0) }) > 0 else {
             throw SmokeFailure.message("Completing the running timer did not preserve capture age and settle recorded effort.")
         }
+        try assertRecoveryFixture(completed, taskID: taskID, createdAt: createdAt)
+        try exerciseRecoveryThroughWebKit(webView, navigationError: { navigationError },
+                                          completedDocument: completed, dataURL: dataURL, profileDirectory: dataDirectory)
 
         try assertNoJavaScriptErrors(webView)
         try assertNoNavigationError(navigationError)
-        print("Banana Tasks WebKit smoke passed (verification profile ready, native bridge load/save, quick capture persistence/reload, running timer intent and atomic completion, bundled font, flush and hide/show).")
+        print("Banana Tasks WebKit smoke passed (verification profile ready, native bridge load/save, quick capture persistence/reload, running timer intent and atomic completion, native backup recovery/quarantine/CAS, bundled font, flush and hide/show).")
+    }
+
+    private static func assertRecoveryFixture(_ document: [String: Any], taskID: String, createdAt: Double) throws {
+        try assertDocumentShape(document, includesTask: taskTitle)
+        guard document["runningSession"] is NSNull,
+              let outbox = document["todoistOutbox"] as? [Any], outbox.isEmpty,
+              let task = (document["tasks"] as? [[String: Any]])?.first(where: { $0["id"] as? String == taskID }),
+              Set(task.keys) == ["id", "title", "notes", "tags", "priority", "status", "createdAt", "updatedAt",
+                                 "lastProgressAt", "activities", "work", "importedFrom", "locallyEdited"],
+              task["notes"] as? String != nil, task["tags"] as? [Any] != nil,
+              task["priority"] as? String != nil, task["createdAt"] as? NSNumber != nil,
+              (task["createdAt"] as? NSNumber)?.doubleValue == createdAt,
+              (task["status"] as? [String: Any])?["kind"] as? String == "completed",
+              let activities = task["activities"] as? [[String: Any]],
+              activities.contains(where: { $0["kind"] as? String == "stateChanged" && $0["to"] as? String == "completed" }),
+              activities.contains(where: { $0["kind"] as? String == "worked" }),
+              let work = task["work"] as? [[String: Any]], !work.isEmpty else {
+            throw SmokeFailure.message("The completed recovery fixture did not contain its full metadata, history, work, outbox, and timer state.")
+        }
+    }
+
+    private static func exerciseRecoveryThroughWebKit(_ webView: WKWebView, navigationError: () -> String?,
+                                                       completedDocument: [String: Any], dataURL: URL,
+                                                       profileDirectory: URL) throws {
+        guard let backupBytes = try? JSONSerialization.data(withJSONObject: completedDocument,
+                                                            options: [.fragmentsAllowed, .sortedKeys]),
+              backupBytes.count <= TasksLocalDocumentStore.maximumBytes else {
+            throw SmokeFailure.message("The completed synthetic Tasks document could not be used as a bounded recovery backup.")
+        }
+        let backupURL = profileDirectory.appendingPathComponent("tasks.json.bak", isDirectory: false)
+        let malformedPrimary = Data("synthetic malformed Tasks primary".utf8)
+        try backupBytes.write(to: backupURL, options: .atomic)
+        try malformedPrimary.write(to: dataURL, options: .atomic)
+        let primaryRevision = TasksLocalDocumentStore.revision(for: malformedPrimary)
+        let backupRevision = TasksLocalDocumentStore.revision(for: backupBytes)
+
+        _ = try evaluate(webView, "window.__tasksWebKitRecoveryOldPage = true; true")
+        guard webView.reload() != nil else {
+            throw SmokeFailure.message("WebKit did not begin reloading the Tasks page for recovery.")
+        }
+        try wait(timeout: 20, description: "recovery Tasks page reload") {
+            (try? evaluate(webView, "location.pathname.endsWith('/tasks.html') && document.readyState === 'complete' && window.__tasksWebKitRecoveryOldPage === undefined")) as? Bool == true
+        }
+        try assertNoNavigationError(navigationError())
+        try installPageErrorCapture(webView)
+        try wait(timeout: 20, description: "native Tasks recovery initialization") {
+            (try? evaluate(webView, "document.documentElement.dataset.native === 'true' && document.querySelector('#app')?.getAttribute('aria-busy') === 'false'")) as? Bool == true
+        }
+        guard (try evaluate(webView, "document.querySelector('form[aria-label=\"Add task\"]') === null")) as? Bool == true else {
+            throw SmokeFailure.message("The recovery screen exposed the quick-capture form before the saved document was restored.")
+        }
+        let unreadable = try postBridge(webView, message: ["action": "loadTasks"])
+        guard Set(unreadable.keys) == ["kind", "message"], unreadable["kind"] as? String == "unreadable" else {
+            throw SmokeFailure.message("The damaged primary was not left unreadable while the actual Tasks page entered recovery.")
+        }
+
+        let entriesBeforeInspection = Set(try FileManager.default.contentsOfDirectory(atPath: profileDirectory.path))
+        let initialInspection = try postBridge(webView, message: ["action": "inspectTasksRecovery"])
+        try assertRecoveryCandidate(initialInspection, primaryRevision: primaryRevision, primaryDocument: NSNull(),
+                                    backupRevision: backupRevision, backupDocument: completedDocument)
+        guard try Data(contentsOf: dataURL) == malformedPrimary,
+              try Data(contentsOf: backupURL) == backupBytes,
+              Set(try FileManager.default.contentsOfDirectory(atPath: profileDirectory.path)) == entriesBeforeInspection else {
+            throw SmokeFailure.message("Recovery inspection wrote to or replaced files in the isolated verification profile.")
+        }
+
+        let malformedRestore = try postBridge(webView, message: [
+            "action": "restoreTasksBackup", "expectedPrimaryRevision": primaryRevision,
+            "expectedBackupRevision": "not-a-revision",
+        ])
+        guard malformedRestore["kind"] as? String == "error",
+              (malformedRestore["message"] as? String)?.contains(TasksFailure.invalidRequest.localizedDescription) == true else {
+            throw SmokeFailure.message("The actual WebKit bridge accepted a malformed explicit recovery command.")
+        }
+        guard try Data(contentsOf: dataURL) == malformedPrimary, try Data(contentsOf: backupURL) == backupBytes else {
+            throw SmokeFailure.message("A malformed recovery command changed the isolated primary or backup.")
+        }
+
+        let changedPrimary = Data("synthetic replacement primary".utf8)
+        try changedPrimary.write(to: dataURL, options: .atomic)
+        let stalePrimaryState = try Data(contentsOf: dataURL)
+        let stalePrimaryBackup = try Data(contentsOf: backupURL)
+        let stalePrimaryReply = try postBridge(webView, message: [
+            "action": "restoreTasksBackup", "expectedPrimaryRevision": primaryRevision,
+            "expectedBackupRevision": backupRevision,
+        ])
+        try assertRecoveryConflict(stalePrimaryReply)
+        guard try Data(contentsOf: dataURL) == stalePrimaryState, try Data(contentsOf: backupURL) == stalePrimaryBackup else {
+            throw SmokeFailure.message("A stale primary recovery revision changed the primary or backup.")
+        }
+
+        try malformedPrimary.write(to: dataURL, options: .atomic)
+        let staleBackupInspection = try postBridge(webView, message: ["action": "inspectTasksRecovery"])
+        try assertRecoveryCandidate(staleBackupInspection, primaryRevision: primaryRevision, primaryDocument: NSNull(),
+                                    backupRevision: backupRevision, backupDocument: completedDocument)
+        var changedBackup = backupBytes
+        changedBackup.append(0x20)
+        try changedBackup.write(to: backupURL, options: .atomic)
+        let staleBackupPrimary = try Data(contentsOf: dataURL)
+        let staleBackupBytes = try Data(contentsOf: backupURL)
+        let staleBackupReply = try postBridge(webView, message: [
+            "action": "restoreTasksBackup", "expectedPrimaryRevision": primaryRevision,
+            "expectedBackupRevision": backupRevision,
+        ])
+        try assertRecoveryConflict(staleBackupReply)
+        guard staleBackupPrimary == malformedPrimary,
+              try Data(contentsOf: dataURL) == staleBackupPrimary,
+              try Data(contentsOf: backupURL) == staleBackupBytes else {
+            throw SmokeFailure.message("A stale backup recovery revision changed the primary or backup.")
+        }
+
+        try backupBytes.write(to: backupURL, options: .atomic)
+        let freshInspection = try postBridge(webView, message: ["action": "inspectTasksRecovery"])
+        try assertRecoveryCandidate(freshInspection, primaryRevision: primaryRevision, primaryDocument: NSNull(),
+                                    backupRevision: backupRevision, backupDocument: completedDocument)
+        let restoreReply = try postBridge(webView, message: [
+            "action": "restoreTasksBackup", "expectedPrimaryRevision": primaryRevision,
+            "expectedBackupRevision": backupRevision,
+        ])
+        guard Set(restoreReply.keys) == ["kind"], restoreReply["kind"] as? String == "restored" else {
+            throw SmokeFailure.message("The explicit native Tasks backup restore did not succeed with fresh revisions.")
+        }
+        let restoredBytes = try Data(contentsOf: dataURL)
+        let backupAfterRestore = try Data(contentsOf: backupURL)
+        let archives = try FileManager.default.contentsOfDirectory(at: profileDirectory, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("tasks.json.unreadable-") }
+        guard restoredBytes == backupBytes, backupAfterRestore == backupBytes, archives.count == 1,
+              try Data(contentsOf: archives[0]) == malformedPrimary else {
+            throw SmokeFailure.message("Native recovery did not preserve the backup and quarantine the exact malformed primary bytes.")
+        }
+
+        _ = try evaluate(webView, "window.__tasksWebKitRestoredPage = true; true")
+        guard webView.reload() != nil else {
+            throw SmokeFailure.message("WebKit did not begin reloading the restored Tasks page.")
+        }
+        try wait(timeout: 20, description: "restored Tasks page reload") {
+            (try? evaluate(webView, "location.pathname.endsWith('/tasks.html') && document.readyState === 'complete' && window.__tasksWebKitRestoredPage === undefined")) as? Bool == true
+        }
+        try assertNoNavigationError(navigationError())
+        try installPageErrorCapture(webView)
+        try assertApplicationReady(webView)
+        let restoredLoad = try postBridge(webView, message: ["action": "loadTasks"])
+        let restoredDocument = try checkedReadyDocument(restoredLoad)
+        let restoredRevision = restoredLoad["revision"] as? String ?? ""
+        try assertValidRevision(restoredRevision)
+        guard restoredRevision == backupRevision, sameJSONValue(restoredDocument, completedDocument),
+              sameJSONValue(restoredDocument["runningSession"]!, completedDocument["runningSession"]!),
+              sameJSONValue(restoredDocument["todoistOutbox"]!, completedDocument["todoistOutbox"]!) else {
+            throw SmokeFailure.message("The reloaded bundled Tasks page did not expose the complete restored document and native revision.")
+        }
+
+        let changedDocument = try documentForPostRecoveryCAS(restoredDocument)
+        let savedReply = try postBridge(webView, message: [
+            "action": "saveTasks", "expectedRevision": restoredRevision, "document": changedDocument,
+        ])
+        guard Set(savedReply.keys) == ["kind", "revision"], savedReply["kind"] as? String == "saved",
+              let savedRevision = savedReply["revision"] as? String else {
+            throw SmokeFailure.message("A normal native Tasks CAS save failed after explicit backup recovery.")
+        }
+        try assertValidRevision(savedRevision)
+        let savedBytes = try Data(contentsOf: dataURL)
+        guard savedRevision != restoredRevision,
+              TasksLocalDocumentStore.revision(for: savedBytes) == savedRevision,
+              let savedDocument = Self.persistedDocument(at: dataURL), sameJSONValue(savedDocument, changedDocument),
+              try Data(contentsOf: backupURL) == backupBytes else {
+            throw SmokeFailure.message("The post-recovery CAS save did not persist its document and retain the restored backup.")
+        }
+        let staleSaveReply = try postBridge(webView, message: [
+            "action": "saveTasks", "expectedRevision": restoredRevision, "document": changedDocument,
+        ])
+        guard Set(staleSaveReply.keys) == ["kind"], staleSaveReply["kind"] as? String == "conflict",
+              try Data(contentsOf: dataURL) == savedBytes, try Data(contentsOf: backupURL) == backupBytes else {
+            throw SmokeFailure.message("A stale normal CAS save after recovery changed the persisted document or backup.")
+        }
+
+        let futurePrimary = Data(#"{"version":2,"tasks":[]}"#.utf8)
+        try futurePrimary.write(to: dataURL, options: .atomic)
+        let futurePrimaryBeforeInspection = try Data(contentsOf: dataURL)
+        let backupBeforeFutureInspection = try Data(contentsOf: backupURL)
+        let futureInspection = try postBridge(webView, message: ["action": "inspectTasksRecovery"])
+        guard Set(futureInspection.keys) == ["kind"], futureInspection["kind"] as? String == "unsupported-version",
+              try Data(contentsOf: dataURL) == futurePrimaryBeforeInspection,
+              try Data(contentsOf: backupURL) == backupBeforeFutureInspection else {
+            throw SmokeFailure.message("Recovery inspection offered a backup or changed files for a newer Tasks document version.")
+        }
+        let futurePrimaryBeforeRestore = futurePrimaryBeforeInspection
+        let backupBeforeFutureRestore = backupBeforeFutureInspection
+        let futureRestore = try postBridge(webView, message: [
+            "action": "restoreTasksBackup", "expectedPrimaryRevision": TasksLocalDocumentStore.revision(for: futurePrimary),
+            "expectedBackupRevision": backupRevision,
+        ])
+        try assertRecoveryConflict(futureRestore)
+        guard try Data(contentsOf: dataURL) == futurePrimaryBeforeRestore,
+              try Data(contentsOf: backupURL) == backupBeforeFutureRestore else {
+            throw SmokeFailure.message("A future-version primary was changed by backup recovery.")
+        }
+    }
+
+    private static func assertRecoveryCandidate(_ response: [String: Any], primaryRevision: String,
+                                                primaryDocument: Any, backupRevision: String,
+                                                backupDocument: Any) throws {
+        guard Set(response.keys) == ["kind", "primary", "backup"], response["kind"] as? String == "candidate",
+              let primary = response["primary"] as? [String: Any],
+              Set(primary.keys) == ["kind", "revision", "document"], primary["kind"] as? String == "present",
+              primary["revision"] as? String == primaryRevision,
+              let returnedPrimary = primary["document"], sameJSONValue(returnedPrimary, primaryDocument),
+              let backup = response["backup"] as? [String: Any],
+              Set(backup.keys) == ["revision", "document", "savedAt"],
+              backup["revision"] as? String == backupRevision,
+              let returnedBackup = backup["document"], sameJSONValue(returnedBackup, backupDocument),
+              let savedAt = backup["savedAt"] as? NSNumber, savedAt.doubleValue.isFinite,
+              savedAt.doubleValue >= 0, savedAt.doubleValue.rounded() == savedAt.doubleValue,
+              savedAt.doubleValue <= 8_640_000_000_000_000 else {
+            throw SmokeFailure.message("The native recovery inspection did not return the exact primary and backup revisions and documents.")
+        }
+        try assertValidRevision(primaryRevision)
+        try assertValidRevision(backupRevision)
+    }
+
+    private static func assertRecoveryConflict(_ response: [String: Any]) throws {
+        guard Set(response.keys) == ["kind"], response["kind"] as? String == "conflict" else {
+            throw SmokeFailure.message("A stale or unsafe native Tasks recovery request did not return a conflict.")
+        }
+    }
+
+    private static func documentForPostRecoveryCAS(_ document: [String: Any]) throws -> [String: Any] {
+        var changed = document
+        guard var tasks = changed["tasks"] as? [[String: Any]], !tasks.isEmpty,
+              var task = tasks.first(where: { $0["title"] as? String == taskTitle }),
+              let taskID = task["id"] as? String,
+              let updatedAtNumber = task["updatedAt"] as? NSNumber,
+              let activities = task["activities"] as? [[String: Any]] else {
+            throw SmokeFailure.message("The restored synthetic task could not be prepared for a normal CAS save.")
+        }
+        let updatedAt = updatedAtNumber.doubleValue
+        guard updatedAt.isFinite, updatedAt >= 0, updatedAt.rounded() == updatedAt,
+              updatedAt < 9_007_199_254_740_991 else {
+            throw SmokeFailure.message("The restored synthetic task had an invalid update timestamp for a normal CAS save.")
+        }
+        let editedAt = updatedAt + 1
+        task["notes"] = "Synthetic post-recovery CAS verification"
+        task["updatedAt"] = editedAt
+        var editedActivities = activities
+        editedActivities.append(["kind": "edited", "at": editedAt])
+        task["activities"] = editedActivities
+        guard let taskIndex = tasks.firstIndex(where: { $0["id"] as? String == taskID }) else {
+            throw SmokeFailure.message("The restored synthetic task disappeared before the post-recovery CAS save.")
+        }
+        tasks[taskIndex] = task
+        changed["tasks"] = tasks
+        try assertDocumentShape(changed, includesTask: taskTitle)
+        return changed
     }
 
     private static func checkBuiltAssets(_ directory: URL) throws {

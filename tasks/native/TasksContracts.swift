@@ -155,9 +155,33 @@ enum TasksFailure: Error, LocalizedError {
 
 // MARK: - Wire boundary
 
+enum TasksRecoveryPrimary {
+    case missing
+    case present(revision: String, document: Any)
+}
+
+struct TasksRecoveryBackup {
+    let revision: String
+    let document: Any
+    let savedAt: Double
+}
+
+enum TasksRecoveryInspection {
+    case unavailable
+    case unsupportedVersion
+    case candidate(primary: TasksRecoveryPrimary, backup: TasksRecoveryBackup)
+}
+
+enum TasksBackupRestoration: Equatable {
+    case restored
+    case conflict
+}
+
 enum TasksBridgeMessage {
     case loadTasks
     case saveTasks(expectedRevision: String, document: Any)
+    case inspectTasksRecovery
+    case restoreTasksBackup(expectedPrimaryRevision: String?, expectedBackupRevision: String)
     case loadPreferences
     case savePreferences(TasksPreferences)
     case hotkeyPreferences
@@ -192,6 +216,18 @@ enum TasksBridgeDecoder {
               encoded.count <= maxRequestBytes else { throw TasksFailure.invalidRequest }
         switch action {
         case "loadTasks": try exact(body, ["action"]); return .loadTasks
+        case "inspectTasksRecovery": try exact(body, ["action"]); return .inspectTasksRecovery
+        case "restoreTasksBackup":
+            try exact(body, ["action", "expectedPrimaryRevision", "expectedBackupRevision"])
+            let primaryValue = body["expectedPrimaryRevision"]
+            let primaryRevision: String?
+            if primaryValue is NSNull { primaryRevision = nil }
+            else if let value = primaryValue as? String, isRevision(value) { primaryRevision = value }
+            else { throw TasksFailure.invalidRequest }
+            guard let backupRevision = body["expectedBackupRevision"] as? String, isRevision(backupRevision) else {
+                throw TasksFailure.invalidRequest
+            }
+            return .restoreTasksBackup(expectedPrimaryRevision: primaryRevision, expectedBackupRevision: backupRevision)
         case "saveTasks":
             try exact(body, ["action", "expectedRevision", "document"])
             guard let revision = body["expectedRevision"] as? String, isRevision(revision),
@@ -296,6 +332,13 @@ enum TasksBridgeDecoder {
         return true
     }
 
+    static func hasUnsupportedVersion(_ document: Any) -> Bool {
+        guard let root = document as? [String: Any], let rawVersion = root["version"] else { return false }
+        guard let version = rawVersion as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(),
+              version.intValue == 1, version.doubleValue == 1 else { return true }
+        return false
+    }
+
     private static func isJSONValue(_ value: Any, depth: Int) -> Bool {
         guard depth <= 64 else { return false }
         if value is NSNull { return true }
@@ -337,6 +380,10 @@ enum TasksBridgeDecoder {
 protocol TasksDocumentStorePort {
     func load() throws -> (document: Any?, revision: String)
     func save(expectedRevision: String, document: Any) throws -> String?
+}
+protocol TasksBackupRecoveryPort {
+    func inspectBackupRecovery() -> TasksRecoveryInspection
+    func restoreBackup(expectedPrimaryRevision: String?, expectedBackupRevision: String) throws -> TasksBackupRestoration
 }
 protocol TasksPreferencesPort {
     func load() -> TasksPreferences

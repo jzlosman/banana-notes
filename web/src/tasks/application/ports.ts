@@ -14,6 +14,17 @@ export interface TaskStore {
   save(expectedRevision: string, document: TaskDocument): Promise<SaveTasksResult>;
 }
 
+export type TasksRecoveryPrimary = { kind: 'missing' } | { kind: 'present'; revision: string; document: unknown };
+export interface TasksRecoveryBackup { revision: string; document: unknown; savedAt: number }
+export type TasksRecoveryInspection =
+  | { kind: 'unavailable' }
+  | { kind: 'unsupported-version' }
+  | { kind: 'candidate'; primary: TasksRecoveryPrimary; backup: TasksRecoveryBackup };
+export interface TasksRecoveryPort {
+  inspect(): Promise<TasksRecoveryInspection>;
+  restore(input: { expectedPrimaryRevision: string | null; expectedBackupRevision: string }): Promise<{ kind: 'restored' } | { kind: 'conflict' }>;
+}
+
 export interface TasksPreferences {
   appearanceTheme: string | null;
   pinned: boolean;
@@ -104,6 +115,8 @@ export interface TasksPorts {
   clock: Clock;
   identities: IdentitySource;
   store: TaskStore;
+  /** Native-only recovery capability; browser preview deliberately omits it. */
+  recovery?: TasksRecoveryPort;
   preferences: TasksPreferencesPort;
   /** Browser preview omits this OS-only capability. */
   hotkeyPreferences?: TasksHotkeyPreferencesPort;

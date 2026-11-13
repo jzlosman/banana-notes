@@ -12,7 +12,7 @@ npm run build:tasks
 open "build/Banana Tasks.app"
 ```
 
-The build is a universal Apple silicon/Intel app, locally ad-hoc signed. It is not a notarized public release. Tasks has its own bundle identity, version source, data directory, and preferences. Building it does not install or launch Banana Notes or Banana Viewer.
+The build is a universal Apple silicon/Intel app, locally ad-hoc signed. It is not a notarized public release. The [Tasks release guide](tasks-releases.md) describes its independent `tasks-v…` signed/notarized installers and manual update process. Tasks has its own bundle identity, version source, data directory, and preferences. Building it does not install or launch Banana Notes or Banana Viewer. No AI model runtime, model download, or automatic tagging is included.
 
 Use the configured global shortcut or the menu-bar icon to summon the floating window. The default is **Control–Option–T**. Change it in **Settings → General → Global shortcut**: record a combination such as **Command–Shift–2**. Tasks saves its shortcut independently of Notes, so Notes can remain on **Command–Shift–1**. A conflicting shortcut does not replace the last working binding.
 
@@ -55,6 +55,10 @@ Prepare and copy a brief for one task, including its context, desired result, an
 ## Data and safety
 
 The native app owns its task document under `~/Library/Application Support/Banana Tasks/`. Versioned structured task data is separate from appearance preferences and credentials. Store writes are bounded, atomic, and revision-checked; unreadable startup data is not silently replaced by an empty list. The app never reads the Banana Notes library or Nudge’s task/credential files.
+
+`tasks.json.bak` keeps the previous saved snapshot. If startup cannot read the current list and a compatible, fully validated backup is available, recovery offers an explicit backup restore with confirmation. A backup can omit the newest changes. Restoration first preserves the exact unreadable original in a unique `tasks.json.unreadable-…` file, keeps the backup unchanged, and refuses if either source file changed after inspection. A missing primary with an existing backup is recovery, not a new empty store. Unsupported future-version data stays untouched and cannot be downgraded through backup restore. Invalid or unsafe backup files are never offered as a fresh empty list.
+
+Keep recovery files private: they contain task data, not diagnostic metadata. For a manual backup, quit Tasks normally after saving and copy its complete data folder to a private location. Do not delete the folder or preference domain when replacing the application. See the [release guide](tasks-releases.md#install-and-update) for upgrade safety and the current version-1 format policy.
 
 The browser preview at `http://127.0.0.1:4177/tasks.html` uses an isolated preview store. Native integrations are unavailable there rather than simulated as connected. Explicit demonstration data is synthetic and does not populate the normal native app.
 

@@ -116,7 +116,7 @@ test('read-only startup recovery permits dismissal without overwriting corrupt o
     const app = harness({ load });
     assert.equal((await app.controller.initialize()).kind, 'recovery');
     assert.equal((await app.controller.create({ title: 'Must not overwrite recovery data' })).kind, 'unavailable');
-    assert.equal(await app.controller.flush(), true, 'there is no accepted unsaved intent to block dismissal');
+    assert.equal(await app.controller.flush(), true, 'recovery with no accepted local intent is a no-op success for hide/quit');
     assert.equal(app.saveCalls.length, 0);
     app.controller.dispose();
   }

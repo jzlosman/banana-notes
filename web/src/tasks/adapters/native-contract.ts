@@ -9,6 +9,8 @@ export const TASKS_BRIDGE_NAME = 'bananaTasks';
 export const TASKS_EVENT_NAME = 'banana-tasks-event';
 export type NativeTasksMessage =
   | { action: 'loadTasks' }
+  | { action: 'inspectTasksRecovery' }
+  | { action: 'restoreTasksBackup'; expectedPrimaryRevision: string | null; expectedBackupRevision: string }
   | { action: 'saveTasks'; expectedRevision: string; document: TaskDocument }
   | { action: 'loadPreferences' }
   | { action: 'savePreferences'; preferences: TasksPreferences }

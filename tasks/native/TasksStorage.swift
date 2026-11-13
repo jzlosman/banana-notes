@@ -64,8 +64,9 @@ struct TasksProfileResolver {
     }
 }
 
-final class TasksLocalDocumentStore: TasksDocumentStorePort {
+final class TasksLocalDocumentStore: TasksDocumentStorePort, TasksBackupRecoveryPort {
     static let maximumBytes = TasksBridgeDecoder.maxDocumentBytes
+    private static let maximumRecoveryTimestampMilliseconds = 8_640_000_000_000_000.0
     static let emptyRevision = revision(for: Data())
 
     let directory: URL
@@ -81,7 +82,10 @@ final class TasksLocalDocumentStore: TasksDocumentStorePort {
 
     func load() throws -> (document: Any?, revision: String) {
         try withExclusiveFileLock {
-            guard let data = try readPrimaryIfPresent() else { return (nil, Self.emptyRevision) }
+            guard let data = try readPrimaryIfPresent() else {
+                guard !(try backupEntryExists()) else { throw TasksFailure.unreadableStore }
+                return (nil, Self.emptyRevision)
+            }
             guard Self.validDocumentData(data),
                   let document = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
                 throw TasksFailure.unreadableStore
@@ -98,6 +102,7 @@ final class TasksLocalDocumentStore: TasksDocumentStorePort {
         return try withExclusiveFileLock {
             let existing = try readPrimaryIfPresent()
             if let existing, !Self.validDocumentData(existing) { throw TasksFailure.unreadableStore }
+            if existing == nil, try backupEntryExists() { throw TasksFailure.unreadableStore }
             let currentRevision = existing.map(Self.revision(for:)) ?? Self.emptyRevision
             guard currentRevision == expectedRevision else { return nil }
             if let existing { try atomicWrite(existing, to: backupURL) }
@@ -113,26 +118,47 @@ final class TasksLocalDocumentStore: TasksDocumentStorePort {
         let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else { throw TasksFailure.storeWriteFailed }
         defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { throw TasksFailure.storeWriteFailed }
+        var lockInfo = stat()
+        guard fstat(descriptor, &lockInfo) == 0, Self.isOwnedSingleLinkRegular(lockInfo),
+              flock(descriptor, LOCK_EX) == 0 else { throw TasksFailure.storeWriteFailed }
         defer { _ = flock(descriptor, LOCK_UN) }
         return try operation()
     }
 
+    private enum SafeFileRead {
+        case missing
+        case present(data: Data, modifiedAt: Double)
+    }
+
     private func readPrimaryIfPresent() throws -> Data? {
+        switch try readSafeFile(at: fileURL) {
+        case .missing: return nil
+        case let .present(data, _): return data
+        }
+    }
+
+    private func backupEntryExists() throws -> Bool {
         var info = stat()
-        if lstat(fileURL.path, &info) != 0 {
-            if errno == ENOENT { return nil }
+        if lstat(backupURL.path, &info) == 0 { return true }
+        if errno == ENOENT { return false }
+        throw TasksFailure.unreadableStore
+    }
+
+    private func readSafeFile(at url: URL) throws -> SafeFileRead {
+        var initial = stat()
+        if lstat(url.path, &initial) != 0 {
+            if errno == ENOENT { return .missing }
             throw TasksFailure.unreadableStore
         }
-        guard (info.st_mode & S_IFMT) == S_IFREG, info.st_size >= 0, info.st_size <= Self.maximumBytes else {
-            throw TasksFailure.unreadableStore
-        }
-        let descriptor = open(fileURL.path, O_RDONLY | O_NOFOLLOW)
+        guard Self.isOwnedSingleLinkRegular(initial), initial.st_size >= 0,
+              initial.st_size <= Self.maximumBytes else { throw TasksFailure.unreadableStore }
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW)
         guard descriptor >= 0 else { throw TasksFailure.unreadableStore }
         defer { close(descriptor) }
         var opened = stat()
-        guard fstat(descriptor, &opened) == 0, (opened.st_mode & S_IFMT) == S_IFREG,
-              opened.st_size >= 0, opened.st_size <= Self.maximumBytes else { throw TasksFailure.unreadableStore }
+        guard fstat(descriptor, &opened) == 0, Self.isOwnedSingleLinkRegular(opened),
+              Self.sameFileVersion(initial, opened), opened.st_size >= 0,
+              opened.st_size <= Self.maximumBytes else { throw TasksFailure.unreadableStore }
         var output = Data()
         var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
         while true {
@@ -145,14 +171,110 @@ final class TasksLocalDocumentStore: TasksDocumentStorePort {
             guard output.count + count <= Self.maximumBytes else { throw TasksFailure.unreadableStore }
             output.append(contentsOf: buffer[0..<count])
         }
-        return output
+        var finalDescriptorInfo = stat()
+        var finalPathInfo = stat()
+        guard fstat(descriptor, &finalDescriptorInfo) == 0,
+              lstat(url.path, &finalPathInfo) == 0,
+              Self.isOwnedSingleLinkRegular(finalDescriptorInfo),
+              Self.isOwnedSingleLinkRegular(finalPathInfo),
+              Self.sameFileVersion(opened, finalDescriptorInfo),
+              Self.sameFileVersion(finalDescriptorInfo, finalPathInfo),
+              output.count == finalDescriptorInfo.st_size else { throw TasksFailure.unreadableStore }
+        let modifiedAt = Self.modifiedAtMilliseconds(finalDescriptorInfo)
+        return .present(data: output, modifiedAt: modifiedAt)
+    }
+
+    func inspectBackupRecovery() -> TasksRecoveryInspection {
+        do {
+            return try withExclusiveFileLock {
+                let primaryRead = try readSafeFile(at: fileURL)
+                let primary: TasksRecoveryPrimary
+                switch primaryRead {
+                case .missing:
+                    primary = .missing
+                case let .present(data, _):
+                    let parsed = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+                    if let parsed, TasksBridgeDecoder.hasUnsupportedVersion(parsed) { return .unsupportedVersion }
+                    primary = .present(revision: Self.revision(for: data), document: parsed ?? NSNull())
+                }
+
+                guard case let .present(backupData, savedAt) = try readSafeFile(at: backupURL),
+                      let backupDocument = try? JSONSerialization.jsonObject(with: backupData, options: [.fragmentsAllowed]),
+                      TasksBridgeDecoder.validDocument(backupDocument),
+                      savedAt.isFinite, savedAt >= 0,
+                      savedAt <= Self.maximumRecoveryTimestampMilliseconds,
+                      savedAt.rounded() == savedAt else { return .unavailable }
+                return .candidate(primary: primary,
+                                  backup: TasksRecoveryBackup(revision: Self.revision(for: backupData),
+                                                              document: backupDocument, savedAt: savedAt))
+            }
+        } catch { return .unavailable }
+    }
+
+    func restoreBackup(expectedPrimaryRevision: String?, expectedBackupRevision: String) throws -> TasksBackupRestoration {
+        guard Self.isRevision(expectedBackupRevision),
+              expectedPrimaryRevision.map(Self.isRevision) ?? true else { return .conflict }
+        return try withExclusiveFileLock {
+            let primaryRead = try readSafeFile(at: fileURL)
+            let backupRead = try readSafeFile(at: backupURL)
+            let currentPrimaryRevision: String?
+            let primaryData: Data?
+            switch primaryRead {
+            case .missing:
+                currentPrimaryRevision = nil
+                primaryData = nil
+            case let .present(data, _):
+                currentPrimaryRevision = Self.revision(for: data)
+                primaryData = data
+            }
+            guard currentPrimaryRevision == expectedPrimaryRevision,
+                  case let .present(backupData, _) = backupRead,
+                  Self.revision(for: backupData) == expectedBackupRevision,
+                  currentPrimaryRevision != expectedBackupRevision,
+                  let backupDocument = try? JSONSerialization.jsonObject(with: backupData, options: [.fragmentsAllowed]),
+                  TasksBridgeDecoder.validDocument(backupDocument) else { return .conflict }
+            if let primaryData,
+               let primaryDocument = try? JSONSerialization.jsonObject(with: primaryData, options: [.fragmentsAllowed]),
+               TasksBridgeDecoder.hasUnsupportedVersion(primaryDocument) { return .conflict }
+            if let primaryData { try archivePrimary(primaryData) }
+            try atomicWrite(backupData, to: fileURL)
+            return .restored
+        }
+    }
+
+    private func archivePrimary(_ data: Data) throws {
+        guard data.count <= Self.maximumBytes else { throw TasksFailure.storeWriteFailed }
+        for _ in 0..<4 {
+            let archive = directory.appendingPathComponent("tasks.json.unreadable-\(UUID().uuidString)", isDirectory: false)
+            let descriptor = open(archive.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+                                  S_IRUSR | S_IWUSR)
+            if descriptor < 0 {
+                if errno == EEXIST { continue }
+                throw TasksFailure.storeWriteFailed
+            }
+            var succeeded = false
+            defer {
+                close(descriptor)
+                if !succeeded { unlink(archive.path) }
+            }
+            guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else { throw TasksFailure.storeWriteFailed }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0, Self.isOwnedSingleLinkRegular(info),
+                  (info.st_mode & 0o777) == 0o600 else { throw TasksFailure.storeWriteFailed }
+            try Self.writeAll(data, to: descriptor)
+            guard fsync(descriptor) == 0 else { throw TasksFailure.storeWriteFailed }
+            try syncDirectory()
+            succeeded = true
+            return
+        }
+        throw TasksFailure.storeWriteFailed
     }
 
     private func atomicWrite(_ data: Data, to target: URL) throws {
         guard data.count <= Self.maximumBytes else { throw TasksFailure.storeWriteFailed }
         var targetInfo = stat()
         if lstat(target.path, &targetInfo) == 0 {
-            guard (targetInfo.st_mode & S_IFMT) == S_IFREG else { throw TasksFailure.storeWriteFailed }
+            guard Self.isOwnedSingleLinkRegular(targetInfo) else { throw TasksFailure.storeWriteFailed }
         } else if errno != ENOENT { throw TasksFailure.storeWriteFailed }
 
         let temporary = directory.appendingPathComponent(".tasks-\(UUID().uuidString).tmp")
@@ -183,6 +305,51 @@ final class TasksLocalDocumentStore: TasksDocumentStorePort {
         defer { close(directoryDescriptor) }
         guard fsync(directoryDescriptor) == 0 else { throw TasksFailure.storeWriteFailed }
         succeeded = true
+    }
+
+    private func syncDirectory() throws {
+        let descriptor = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw TasksFailure.storeWriteFailed }
+        defer { close(descriptor) }
+        guard fsync(descriptor) == 0 else { throw TasksFailure.storeWriteFailed }
+    }
+
+    private static func isOwnedSingleLinkRegular(_ info: stat) -> Bool {
+        (info.st_mode & S_IFMT) == S_IFREG && info.st_uid == geteuid() && info.st_nlink == 1
+    }
+
+    private static func sameFileVersion(_ lhs: stat, _ rhs: stat) -> Bool {
+        lhs.st_dev == rhs.st_dev && lhs.st_ino == rhs.st_ino && lhs.st_uid == rhs.st_uid &&
+            lhs.st_nlink == rhs.st_nlink && lhs.st_size == rhs.st_size &&
+            lhs.st_mtimespec.tv_sec == rhs.st_mtimespec.tv_sec && lhs.st_mtimespec.tv_nsec == rhs.st_mtimespec.tv_nsec &&
+            lhs.st_ctimespec.tv_sec == rhs.st_ctimespec.tv_sec && lhs.st_ctimespec.tv_nsec == rhs.st_ctimespec.tv_nsec
+    }
+
+    private static func modifiedAtMilliseconds(_ info: stat) -> Double {
+        (Double(info.st_mtimespec.tv_sec) * 1_000 + Double(info.st_mtimespec.tv_nsec) / 1_000_000)
+            .rounded(.down)
+    }
+
+    private static func isRevision(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy {
+            (48...57).contains($0) || (97...102).contains($0)
+        }
+    }
+
+    private static func writeAll(_ data: Data, to descriptor: Int32) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var written = 0
+            while written < rawBuffer.count {
+                let count = write(descriptor, baseAddress.advanced(by: written), rawBuffer.count - written)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    throw TasksFailure.storeWriteFailed
+                }
+                guard count > 0 else { throw TasksFailure.storeWriteFailed }
+                written += count
+            }
+        }
     }
 
     static func ensureDirectory(_ url: URL) throws {

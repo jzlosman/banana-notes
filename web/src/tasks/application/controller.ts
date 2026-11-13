@@ -3,22 +3,59 @@ import {
   setSnoozeUntil, toggleTimer, stopTimer, updateTask, wakeSnoozedTasks,
   type CreateTaskInput, type Decision, type DomainFailure, type UpdateTaskInput,
 } from '../domain/decisions';
-import { decodeTaskDocument, validateTaskDocument, type TaskDocument, type TodoistOutboxOperation } from '../domain/model';
+import { decodeTaskDocument, EMPTY_TASK_DOCUMENT, validateTaskDocument, type TaskDocument, type TodoistOutboxOperation } from '../domain/model';
 import { queryAgentBrief, queryTagCatalog, queryTaskDetail, queryTaskList, type AgentBrief, type TagCatalogEntry, type TaskDetailReadModel, type TaskListQuery, type TaskListReadModel } from '../domain/queries';
 import type {
   CalendarAppointment, CalendarAuthorization, CalendarBlockDraft, CalendarBlockReceipt, CaptureProject,
-  PlanningCalendar, TasksPorts, TasksPreferences, TasksWindowEvent, TodoistConnection,
+  PlanningCalendar, TasksPorts, TasksPreferences, TasksRecoveryInspection, TasksWindowEvent, TodoistConnection,
 } from './ports';
 
 export const DEFAULT_TASKS_PREFERENCES: TasksPreferences = {
   appearanceTheme: null, pinned: false, soundEnabled: false, motionEnabled: true, ripeningSpeed: 'normal',
 };
 
+interface ValidatedRecoveryCandidate {
+  primaryRevision: string | null;
+  backupRevision: string;
+  backup: RecoveryBackupReadModel;
+}
+function hasUnsupportedTaskVersion(value: unknown): boolean {
+  const document = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  return !!document && Object.prototype.hasOwnProperty.call(document, 'version') && document.version !== 1;
+}
+function recoveryMessage(reason: RecoveryReason, resolution: RecoveryResolution): string {
+  switch (resolution.kind) {
+    case 'checking': return 'Saved Tasks data needs recovery. Checking for a safe backup.';
+    case 'unavailable': return 'This environment does not provide a Tasks backup recovery capability.';
+    case 'unsupported-version': return 'This Tasks file uses a newer or unrecognized format. Backup recovery is disabled to protect it.';
+    case 'no-valid-backup': return 'Tasks could not be loaded. No semantically valid backup is available.';
+    case 'primary-changed': return 'Tasks storage changed after it was inspected. Check the current file again before continuing; no backup was applied.';
+    case 'candidate': return reason === 'unreadable' ? 'Saved Tasks data could not be read. A validated backup is available for explicit restoration.' :
+      'Saved Tasks data is invalid. A validated backup is available for explicit restoration.';
+    case 'restoring': return 'Restoring the validated Tasks backup. Tasks will remain unavailable until it is reloaded.';
+    case 'restore-failed': return 'The backup was not confirmed as restored. Check for a fresh recovery option before trying again.';
+    case 'inspection-failed': return 'Tasks storage could not be checked. Check again before continuing.';
+  }
+}
+
 export type PersistenceError = { kind: 'saveFailed' | 'conflict'; message: string; localDocument: TaskDocument };
 export type OperationalFault = { operation: string; message: string };
+export interface RecoveryBackupReadModel { taskCount: number; savedAt: number }
+export type RecoveryResolution =
+  | { kind: 'checking' }
+  | { kind: 'unavailable' }
+  | { kind: 'unsupported-version' }
+  | { kind: 'no-valid-backup' }
+  | { kind: 'primary-changed' }
+  | { kind: 'candidate'; backup: RecoveryBackupReadModel }
+  | { kind: 'restoring'; backup: RecoveryBackupReadModel }
+  | { kind: 'restore-failed' }
+  | { kind: 'inspection-failed' };
+export type RecoveryReason = 'unreadable' | 'loadFailed' | 'corrupt';
+export type RecoveryRestoreOutcome = { kind: 'restored' } | { kind: 'conflict' } | { kind: 'unavailable' } | { kind: 'failed' };
 export type TasksState =
   | { kind: 'loading' }
-  | { kind: 'recovery'; reason: 'unreadable' | 'loadFailed' | 'corrupt'; message: string }
+  | { kind: 'recovery'; reason: RecoveryReason; message: string; resolution: RecoveryResolution }
   | {
       kind: 'ready'; document: TaskDocument; revision: string; preferences: TasksPreferences;
       persistenceError: PersistenceError | null; preferencesError: OperationalFault | null;
@@ -39,6 +76,10 @@ export type UpdatePreferencesInput = Partial<TasksPreferences>;
 export interface TasksFacade {
   initialize(): Promise<TasksState>;
   getState(): TasksState;
+  /** Explicitly recheck startup recovery; a newly valid primary is reloaded and decoded without writing task data. */
+  checkBackupAgain(): Promise<TasksState>;
+  /** Explicitly install the currently inspected, semantically valid backup. UI owns confirmation. */
+  restoreBackup(): Promise<RecoveryRestoreOutcome>;
   subscribe(listener: (state: TasksState) => void): () => void;
   subscribeEvents(listener: (event: TasksEvent) => void): () => void;
   flush(): Promise<boolean>;
@@ -124,6 +165,12 @@ export class TasksController implements TasksFacade {
   private revision = '';
   private writablePreferences = false;
   private disposed = false;
+  private lifecycleGeneration = 0;
+  private recoveryGeneration = 0;
+  private recoveryCandidate: ValidatedRecoveryCandidate | null = null;
+  private restoreInFlight = false;
+  private checkInFlight = false;
+  private initialIntegrationsStarted = false;
 
   constructor(private readonly ports: TasksPorts) {}
 
@@ -135,6 +182,7 @@ export class TasksController implements TasksFacade {
   }
 
   private async initializeOnce(): Promise<TasksState> {
+    const lifecycle = ++this.lifecycleGeneration;
     this.publish({ kind: 'loading' });
     this.unsubscribeWindow = this.ports.window.subscribe(event => {
       if (event.kind === 'flush') {
@@ -147,27 +195,36 @@ export class TasksController implements TasksFacade {
     });
     let stored;
     try { stored = await this.ports.store.load(); }
-    catch (error) {
-      if (this.disposed) return this.state;
-      this.publish({ kind: 'recovery', reason: 'loadFailed', message: fault('load_tasks', error).message });
+    catch {
+      if (this.disposed || lifecycle !== this.lifecycleGeneration) return this.state;
+      await this.enterRecovery('loadFailed');
       return this.getState();
     }
-    if (this.disposed) return this.state;
+    if (this.disposed || lifecycle !== this.lifecycleGeneration) return this.state;
     if (stored.kind === 'unreadable') {
-      this.publish({ kind: 'recovery', reason: 'unreadable', message: stored.message });
+      await this.enterRecovery('unreadable');
       return this.getState();
     }
     if (!validRevision(stored.revision)) {
-      this.publish({ kind: 'recovery', reason: 'corrupt', message: 'The saved Tasks revision is invalid; stored data was not changed.' });
+      await this.enterRecovery('corrupt');
       return this.getState();
     }
     let document: TaskDocument;
-    try { document = stored.document === null ? copyDocument({ version: 1, tasks: [], runningSession: null, todoistOutbox: [] }) : validateTaskDocument(stored.document); }
-    catch (error) {
-      this.publish({ kind: 'recovery', reason: 'corrupt', message: fault('decode_tasks', error).message });
+    try { document = decodeTaskDocument(stored.document === null ? EMPTY_TASK_DOCUMENT : stored.document); }
+    catch {
+      await this.enterRecovery('corrupt');
       return this.getState();
     }
-    this.revision = stored.revision;
+    return this.activateReady(document, stored.revision, lifecycle);
+  }
+
+  private activateReady(document: TaskDocument, revision: string, lifecycle: number, startupEffects = true): Promise<TasksState> {
+    return this.enqueueLocal(() => this.activateReadyInner(document, revision, lifecycle, startupEffects));
+  }
+
+  private async activateReadyInner(document: TaskDocument, revision: string, lifecycle: number, startupEffects: boolean): Promise<TasksState> {
+    if (this.disposed || lifecycle !== this.lifecycleGeneration) return this.state;
+    this.revision = revision;
     let preferences = { ...DEFAULT_TASKS_PREFERENCES };
     let preferencesError: OperationalFault | null = null;
     try {
@@ -179,15 +236,170 @@ export class TasksController implements TasksFacade {
       preferencesError = fault('load_preferences', error);
       this.writablePreferences = false;
     }
-    if (this.disposed) return this.state;
-    this.publish({ kind: 'ready', document: freeze(document), revision: this.revision, preferences: freeze(preferences),
+    if (this.disposed || lifecycle !== this.lifecycleGeneration) return this.state;
+    this.publish({ kind: 'ready', document: freeze(document), revision, preferences: freeze(preferences),
       persistenceError: null, preferencesError, fault: null, todoistConnection: { kind: 'disconnected' }, captureProjects: [],
       calendar: { authorization: 'notDetermined', calendars: [], appointments: [] } });
 
-    // Persisted timer reconciliation is local work. Integration discovery/sync starts only after readiness.
-    await this.enqueueLocal(async () => { await this.runClockStageInner(); });
-    this.scheduleIntegration(() => this.syncTodoistInner(false, true));
+    // The caller holds the local queue. Reconcile timers before integrations after a decoded startup/restore.
+    if (startupEffects) await this.runClockStageInner();
+    if (this.disposed || lifecycle !== this.lifecycleGeneration || !this.readyState()) return this.getState();
+    if (!this.initialIntegrationsStarted) {
+      this.initialIntegrationsStarted = true;
+      if (startupEffects) this.scheduleIntegration(() => this.syncTodoistInner(false, true));
+    }
     return this.getState();
+  }
+
+  private async enterRecovery(reason: RecoveryReason): Promise<void> {
+    const lifecycle = ++this.lifecycleGeneration;
+    const inspectionID = ++this.recoveryGeneration;
+    this.recoveryCandidate = null;
+    this.publish({ kind: 'recovery', reason, message: recoveryMessage(reason, { kind: 'checking' }), resolution: { kind: 'checking' } });
+    const capability = this.ports.recovery;
+    if (!capability) {
+      this.publishRecoveryResolution(reason, { kind: 'unavailable' }, lifecycle, inspectionID);
+      return;
+    }
+    let inspection: TasksRecoveryInspection;
+    try { inspection = await capability.inspect(); }
+    catch {
+      this.publishRecoveryResolution(reason, { kind: 'inspection-failed' }, lifecycle, inspectionID);
+      return;
+    }
+    if (!this.isCurrentRecovery(lifecycle, inspectionID)) return;
+    if (inspection.kind === 'unavailable') {
+      this.publishRecoveryResolution(reason, { kind: 'no-valid-backup' }, lifecycle, inspectionID);
+      return;
+    }
+    if (inspection.kind === 'unsupported-version') {
+      this.publishRecoveryResolution(reason, { kind: 'unsupported-version' }, lifecycle, inspectionID);
+      return;
+    }
+
+    const primary = inspection.primary;
+    let primaryIsValid = false;
+    if (primary.kind === 'present') {
+      try { decodeTaskDocument(primary.document); primaryIsValid = true; }
+      catch { /* Preserve the invalid snapshot for the explicit backup decision below. */ }
+    }
+    let backupDocument: TaskDocument | null = null;
+    try { backupDocument = decodeTaskDocument(inspection.backup.document); }
+    catch { /* A v1 envelope does not imply a semantically valid Tasks document. */ }
+    if (primaryIsValid) {
+      this.publishRecoveryResolution(reason, { kind: 'primary-changed' }, lifecycle, inspectionID);
+      return;
+    }
+    if ((primary.kind === 'present' && hasUnsupportedTaskVersion(primary.document)) || hasUnsupportedTaskVersion(inspection.backup.document)) {
+      this.publishRecoveryResolution(reason, { kind: 'unsupported-version' }, lifecycle, inspectionID);
+      return;
+    }
+    if (!backupDocument) {
+      this.publishRecoveryResolution(reason, { kind: 'no-valid-backup' }, lifecycle, inspectionID);
+      return;
+    }
+    const backup = { taskCount: backupDocument.tasks.length, savedAt: inspection.backup.savedAt };
+    this.recoveryCandidate = { primaryRevision: primary.kind === 'missing' ? null : primary.revision,
+      backupRevision: inspection.backup.revision, backup };
+    this.publishRecoveryResolution(reason, { kind: 'candidate', backup }, lifecycle, inspectionID);
+  }
+
+  private isCurrentRecovery(lifecycle: number, inspectionID: number): boolean {
+    return !this.disposed && lifecycle === this.lifecycleGeneration && inspectionID === this.recoveryGeneration && this.state.kind === 'recovery';
+  }
+  private publishRecoveryResolution(reason: RecoveryReason, resolution: RecoveryResolution, lifecycle: number, inspectionID: number): void {
+    if (!this.isCurrentRecovery(lifecycle, inspectionID)) return;
+    this.publish({ kind: 'recovery', reason, message: recoveryMessage(reason, resolution), resolution });
+  }
+  private requireRecoveryCheck(reason: RecoveryReason, resolution: 'restore-failed' | 'inspection-failed' = 'inspection-failed'): void {
+    this.lifecycleGeneration++;
+    this.recoveryGeneration++;
+    this.recoveryCandidate = null;
+    this.publish({ kind: 'recovery', reason, message: recoveryMessage(reason, { kind: resolution }), resolution: { kind: resolution } });
+  }
+
+  checkBackupAgain(): Promise<TasksState> {
+    const current = this.state;
+    if (this.disposed || current.kind !== 'recovery' || current.resolution.kind === 'unsupported-version' ||
+        current.resolution.kind === 'unavailable' || current.resolution.kind === 'restoring' || this.restoreInFlight ||
+        this.checkInFlight || this.pendingDocument !== null || this.pendingPreferences !== null) return Promise.resolve(current);
+    this.checkInFlight = true;
+    return this.enqueueLocal(async () => {
+      try {
+        const state = this.state;
+        if (state.kind !== 'recovery' || state.resolution.kind === 'unsupported-version' || state.resolution.kind === 'unavailable' ||
+            state.resolution.kind === 'restoring' || this.restoreInFlight || this.pendingDocument !== null || this.pendingPreferences !== null) return this.state;
+        await this.enterRecovery(state.reason);
+        const inspected = this.state;
+        if (inspected.kind !== 'recovery' || inspected.resolution.kind !== 'primary-changed') return this.state;
+        const lifecycle = this.lifecycleGeneration;
+        let stored;
+        try { stored = await this.ports.store.load(); }
+        catch { this.requireRecoveryCheck(state.reason); return this.state; }
+        if (this.disposed || lifecycle !== this.lifecycleGeneration) return this.state;
+        // Inspection found a present, valid primary. A missing result is not a fresh-install empty document here.
+        if (stored.kind !== 'ready' || stored.document === null || !validRevision(stored.revision)) {
+          this.requireRecoveryCheck(state.reason);
+          return this.state;
+        }
+        let document: TaskDocument;
+        try { document = decodeTaskDocument(stored.document); }
+        catch { this.requireRecoveryCheck('corrupt'); return this.state; }
+        await this.activateReadyInner(document, stored.revision, lifecycle, false);
+        return this.getState();
+      } finally { this.checkInFlight = false; }
+    });
+  }
+
+  restoreBackup(): Promise<RecoveryRestoreOutcome> {
+    const admittedState = this.state;
+    const admittedCandidate = this.recoveryCandidate;
+    if (this.disposed || admittedState.kind !== 'recovery' || admittedState.resolution.kind !== 'candidate' || !admittedCandidate ||
+        !this.ports.recovery || this.pendingDocument !== null || this.pendingPreferences !== null || this.restoreInFlight || this.checkInFlight) {
+      return Promise.resolve({ kind: 'unavailable' });
+    }
+    // Reserve synchronously, before queueing, so two confirmations cannot become sequential retries.
+    this.restoreInFlight = true;
+    return this.enqueueLocal(async () => {
+      const state = this.state;
+      const candidate = this.recoveryCandidate;
+      if (this.disposed || state.kind !== 'recovery' || state.resolution.kind !== 'candidate' ||
+          !candidate || candidate !== admittedCandidate || !this.ports.recovery || this.pendingDocument !== null || this.pendingPreferences !== null) {
+        this.restoreInFlight = false;
+        return { kind: 'unavailable' };
+      }
+      const lifecycle = ++this.lifecycleGeneration;
+      this.publish({ kind: 'recovery', reason: state.reason, message: recoveryMessage(state.reason, { kind: 'restoring', backup: candidate.backup }),
+        resolution: { kind: 'restoring', backup: candidate.backup } });
+      try {
+        const restored = await this.ports.recovery.restore({ expectedPrimaryRevision: candidate.primaryRevision, expectedBackupRevision: candidate.backupRevision });
+        if (this.disposed || lifecycle !== this.lifecycleGeneration) return { kind: 'unavailable' };
+        if (restored.kind === 'conflict') {
+          this.recoveryCandidate = null;
+          this.publish({ kind: 'recovery', reason: state.reason, message: recoveryMessage(state.reason, { kind: 'primary-changed' }), resolution: { kind: 'primary-changed' } });
+          return { kind: 'conflict' };
+        }
+        this.recoveryCandidate = null;
+        let stored;
+        try { stored = await this.ports.store.load(); }
+        catch { this.requireRecoveryCheck('loadFailed'); return { kind: 'failed' }; }
+        if (this.disposed || lifecycle !== this.lifecycleGeneration) return { kind: 'unavailable' };
+        if (stored.kind !== 'ready' || stored.document === null || !validRevision(stored.revision)) {
+          this.requireRecoveryCheck(stored.kind === 'unreadable' ? 'unreadable' : 'corrupt');
+          return { kind: 'failed' };
+        }
+        let document: TaskDocument;
+        try { document = decodeTaskDocument(stored.document); }
+        catch { this.requireRecoveryCheck('corrupt'); return { kind: 'failed' }; }
+        await this.activateReadyInner(document, stored.revision, lifecycle, true);
+        return this.getState().kind === 'ready' ? { kind: 'restored' } : { kind: 'failed' };
+      } catch {
+        if (!this.disposed && lifecycle === this.lifecycleGeneration && this.state.kind === 'recovery') {
+          this.requireRecoveryCheck(state.reason, 'restore-failed');
+        }
+        return { kind: 'failed' };
+      } finally { this.restoreInFlight = false; }
+    });
   }
 
   getState(): TasksState { return this.state; }
@@ -561,8 +773,8 @@ export class TasksController implements TasksFacade {
 
   flush(): Promise<boolean> {
     return this.enqueueLocal(async () => {
-      // Startup recovery has accepted no commands; dismissal must not trap the user in a read-only app.
-      if (this.state.kind === 'recovery') return true;
+      // Startup recovery has no accepted local intent; hide/quit remains a no-op success.
+      if (this.state.kind === 'recovery') return this.pendingDocument === null && this.pendingPreferences === null;
       if (!this.readyState()) return false;
       if (this.pendingDocument) {
         const state = this.readyState();

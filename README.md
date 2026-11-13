@@ -82,7 +82,7 @@ npm run build:tasks
 open "build/Banana Tasks.app"
 ```
 
-The companion is built from source and locally ad-hoc signed; it is not part of the Banana Notes release download.
+Local builds are ad-hoc signed. The [independent Tasks release process](docs/tasks-releases.md) prepares signed, notarized installers under `tasks-v…` tags without replacing Banana Notes downloads or its update feed. Tasks v1 uses manual download-and-replace updates; it is not part of the Notes installer. No AI model runtime or automatic tagging is included.
 
 ## Feature tour
 

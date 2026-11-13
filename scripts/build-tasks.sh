@@ -68,7 +68,14 @@ lipo "$MACOS/Banana Tasks" -verify_arch x86_64
 cp "$ROOT/assets/tasks-brand/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string AppIcon' "$CONTENTS/Info.plist"
 
-# Standalone local builds are ad-hoc signed only; release signing/notarization is out of scope.
-codesign --force --deep --sign - "$APP"
+if [[ -n "${TASKS_SIGN_IDENTITY:-}" ]]; then
+  ENTITLEMENTS="$ROOT/packaging/BananaTasks.entitlements"
+  [[ -f "$ENTITLEMENTS" ]] || { echo "Missing Tasks release entitlements: $ENTITLEMENTS" >&2; exit 1; }
+  codesign --force --sign "$TASKS_SIGN_IDENTITY" --options runtime --timestamp \
+    --entitlements "$ENTITLEMENTS" "$APP"
+else
+  # Local and workflow_dispatch verification builds remain ad-hoc signed.
+  codesign --force --deep --sign - "$APP"
+fi
 codesign --verify --deep --strict --verbose=2 "$APP"
 echo "Built universal $APP ($VERSION, build $BUILD)"

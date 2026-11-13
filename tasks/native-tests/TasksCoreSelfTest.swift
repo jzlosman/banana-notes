@@ -5,6 +5,7 @@ import Foundation
 struct TasksCoreSelfTest {
     static func main() async throws {
         try storageBoundaries()
+        try backupRecoveryBoundaries()
         try profileBinding()
         try preferenceAndBridgeBoundaries()
         try hotkeyPreferencesAndRegistrationPolicy()
@@ -110,6 +111,251 @@ struct TasksCoreSelfTest {
         expectFailure(TasksFailure.unreadableStore) { try oversizedStore.load() }
     }
 
+    private static func backupRecoveryBoundaries() throws {
+        let root = try temporaryDirectory("TasksRecovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let backupBytes = Data(#"{"version":1,"tasks":[{"id":"synthetic-backup"}]}"#.utf8)
+        let currentBytes = Data(#"{"version":1,"tasks":[{"id":"synthetic-current"}]}"#.utf8)
+        let corruptBytes = Data("synthetic corrupt bytes".utf8)
+
+        func store(_ name: String, primary: Data? = nil, backup: Data? = nil) throws -> TasksLocalDocumentStore {
+            let directory = root.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if let primary { try primary.write(to: directory.appendingPathComponent("tasks.json")) }
+            if let backup { try backup.write(to: directory.appendingPathComponent("tasks.json.bak")) }
+            return try TasksLocalDocumentStore(directory: directory)
+        }
+
+        let freshStore = try store("fresh")
+        let fresh = try freshStore.load()
+        precondition(fresh.document == nil && fresh.revision == TasksLocalDocumentStore.emptyRevision)
+        if case .unavailable = freshStore.inspectBackupRecovery() {} else { preconditionFailure("both absent is not a recovery candidate") }
+
+        let recoverable = try store("recoverable", primary: corruptBytes, backup: backupBytes)
+        guard case let .candidate(primary, backup) = recoverable.inspectBackupRecovery(),
+              case let .present(primaryRevision, primaryDocument) = primary else {
+            preconditionFailure("a safely readable corrupt primary and valid backup must be offered")
+        }
+        precondition(primaryDocument is NSNull && backup.revision == TasksLocalDocumentStore.revision(for: backupBytes))
+        precondition(backup.savedAt.isFinite && backup.savedAt >= 0 && backup.savedAt.rounded() == backup.savedAt &&
+                     backup.savedAt <= 8_640_000_000_000_000)
+        let beforeBackup = try Data(contentsOf: recoverable.directory.appendingPathComponent("tasks.json.bak"))
+        requireRestored(try recoverable.restoreBackup(expectedPrimaryRevision: primaryRevision,
+                                                       expectedBackupRevision: backup.revision))
+        let restoredPrimaryBytes = try Data(contentsOf: recoverable.directory.appendingPathComponent("tasks.json"))
+        let unchangedBackupBytes = try Data(contentsOf: recoverable.directory.appendingPathComponent("tasks.json.bak"))
+        precondition(restoredPrimaryBytes == backupBytes)
+        precondition(unchangedBackupBytes == beforeBackup, "restore must not rotate or modify the backup")
+        let archives = try FileManager.default.contentsOfDirectory(at: recoverable.directory,
+            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("tasks.json.unreadable-") }
+        guard archives.count == 1 else { preconditionFailure("restore must create one unique quarantine archive") }
+        let archivedBytes = try Data(contentsOf: archives[0])
+        precondition(archivedBytes == corruptBytes, "the exact replaced primary bytes must be durably quarantined")
+        let archiveAttributes = try FileManager.default.attributesOfItem(atPath: archives[0].path)
+        precondition((archiveAttributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        expectRecoveryConflict {
+            try recoverable.restoreBackup(expectedPrimaryRevision: primaryRevision,
+                                          expectedBackupRevision: backup.revision)
+        }
+        let restored = try recoverable.load()
+        precondition(restored.revision == TasksLocalDocumentStore.revision(for: backupBytes))
+        let nextDocument: [String: Any] = ["version": 1, "tasks": [["id": "synthetic-after-restore"]]]
+        let nextRevision = try recoverable.save(expectedRevision: restored.revision, document: nextDocument)
+        let backupAfterNextSave = try Data(contentsOf: recoverable.directory.appendingPathComponent("tasks.json.bak"))
+        precondition(nextRevision != nil && backupAfterNextSave == backupBytes,
+                     "normal CAS saves after restore remain usable")
+
+        let archiveFailure = try store("archive-failure", primary: corruptBytes, backup: backupBytes)
+        guard case let .candidate(.present(archiveFailurePrimary, _), archiveFailureBackup) = archiveFailure.inspectBackupRecovery() else {
+            preconditionFailure()
+        }
+        let primaryBeforeArchiveFailure = try Data(contentsOf: archiveFailure.directory.appendingPathComponent("tasks.json"))
+        let backupBeforeArchiveFailure = try Data(contentsOf: archiveFailure.directory.appendingPathComponent("tasks.json.bak"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: archiveFailure.directory.path)
+        do {
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: archiveFailure.directory.path) }
+            expectFailure(TasksFailure.storeWriteFailed) {
+                try archiveFailure.restoreBackup(expectedPrimaryRevision: archiveFailurePrimary,
+                                                 expectedBackupRevision: archiveFailureBackup.revision)
+            }
+        }
+        let intactAfterArchiveFailure = try Data(contentsOf: archiveFailure.directory.appendingPathComponent("tasks.json"))
+        let backupAfterArchiveFailure = try Data(contentsOf: archiveFailure.directory.appendingPathComponent("tasks.json.bak"))
+        let archiveFailureEntries = try FileManager.default.contentsOfDirectory(atPath: archiveFailure.directory.path)
+        precondition(intactAfterArchiveFailure == primaryBeforeArchiveFailure && backupAfterArchiveFailure == backupBeforeArchiveFailure &&
+                     !archiveFailureEntries.contains(where: { $0.hasPrefix("tasks.json.unreadable-") }),
+                     "failed quarantine creation must leave primary and backup untouched")
+
+        let missingPrimary = try store("missing-primary", backup: backupBytes)
+        expectFailure(TasksFailure.unreadableStore) { try missingPrimary.load() }
+        guard case let .candidate(.missing, missingBackup) = missingPrimary.inspectBackupRecovery() else {
+            preconditionFailure("a valid backup with a missing primary is recoverable")
+        }
+        requireRestored(try missingPrimary.restoreBackup(expectedPrimaryRevision: nil,
+                                                          expectedBackupRevision: missingBackup.revision))
+        let restoredMissingPrimary = try Data(contentsOf: missingPrimary.directory.appendingPathComponent("tasks.json"))
+        precondition(restoredMissingPrimary == backupBytes)
+        let missingPrimaryEntries = try FileManager.default.contentsOfDirectory(atPath: missingPrimary.directory.path)
+        precondition(!missingPrimaryEntries.contains(where: { $0.hasPrefix("tasks.json.unreadable-") }),
+                     "missing primary requires no archive")
+
+        let missingWithInvalidBackup = try store("missing-invalid-backup", backup: Data("not-json".utf8))
+        expectFailure(TasksFailure.unreadableStore) { try missingWithInvalidBackup.load() }
+        expectFailure(TasksFailure.unreadableStore) {
+            try missingWithInvalidBackup.save(expectedRevision: TasksLocalDocumentStore.emptyRevision,
+                                               document: ["version": 1, "tasks": []])
+        }
+        if case .unavailable = missingWithInvalidBackup.inspectBackupRecovery() {} else { preconditionFailure() }
+        let futureBackupBytes = Data(#"{"version":2,"tasks":[]}"#.utf8)
+        let invalidBackups = [Data("not-json".utf8), futureBackupBytes,
+                              Data(#"{"version":true,"tasks":[]}"#.utf8),
+                              Data(#"{"version":"1","tasks":[]}"#.utf8),
+                              Data(#"{"version":1.5,"tasks":[]}"#.utf8)]
+        for (index, invalidBackup) in invalidBackups.enumerated() {
+            let invalid = try store("invalid-backup-\(index)", primary: corruptBytes, backup: invalidBackup)
+            if case .unavailable = invalid.inspectBackupRecovery() {} else { preconditionFailure() }
+            expectRecoveryConflict {
+                try invalid.restoreBackup(expectedPrimaryRevision: TasksLocalDocumentStore.revision(for: corruptBytes),
+                                          expectedBackupRevision: TasksLocalDocumentStore.revision(for: invalidBackup))
+            }
+            let unchangedPrimary = try Data(contentsOf: invalid.directory.appendingPathComponent("tasks.json"))
+            precondition(unchangedPrimary == corruptBytes)
+        }
+
+        let futurePrimaryBytes = Data(#"{"version":2,"tasks":[]}"#.utf8)
+        let futurePrimary = try store("future-primary", primary: futurePrimaryBytes, backup: backupBytes)
+        if case .unsupportedVersion = futurePrimary.inspectBackupRecovery() {} else { preconditionFailure("future schemas are not restore targets") }
+        expectRecoveryConflict {
+            try futurePrimary.restoreBackup(expectedPrimaryRevision: TasksLocalDocumentStore.revision(for: futurePrimaryBytes),
+                                            expectedBackupRevision: TasksLocalDocumentStore.revision(for: backupBytes))
+        }
+        let preservedFuturePrimary = try Data(contentsOf: futurePrimary.directory.appendingPathComponent("tasks.json"))
+        precondition(preservedFuturePrimary == futurePrimaryBytes)
+        for (index, rawVersion) in ["true", "\"1\"", "null"].enumerated() {
+            let invalidVersionBytes = Data("{\"version\":\(rawVersion),\"tasks\":[]}".utf8)
+            let invalidVersionPrimary = try store("invalid-version-primary-\(index)", primary: invalidVersionBytes,
+                                                  backup: backupBytes)
+            if case .unsupportedVersion = invalidVersionPrimary.inspectBackupRecovery() {} else {
+                preconditionFailure("a present non-v1 version marker must be preserved")
+            }
+        }
+
+        let stalePrimary = try store("stale-primary", primary: corruptBytes, backup: backupBytes)
+        guard case let .candidate(.present(stalePrimaryRevision, _), stalePrimaryBackup) = stalePrimary.inspectBackupRecovery() else {
+            preconditionFailure()
+        }
+        try Data("changed primary".utf8).write(to: stalePrimary.directory.appendingPathComponent("tasks.json"))
+        expectRecoveryConflict {
+            try stalePrimary.restoreBackup(expectedPrimaryRevision: stalePrimaryRevision,
+                                           expectedBackupRevision: stalePrimaryBackup.revision)
+        }
+        let staleBackup = try store("stale-backup", primary: corruptBytes, backup: backupBytes)
+        guard case let .candidate(.present(staleBackupPrimary, _), staleBackupSnapshot) = staleBackup.inspectBackupRecovery() else {
+            preconditionFailure()
+        }
+        try currentBytes.write(to: staleBackup.directory.appendingPathComponent("tasks.json.bak"))
+        expectRecoveryConflict {
+            try staleBackup.restoreBackup(expectedPrimaryRevision: staleBackupPrimary,
+                                          expectedBackupRevision: staleBackupSnapshot.revision)
+        }
+
+        let zeroBytePrimary = try store("missing-vs-empty", backup: backupBytes)
+        guard case let .candidate(.missing, zeroByteBackup) = zeroBytePrimary.inspectBackupRecovery() else { preconditionFailure() }
+        try Data().write(to: zeroBytePrimary.directory.appendingPathComponent("tasks.json"))
+        expectRecoveryConflict {
+            try zeroBytePrimary.restoreBackup(expectedPrimaryRevision: nil,
+                                              expectedBackupRevision: zeroByteBackup.revision)
+        }
+        guard case let .candidate(.present(emptyRevision, emptyDocument), _) = zeroBytePrimary.inspectBackupRecovery() else {
+            preconditionFailure()
+        }
+        precondition(emptyRevision == TasksLocalDocumentStore.revision(for: Data()) && emptyDocument is NSNull)
+        requireRestored(try zeroBytePrimary.restoreBackup(expectedPrimaryRevision: emptyRevision,
+                                                           expectedBackupRevision: zeroByteBackup.revision))
+
+        let outside = root.appendingPathComponent("outside-sentinel")
+        let sentinel = Data("outside sentinel stays exact".utf8)
+        try sentinel.write(to: outside)
+        let symlinkPrimaryDirectory = root.appendingPathComponent("symlink-primary", isDirectory: true)
+        try FileManager.default.createDirectory(at: symlinkPrimaryDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: symlinkPrimaryDirectory.appendingPathComponent("tasks.json"),
+                                                   withDestinationURL: outside)
+        try backupBytes.write(to: symlinkPrimaryDirectory.appendingPathComponent("tasks.json.bak"))
+        let symlinkPrimary = try TasksLocalDocumentStore(directory: symlinkPrimaryDirectory)
+        if case .unavailable = symlinkPrimary.inspectBackupRecovery() {} else { preconditionFailure() }
+        expectRecoveryConflictOrUnreadable {
+            try symlinkPrimary.restoreBackup(expectedPrimaryRevision: nil,
+                                             expectedBackupRevision: TasksLocalDocumentStore.revision(for: backupBytes))
+        }
+        let symlinkTargetAfter = try Data(contentsOf: outside)
+        precondition(symlinkTargetAfter == sentinel)
+
+        let hardlinkDirectory = root.appendingPathComponent("hardlink-primary", isDirectory: true)
+        try FileManager.default.createDirectory(at: hardlinkDirectory, withIntermediateDirectories: true)
+        try sentinel.write(to: outside)
+        try FileManager.default.linkItem(at: outside, to: hardlinkDirectory.appendingPathComponent("tasks.json"))
+        try backupBytes.write(to: hardlinkDirectory.appendingPathComponent("tasks.json.bak"))
+        let hardlinkPrimary = try TasksLocalDocumentStore(directory: hardlinkDirectory)
+        if case .unavailable = hardlinkPrimary.inspectBackupRecovery() {} else { preconditionFailure() }
+        expectRecoveryConflictOrUnreadable {
+            try hardlinkPrimary.restoreBackup(expectedPrimaryRevision: TasksLocalDocumentStore.revision(for: sentinel),
+                                              expectedBackupRevision: TasksLocalDocumentStore.revision(for: backupBytes))
+        }
+        let hardlinkTargetAfter = try Data(contentsOf: outside)
+        precondition(hardlinkTargetAfter == sentinel)
+
+        let symlinkBackupDirectory = root.appendingPathComponent("symlink-backup", isDirectory: true)
+        try FileManager.default.createDirectory(at: symlinkBackupDirectory, withIntermediateDirectories: true)
+        try corruptBytes.write(to: symlinkBackupDirectory.appendingPathComponent("tasks.json"))
+        try FileManager.default.createSymbolicLink(at: symlinkBackupDirectory.appendingPathComponent("tasks.json.bak"),
+                                                   withDestinationURL: outside)
+        let symlinkBackup = try TasksLocalDocumentStore(directory: symlinkBackupDirectory)
+        if case .unavailable = symlinkBackup.inspectBackupRecovery() {} else { preconditionFailure() }
+        expectRecoveryConflictOrUnreadable {
+            try symlinkBackup.restoreBackup(expectedPrimaryRevision: TasksLocalDocumentStore.revision(for: corruptBytes),
+                                            expectedBackupRevision: TasksLocalDocumentStore.revision(for: sentinel))
+        }
+        let symlinkBackupTargetAfter = try Data(contentsOf: outside)
+        precondition(symlinkBackupTargetAfter == sentinel)
+
+        let nonregularDirectory = root.appendingPathComponent("nonregular-primary", isDirectory: true)
+        try FileManager.default.createDirectory(at: nonregularDirectory.appendingPathComponent("tasks.json", isDirectory: true),
+                                                withIntermediateDirectories: true)
+        try backupBytes.write(to: nonregularDirectory.appendingPathComponent("tasks.json.bak"))
+        let nonregular = try TasksLocalDocumentStore(directory: nonregularDirectory)
+        expectRecoveryConflictOrUnreadable {
+            try nonregular.restoreBackup(expectedPrimaryRevision: nil,
+                                         expectedBackupRevision: TasksLocalDocumentStore.revision(for: backupBytes))
+        }
+
+        let oversizedBytes = Data(repeating: 0x61, count: TasksLocalDocumentStore.maximumBytes + 1)
+        let oversizedPrimary = try store("oversized-primary", primary: oversizedBytes, backup: backupBytes)
+        expectRecoveryConflictOrUnreadable {
+            try oversizedPrimary.restoreBackup(expectedPrimaryRevision: TasksLocalDocumentStore.revision(for: oversizedBytes),
+                                               expectedBackupRevision: TasksLocalDocumentStore.revision(for: backupBytes))
+        }
+        let oversizedBackup = try store("oversized-backup", primary: corruptBytes, backup: oversizedBytes)
+        if case .unavailable = oversizedBackup.inspectBackupRecovery() {} else { preconditionFailure() }
+        expectRecoveryConflictOrUnreadable {
+            try oversizedBackup.restoreBackup(expectedPrimaryRevision: TasksLocalDocumentStore.revision(for: corruptBytes),
+                                              expectedBackupRevision: TasksLocalDocumentStore.revision(for: oversizedBytes))
+        }
+
+        let compatibleDirectory = root.appendingPathComponent("compatible-v1", isDirectory: true)
+        try FileManager.default.createDirectory(at: compatibleDirectory, withIntermediateDirectories: true)
+        try currentBytes.write(to: compatibleDirectory.appendingPathComponent("tasks.json"))
+        let compatibleURL = compatibleDirectory.appendingPathComponent("tasks.json")
+        let metadataBefore = try FileManager.default.attributesOfItem(atPath: compatibleURL.path)
+        let compatibleStore = try TasksLocalDocumentStore(directory: compatibleDirectory)
+        _ = try compatibleStore.load()
+        let metadataAfter = try FileManager.default.attributesOfItem(atPath: compatibleURL.path)
+        let compatibleBytesAfter = try Data(contentsOf: compatibleURL)
+        precondition(compatibleBytesAfter == currentBytes &&
+                     metadataBefore[.modificationDate] as? Date == metadataAfter[.modificationDate] as? Date &&
+                     metadataBefore[.posixPermissions] as? NSNumber == metadataAfter[.posixPermissions] as? NSNumber,
+                     "opening a compatible v1 file must preserve exact bytes and metadata")
+    }
+
     private static func profileBinding() throws {
         let root = try temporaryDirectory("TasksProfile")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -128,6 +374,22 @@ struct TasksCoreSelfTest {
         }
         precondition(directory == expected && suiteName.hasSuffix("verification"),
                      "verification launch without env must stay profile-bound")
+        let isolatedPrimary = Data("synthetic verification corruption".utf8)
+        let isolatedBackup = Data(#"{"version":1,"tasks":[{"id":"verification-only"}]}"#.utf8)
+        try isolatedPrimary.write(to: expected.appendingPathComponent("tasks.json"))
+        try isolatedBackup.write(to: expected.appendingPathComponent("tasks.json.bak"))
+        let otherProfileDirectory = root.appendingPathComponent("production-profile", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherProfileDirectory, withIntermediateDirectories: true)
+        let otherProfileBytes = Data("other profile sentinel".utf8)
+        try otherProfileBytes.write(to: otherProfileDirectory.appendingPathComponent("tasks.json"))
+        let boundRecoveryStore = try TasksLocalDocumentStore(directory: directory)
+        guard case let .candidate(.present(isolatedPrimaryRevision, _), isolatedBackupSnapshot) =
+                boundRecoveryStore.inspectBackupRecovery() else { preconditionFailure() }
+        requireRestored(try boundRecoveryStore.restoreBackup(expectedPrimaryRevision: isolatedPrimaryRevision,
+                                                              expectedBackupRevision: isolatedBackupSnapshot.revision))
+        let untouchedOtherProfile = try Data(contentsOf: otherProfileDirectory.appendingPathComponent("tasks.json"))
+        precondition(untouchedOtherProfile == otherProfileBytes,
+                     "verification recovery must remain confined to its resolved synthetic profile")
         let withEnvironment = try TasksProfileResolver.resolve(bundleInfo: info,
             environment: [TasksProfileResolver.dataDirectoryEnvironmentKey: expected.path])
         guard case let .verification(withEnvironmentDirectory, _) = withEnvironment else { preconditionFailure() }
@@ -201,6 +463,21 @@ struct TasksCoreSelfTest {
         }
 
         if case .loadTasks = try TasksBridgeDecoder.decode(["action": "loadTasks"]) {} else { preconditionFailure() }
+        if case .inspectTasksRecovery = try TasksBridgeDecoder.decode(["action": "inspectTasksRecovery"]) {} else {
+            preconditionFailure("recovery inspection is an exact read command")
+        }
+        let recoveryHash = String(repeating: "a", count: 64)
+        if case .restoreTasksBackup(let primaryRevision, let backupRevision) = try TasksBridgeDecoder.decode([
+            "action": "restoreTasksBackup", "expectedPrimaryRevision": NSNull(),
+            "expectedBackupRevision": recoveryHash
+        ]) {
+            precondition(primaryRevision == nil && backupRevision == recoveryHash,
+                         "null identifies a missing primary, not an empty-file revision")
+        } else { preconditionFailure() }
+        if case .restoreTasksBackup(let primaryRevision, _) = try TasksBridgeDecoder.decode([
+            "action": "restoreTasksBackup", "expectedPrimaryRevision": recoveryHash,
+            "expectedBackupRevision": recoveryHash
+        ]) { precondition(primaryRevision == recoveryHash) } else { preconditionFailure() }
         let revision = TasksLocalDocumentStore.emptyRevision
         let document: [String: Any] = ["version": 1, "tasks": []]
         if case .saveTasks(let expected, _) = try TasksBridgeDecoder.decode(["action": "saveTasks", "expectedRevision": revision,
@@ -224,6 +501,10 @@ struct TasksCoreSelfTest {
             ["action": "hotkeyPreferences", "recording": true, "shortcut": cmdShift2],
             ["action": "resetHotkeyPreferences", "shortcut": cmdShift2],
             ["action": "loadTasks", "extra": true],
+            ["action": "inspectTasksRecovery", "extra": true],
+            ["action": "restoreTasksBackup", "expectedPrimaryRevision": "", "expectedBackupRevision": recoveryHash],
+            ["action": "restoreTasksBackup", "expectedPrimaryRevision": NSNull(), "expectedBackupRevision": "A" + String(recoveryHash.dropFirst())],
+            ["action": "restoreTasksBackup", "expectedPrimaryRevision": NSNull(), "expectedBackupRevision": recoveryHash, "extra": true],
             ["action": "saveTasks", "expectedRevision": revision, "document": ["version": true, "tasks": []]],
             ["action": "saveTasks", "expectedRevision": "bad", "document": document],
             ["action": "savePreferences", "preferences": ["appearanceTheme": NSNull(), "pinned": NSNumber(value: 1),
@@ -829,6 +1110,23 @@ struct TasksCoreSelfTest {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+    private static func requireRestored(_ result: TasksBackupRestoration) {
+        precondition(result == .restored)
+    }
+    private static func expectRecoveryConflict(_ operation: () throws -> TasksBackupRestoration) {
+        do {
+            let result = try operation()
+            precondition(result == .conflict)
+        } catch { preconditionFailure("expected a recovery conflict, received an operational error") }
+    }
+    private static func expectRecoveryConflictOrUnreadable(_ operation: () throws -> TasksBackupRestoration) {
+        do {
+            let result = try operation()
+            precondition(result == .conflict)
+        } catch let failure as TasksFailure {
+            precondition(failure.localizedDescription == TasksFailure.unreadableStore.localizedDescription)
+        } catch { preconditionFailure("unsafe recovery input returned an unexpected failure") }
     }
     private static func expectFailure<T>(_ expected: TasksFailure, _ operation: () throws -> T) {
         do { _ = try operation(); preconditionFailure("expected TasksFailure.\(expected)") }

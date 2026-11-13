@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PRODUCT="${1:-notes}"
 if [[ "$#" -gt 1 ]]; then
-  echo "Usage: bash scripts/package-release.sh [notes|viewer]" >&2
+  echo "Usage: bash scripts/package-release.sh [notes|viewer|tasks]" >&2
   exit 2
 fi
 case "$PRODUCT" in
@@ -24,8 +24,17 @@ case "$PRODUCT" in
     TEMP_PREFIX='banana-viewer-release'
     EXPECTED_VERSION="${VIEWER_VERSION:-}"
     ;;
+  tasks)
+    PRODUCT_NAME='Banana Tasks'
+    BUNDLE_ID='com.jzlosman.banana-tasks'
+    ASSET_PREFIX='Banana-Tasks'
+    OUT="$ROOT/build/tasks-release"
+    TEMP_PREFIX='banana-tasks-release'
+    [[ -f "$ROOT/tasks/version.txt" ]] || { echo "Missing Tasks-owned version source: tasks/version.txt" >&2; exit 1; }
+    EXPECTED_VERSION="${TASKS_VERSION:-$(tr -d '\r\n' < "$ROOT/tasks/version.txt")}"
+    ;;
   *)
-    echo "Unknown release product '$PRODUCT'. Use 'notes' or 'viewer'." >&2
+    echo "Unknown release product '$PRODUCT'. Use 'notes', 'viewer', or 'tasks'." >&2
     exit 2
     ;;
 esac
